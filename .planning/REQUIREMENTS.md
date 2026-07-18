@@ -94,37 +94,39 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DATA-01 | TBD | Pending |
-| DATA-02 | TBD | Pending |
-| DATA-03 | TBD | Pending |
-| DATA-04 | TBD | Pending |
-| DATA-05 | TBD | Pending |
-| CHART-01 | TBD | Pending |
-| CHART-02 | TBD | Pending |
-| CHART-03 | TBD | Pending |
-| CHART-04 | TBD | Pending |
-| CHART-05 | TBD | Pending |
-| IND-01 | TBD | Pending |
-| IND-02 | TBD | Pending |
-| IND-03 | TBD | Pending |
-| IND-04 | TBD | Pending |
-| IND-05 | TBD | Pending |
-| IND-06 | TBD | Pending |
-| IND-07 | TBD | Pending |
-| IND-08 | TBD | Pending |
-| IND-09 | TBD | Pending |
-| LAYOUT-01 | TBD | Pending |
-| LAYOUT-02 | TBD | Pending |
-| LAYOUT-03 | TBD | Pending |
-| LAYOUT-04 | TBD | Pending |
-| WATCH-01 | TBD | Pending |
-| WATCH-02 | TBD | Pending |
+| DATA-01 | Phase 1 | Pending |
+| DATA-02 | Phase 1 | Pending |
+| DATA-03 | Phase 1 | Pending |
+| DATA-04 | Phase 2 | Pending |
+| DATA-05 | Phase 1 | Pending |
+| CHART-01 | Phase 1 | Pending |
+| CHART-02 | Phase 2 | Pending |
+| CHART-03 | Phase 2 | Pending |
+| CHART-04 | Phase 4 | Pending |
+| CHART-05 | Phase 1 | Pending |
+| IND-01 | Phase 3 | Pending |
+| IND-02 | Phase 3 | Pending |
+| IND-03 | Phase 3 | Pending |
+| IND-04 | Phase 4 | Pending |
+| IND-05 | Phase 4 | Pending |
+| IND-06 | Phase 4 | Pending |
+| IND-07 | Phase 3 | Pending |
+| IND-08 | Phase 3 | Pending |
+| IND-09 | Phase 4 | Pending |
+| LAYOUT-01 | Phase 5 | Pending |
+| LAYOUT-02 | Phase 5 | Pending |
+| LAYOUT-03 | Phase 5 | Pending |
+| LAYOUT-04 | Phase 5 | Pending |
+| WATCH-01 | Phase 5 | Pending |
+| WATCH-02 | Phase 5 | Pending |
 
 **Coverage:**
 - v1 requirements: 25 total
-- Mapped to phases: 0（ロードマップ作成時に更新）
-- Unmapped: 25 ⚠️（ロードマップ作成で解消）
+- Mapped to phases: 25 ✓
+- Unmapped: 0 ✓
+
+Per-phase counts: Phase 1 = 6, Phase 2 = 3, Phase 3 = 5, Phase 4 = 5, Phase 5 = 6.
 
 ---
 *Requirements defined: 2026-07-18*
-*Last updated: 2026-07-18 after initial definition*
+*Last updated: 2026-07-18 after roadmap creation (traceability mapped)*
