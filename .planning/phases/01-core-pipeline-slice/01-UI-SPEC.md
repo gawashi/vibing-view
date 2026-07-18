@@ -1,9 +1,9 @@
 ---
 phase: 1
 slug: core-pipeline-slice
-status: draft
+status: approved
 shadcn_initialized: false
-preset: "zinc (proposed — confirm when Phase 1 scaffolds the Vite project)"
+preset: "zinc (CONFIRMED — user-approved 2026-07-19; init during Phase 1 scaffold)"
 created: 2026-07-19
 ---
 
@@ -20,7 +20,7 @@ created: 2026-07-19
 
 | Property | Value |
 |----------|-------|
-| Tool | shadcn (recommended, **not yet initialized** — greenfield repo, no `package.json`/Vite project exists yet) |
+| Tool | shadcn/ui — **CONFIRMED** (user-approved 2026-07-19). Not yet initialized (greenfield repo, no `package.json`/Vite project yet); init runs during Phase 1 scaffold. |
 | Preset | `zinc` base color, CSS variables, dark-mode-only (no light/dark toggle — CHART-05 mandates dark) |
 | Component library | Radix UI primitives (via shadcn) |
 | Icon library | lucide-react (shadcn default, tree-shakeable, no extra choice needed) |
@@ -28,7 +28,7 @@ created: 2026-07-19
 
 **Structural note (not a template row, load-bearing for executor):** No router library is in the approved stack (CLAUDE.md). Settings (DATA-05 API-key entry) renders as a modal `Dialog` over the single chart view, not a separate route — avoids adding a routing dependency for one screen.
 
-**shadcn gate outcome:** Since this is a from-scratch repo, `npx shadcn init` cannot run yet (no `vite.config`/`package.json` to init into). Recommendation: initialize shadcn as part of Phase 1's project-scaffolding task, using preset `zinc` + CSS variables + dark mode forced on. This is a proposed default, not yet confirmed interactively — **flagged for user confirmation in the return message**, not a hard block on writing this contract.
+**shadcn gate outcome (CONFIRMED):** User approved shadcn/ui with preset `zinc` + CSS variables + dark-mode forced (no light/dark toggle) on 2026-07-19. Since this is a from-scratch repo, `npx shadcn init` cannot run yet (no `vite.config`/`package.json` to init into) — initialize shadcn as part of Phase 1's project-scaffolding task with `npx shadcn@latest init` using the confirmed params above. This is locked, not a proposal.
 
 ---
 
@@ -61,6 +61,18 @@ Exceptions: none — desktop mouse-driven app, no 44px touch-target exception ne
 
 Only two weights used app-wide: 400 regular, 600 semibold. Display is used for the active symbol
 ticker + last price in the chart header — the single largest text in Phase 1's UI.
+
+---
+
+## Visual Hierarchy
+
+- **Primary focal point:** the chart canvas (candlesticks) — it fills the dominant 60% background and is why the app exists. The active-symbol ticker + last price (Display 24px) in the chart header is the primary *text* anchor identifying what's on screen.
+- **Secondary focus:** the symbol search bar — the single entry point for changing what's displayed.
+- **Tertiary focus:** the settings entry (API key) — accessed rarely; reachable but visually recessed (Secondary `#151920` surface, muted text).
+
+### Icon Usage
+- Phase 1 declares **no icon-only buttons**. All actionable controls pair any icon (lucide-react) with a visible text label ("Search", "Save API Key", "Settings").
+- If an icon-only control is introduced later, it MUST carry a native `title` tooltip and an `aria-label` — no bare glyph buttons.
 
 ---
 
@@ -128,11 +140,11 @@ Applicable state considerations resolved: 8 covered, 2 backstop, 0 unresolved.
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: PASS (FLAG resolved — Visual Hierarchy + Icon Usage sections added)
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS (FLAG resolved — shadcn/zinc/dark-only confirmed by user 2026-07-19)
 
-**Approval:** pending
+**Approval:** APPROVED — 6/6 dimensions pass, 0 blocking, 2 FLAGs resolved.
