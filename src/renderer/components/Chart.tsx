@@ -3,19 +3,29 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   createChart,
   CandlestickSeries,
+  LineSeries,
   type IChartApi,
   type ISeriesApi,
   type UTCTimestamp,
   type LogicalRange
 } from 'lightweight-charts'
 import { api, qk } from '@/api'
+import { registry } from '@/indicators/registry'
+import { BandPrimitive, hexToRgba } from '@/indicators/bandPrimitive'
+import { IndicatorLegend } from './IndicatorLegend'
+import { useAppStore } from '@/store'
 import type { Bar, Timeframe } from '@shared/types'
 
 export function Chart({ symbol, timeframe }: { symbol: string; timeframe: Timeframe }): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
+  const indicatorSeriesRef = useRef<Map<string, ISeriesApi<'Line'>[]>>(new Map())
+  // One BandPrimitive per instance that has a `kind:'band'` output (Plan 03 Task 2, D-29) —
+  // generic, keyed on OutputMeta.kind, reusable by any future band indicator.
+  const bandPrimitiveRef = useRef<Map<string, BandPrimitive>>(new Map())
   const queryClient = useQueryClient()
+  const indicators = useAppStore((s) => s.indicators)
 
   // Handler closures below live inside the create-once effect (deps `[]`), so they read the
   // *current* symbol/timeframe/bars via refs rather than capturing stale values from mount.
@@ -152,6 +162,85 @@ export function Chart({ symbol, timeframe }: { symbol: string; timeframe: Timefr
     }
   }, [q.data, symbol, timeframe])
 
+  // Reconcile indicator overlay series against `indicators` state. A NEW effect alongside the
+  // create-once and data-push effects above (both left untouched) — reads the same barsRef so a
+  // symbol/timeframe switch or a gap-fetch merge (both update q.data) recomputes with no refetch.
+  useEffect(() => {
+    if (!chartRef.current) return
+    const map = indicatorSeriesRef.current
+    const liveIds = new Set(indicators.map((inst) => inst.id))
+
+    // Remove series for instances no longer present. Detach the band primitive BEFORE
+    // removeSeries disposes its anchor series — detaching from an already-removed series is
+    // undefined behavior in lightweight-charts (may throw mid-loop or silently no-op).
+    for (const [id, series] of map) {
+      if (!liveIds.has(id)) {
+        const primitive = bandPrimitiveRef.current.get(id)
+        if (primitive?.series) {
+          primitive.series.detachPrimitive(primitive)
+          bandPrimitiveRef.current.delete(id)
+        }
+        for (const s of series) chartRef.current.removeSeries(s)
+        map.delete(id)
+      }
+    }
+
+    for (const inst of indicators) {
+      const module = registry[inst.type]
+      if (!module) continue
+
+      const lineOutputs = module.outputs.filter((o) => o.kind === 'line')
+
+      // Create series for newly-added instances, one per 'line' output, plus one BandPrimitive
+      // per 'band' output (Plan 03 Task 2, D-29) — dispatched generically on OutputMeta.kind,
+      // never on indicator type, so any future band indicator reuses this unchanged.
+      if (!map.has(inst.id)) {
+        const series: ISeriesApi<'Line'>[] = []
+        for (const output of module.outputs) {
+          if (output.kind === 'line') {
+            series.push(
+              chartRef.current.addSeries(LineSeries, { color: inst.colors[output.key], lineWidth: 2 })
+            )
+          }
+        }
+        map.set(inst.id, series)
+
+        for (const output of module.outputs) {
+          if (output.kind !== 'band') continue
+          const lineKeys = lineOutputs.map((o) => o.key)
+          const anchorSeries = series[lineKeys.indexOf(output.between[0])]
+          if (!anchorSeries) continue
+          const primitive = new BandPrimitive()
+          anchorSeries.attachPrimitive(primitive)
+          bandPrimitiveRef.current.set(inst.id, primitive)
+        }
+      }
+
+      // Recompute every live instance from barsRef.current — cheap client compute (D-26), no
+      // network read. Unconditional recompute is fine per DESIGN §4.
+      const outputs = module.compute(barsRef.current, inst.params)
+      const series = map.get(inst.id) ?? []
+      lineOutputs.forEach((output, idx) => {
+        const lineSeries = series[idx]
+        if (!lineSeries) return
+        const data = (outputs[output.key] ?? []).map((d) => ({ time: d.time as UTCTimestamp, value: d.value }))
+        lineSeries.setData(data)
+        lineSeries.applyOptions({ color: inst.colors[output.key], visible: inst.visible })
+      })
+
+      const bandOutput = module.outputs.find((o) => o.kind === 'band')
+      if (bandOutput && bandOutput.kind === 'band') {
+        const primitive = bandPrimitiveRef.current.get(inst.id)
+        if (primitive) {
+          const toBandData = (key: string): { time: UTCTimestamp; value: number }[] =>
+            (outputs[key] ?? []).map((d) => ({ time: d.time as UTCTimestamp, value: d.value }))
+          const color = hexToRgba(inst.colors[bandOutput.key] ?? '#000000', 0.15)
+          primitive.update(toBandData(bandOutput.between[0]), toBandData(bandOutput.between[1]), color, inst.visible)
+        }
+      }
+    }
+  }, [indicators, q.data, timeframe])
+
   // A symbol outside the current FMP plan's coverage manifests two ways on this key: a 402/403
   // ("FMP HTTP 40x" survives IPC serialization in the rejected error's message) OR a plain empty
   // 200 array. Treat both as "not covered" so D-graying's replacement message always shows.
@@ -162,6 +251,7 @@ export function Chart({ symbol, timeframe }: { symbol: string; timeframe: Timefr
   return (
     <div className="relative h-full w-full">
       <div ref={containerRef} className="h-full w-full" />
+      <IndicatorLegend />
       {q.isLoading && (
         <div className="absolute inset-0 z-10 p-6 text-muted-foreground">Loading chart…</div>
       )}

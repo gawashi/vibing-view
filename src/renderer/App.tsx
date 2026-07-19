@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { api, qk } from './api'
+import { AddIndicatorMenu } from './components/AddIndicatorMenu'
 import { Chart } from './components/Chart'
 import { SearchBar } from './components/SearchBar'
 import { SettingsDialog } from './components/SettingsDialog'
@@ -89,7 +90,10 @@ export default function App(): React.JSX.Element {
           {activeSymbol
             ? (
               <div className="flex h-full flex-col gap-4">
-                <TimeframeRow value={timeframe} onChange={setTimeframe} />
+                <div className="flex items-center gap-4">
+                  <TimeframeRow value={timeframe} onChange={setTimeframe} />
+                  <AddIndicatorMenu />
+                </div>
                 <div className="flex-1">
                   <Chart symbol={activeSymbol} timeframe={timeframe} />
                 </div>

@@ -16,7 +16,12 @@ function fakeStore(initialBars: Bar[] = [], cov: { oldestTime: number; newestTim
     upsertBarsAndCoverage: vi.fn((_s: string, _tf: string, bars: Bar[]) => {
       stored = bars
       coverage = { oldestTime: Math.min(...bars.map((b) => b.time)), newestTime: Math.max(...bars.map((b) => b.time)) }
-    })
+    }),
+    coverageFromBars: vi.fn((bars: Bar[]) =>
+      bars.length === 0
+        ? null
+        : { oldestTime: Math.min(...bars.map((b) => b.time)), newestTime: Math.max(...bars.map((b) => b.time)) }
+    )
   }
 }
 
