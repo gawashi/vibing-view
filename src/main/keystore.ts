@@ -32,5 +32,5 @@ export function getKeyStatus(): { hasKey: boolean; encryptionAvailable: boolean 
 
 export function clearApiKey(): void {
   cached = null
-  if (existsSync(keyPath())) rmSync(keyPath())
+  rmSync(keyPath(), { force: true })
 }

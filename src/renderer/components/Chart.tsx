@@ -4,8 +4,13 @@ import {
   createChart,
   CandlestickSeries,
   LineSeries,
+  HistogramSeries,
   type IChartApi,
   type ISeriesApi,
+  type IPriceLine,
+  type LineSeriesPartialOptions,
+  type MouseEventParams,
+  type Time,
   type UTCTimestamp,
   type LogicalRange
 } from 'lightweight-charts'
@@ -14,18 +19,33 @@ import { registry } from '@/indicators/registry'
 import { BandPrimitive, hexToRgba } from '@/indicators/bandPrimitive'
 import { IndicatorLegend } from './IndicatorLegend'
 import { useAppStore } from '@/store'
+import type { CrosshairValues } from '@/store'
+import type { HistPoint, LineData } from '@/indicators/types'
 import type { Bar, Timeframe } from '@shared/types'
+
+type PaneLegend = { paneIndex: number; top: number; left: number; instanceIds: string[] }
 
 export function Chart({ symbol, timeframe }: { symbol: string; timeframe: Timeframe }): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
-  const indicatorSeriesRef = useRef<Map<string, ISeriesApi<'Line'>[]>>(new Map())
-  // One BandPrimitive per instance that has a `kind:'band'` output (Plan 03 Task 2, D-29) —
-  // generic, keyed on OutputMeta.kind, reusable by any future band indicator.
+  // Widened to include Histogram so separate-pane histogram outputs (Volume/MACD) reuse the same
+  // create/remove/crosshair bookkeeping as line outputs — RSI itself is line-only.
+  const indicatorSeriesRef = useRef<Map<string, ISeriesApi<'Line' | 'Histogram'>[]>>(new Map())
+  // One BandPrimitive per instance that has a `kind:'band'` output (BB) or a `module.band` zone
+  // (RSI) — generic, keyed on instance id, reusable by any future band/zone indicator.
   const bandPrimitiveRef = useRef<Map<string, BandPrimitive>>(new Map())
+  // Guide-line handles per instance — created once (Landmine #4), price updated live on param edit
+  // (Landmine #1) without re-calling the non-idempotent createPriceLine.
+  const guideLineRef = useRef<Map<string, IPriceLine[]>>(new Map())
   const queryClient = useQueryClient()
   const indicators = useAppStore((s) => s.indicators)
+
+  // Per-pane legend geometry (recomputed on pane composition/resize) — one legend per pane.
+  const [paneLegends, setPaneLegends] = useState<PaneLegend[]>([])
+  // rAF throttle + D-40 non-hover fallback values for the crosshair readout.
+  const rafRef = useRef<number | null>(null)
+  const latestValuesRef = useRef<CrosshairValues>({})
 
   // Handler closures below live inside the create-once effect (deps `[]`), so they read the
   // *current* symbol/timeframe/bars via refs rather than capturing stale values from mount.
@@ -51,7 +71,12 @@ export function Chart({ symbol, timeframe }: { symbol: string; timeframe: Timefr
   useEffect(() => {
     if (!containerRef.current) return
     const chart = createChart(containerRef.current, {
-      layout: { background: { color: '#0B0E11' }, textColor: '#8B92A0' },
+      layout: {
+        background: { color: '#0B0E11' },
+        textColor: '#8B92A0',
+        // D-32/RESEARCH Q6: recolor the native pane separator to the app's grid token.
+        panes: { separatorColor: '#151920', separatorHoverColor: 'rgba(139, 146, 160, 0.2)' }
+      },
       grid: { vertLines: { color: '#151920' }, horzLines: { color: '#151920' } },
       autoSize: true,
       timeScale: { borderColor: '#151920' },
@@ -133,12 +158,58 @@ export function Chart({ symbol, timeframe }: { symbol: string; timeframe: Timefr
     }
     chart.timeScale().subscribeVisibleLogicalRangeChange(onVisibleLogicalRangeChange)
 
+    // Crosshair sync (CHART-04, D-38/39/40): one handler reads every hovered series' value at the
+    // same timestamp via param.seriesData, so all panes' legends update from one event. rAF-throttled.
+    const onCrosshairMove = (param: MouseEventParams<Time>): void => {
+      if (rafRef.current !== null) return
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = null
+        // Cursor off-chart → fall back to the latest (rightmost) bar values (D-40).
+        if (param.time === undefined) {
+          useAppStore.getState().setCrosshair(latestValuesRef.current)
+          return
+        }
+        const values: CrosshairValues = {}
+        const priceSeries = seriesRef.current
+        if (priceSeries) {
+          const d = param.seriesData.get(priceSeries)
+          if (d && 'close' in d) values.price = { open: d.open, high: d.high, low: d.low, close: d.close }
+        }
+        // Surface EVERY draw output per instance (generic, no inst.type branch). The series list
+        // was built in reconcile by zipping drawOutputs in order, so index i ↔ drawOutputs[i].
+        const insts = useAppStore.getState().indicators
+        for (const [id, list] of indicatorSeriesRef.current) {
+          const inst = insts.find((i) => i.id === id)
+          const module = inst && registry[inst.type]
+          if (!module) continue
+          const drawOutputs = module.outputs.filter((o) => o.kind === 'line' || o.kind === 'histogram')
+          const perInstance: Record<string, number> = {}
+          drawOutputs.forEach((output, idx) => {
+            const s = list[idx]
+            if (!s) return
+            const d = param.seriesData.get(s)
+            if (d && 'value' in d) perInstance[output.key] = d.value // guards WhitespaceData (no 'value')
+          })
+          values[id] = perInstance
+        }
+        useAppStore.getState().setCrosshair(values)
+      })
+    }
+    chart.subscribeCrosshairMove(onCrosshairMove)
+
     return () => {
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(onVisibleLogicalRangeChange)
       if (debounceRef.current) clearTimeout(debounceRef.current)
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
       chart.remove()
       chartRef.current = null
       seriesRef.current = null
+      // chart.remove() destroys every series it owns; drop the now-dangling handles so a remount
+      // (React StrictMode dev double-invoke) re-reconciles series against the fresh chart instead of
+      // reusing detached ones — a stale handle's getPane() throws "Value is null" and blanks the app.
+      indicatorSeriesRef.current.clear()
+      bandPrimitiveRef.current.clear()
+      guideLineRef.current.clear()
     }
   }, [])
 
@@ -182,63 +253,198 @@ export function Chart({ symbol, timeframe }: { symbol: string; timeframe: Timefr
         }
         for (const s of series) chartRef.current.removeSeries(s)
         map.delete(id)
+        // Price lines are disposed with their series above (D-36 auto-collapses the pane too) —
+        // just drop the stale handle map entry.
+        guideLineRef.current.delete(id)
       }
     }
+
+    // D-40 non-hover fallback: the latest (rightmost) bar's values for every pane's legend.
+    const latest: CrosshairValues = {}
 
     for (const inst of indicators) {
       const module = registry[inst.type]
       if (!module) continue
 
-      const lineOutputs = module.outputs.filter((o) => o.kind === 'line')
+      // Line + histogram outputs both get a real series (in output order); band is a primitive.
+      const drawOutputs = module.outputs.filter((o) => o.kind === 'line' || o.kind === 'histogram')
 
-      // Create series for newly-added instances, one per 'line' output, plus one BandPrimitive
-      // per 'band' output (Plan 03 Task 2, D-29) — dispatched generically on OutputMeta.kind,
-      // never on indicator type, so any future band indicator reuses this unchanged.
+      // Create series/primitives/guides for newly-added instances only. Separate-pane instances
+      // get a fresh pane at the bottom via paneIndex = panes().length (Landmine #7 — never a
+      // hand-rolled counter; already reflects any prior D-36 auto-collapse).
       if (!map.has(inst.id)) {
-        const series: ISeriesApi<'Line'>[] = []
-        for (const output of module.outputs) {
+        const paneIndex = module.pane === 'separate' ? chartRef.current.panes().length : undefined
+        const series: ISeriesApi<'Line' | 'Histogram'>[] = []
+        for (const output of drawOutputs) {
           if (output.kind === 'line') {
-            series.push(
-              chartRef.current.addSeries(LineSeries, { color: inst.colors[output.key], lineWidth: 2 })
-            )
+            const opts: LineSeriesPartialOptions = { color: inst.colors[output.key], lineWidth: 2 }
+            // Fixed scale (RSI 0-100) — autoscaleInfoProvider alone locks it (RESEARCH Q5).
+            if (module.scale) {
+              const { min, max } = module.scale
+              opts.autoscaleInfoProvider = () => ({ priceRange: { minValue: min, maxValue: max } })
+            }
+            const ls = chartRef.current.addSeries(LineSeries, opts, paneIndex)
+            // The default price-scale margins (top 0.2 / bottom 0.1) balloon a fixed 0-100 range out
+            // to ~-10..120 on the axis. Pin tight margins so a fixed-scale pane reads 0-100, not 0-120.
+            if (module.scale) ls.priceScale().applyOptions({ scaleMargins: { top: 0.05, bottom: 0.05 } })
+            series.push(ls)
+          } else {
+            series.push(chartRef.current.addSeries(HistogramSeries, { base: 0 }, paneIndex))
           }
         }
         map.set(inst.id, series)
 
-        for (const output of module.outputs) {
-          if (output.kind !== 'band') continue
-          const lineKeys = lineOutputs.map((o) => o.key)
-          const anchorSeries = series[lineKeys.indexOf(output.between[0])]
-          if (!anchorSeries) continue
+        // Band: BB anchors a kind:'band' output between two of its lines; RSI declares module.band
+        // (a fixed zone). Both reuse BandPrimitive attached to the anchor line series.
+        const bandOutput = module.outputs.find((o) => o.kind === 'band')
+        if (bandOutput && bandOutput.kind === 'band') {
+          const lineKeys = drawOutputs.filter((o) => o.kind === 'line').map((o) => o.key)
+          const anchorSeries = series[lineKeys.indexOf(bandOutput.between[0])]
+          if (anchorSeries) {
+            const primitive = new BandPrimitive()
+            anchorSeries.attachPrimitive(primitive)
+            bandPrimitiveRef.current.set(inst.id, primitive)
+          }
+        } else if (module.band && series[0]) {
           const primitive = new BandPrimitive()
-          anchorSeries.attachPrimitive(primitive)
+          series[0].attachPrimitive(primitive)
           bandPrimitiveRef.current.set(inst.id, primitive)
+        }
+
+        // Guides: createPriceLine is NOT idempotent — call it exactly once here (Landmine #4),
+        // keep the handles to move them live on param edit (Landmine #1).
+        const anchor = series[0]
+        if (module.guides && anchor) {
+          const lines = module.guides(inst.params).map((g) =>
+            anchor.createPriceLine({ price: g.value, color: g.color ?? '#8B92A0', lineWidth: 1 })
+          )
+          guideLineRef.current.set(inst.id, lines)
         }
       }
 
       // Recompute every live instance from barsRef.current — cheap client compute (D-26), no
-      // network read. Unconditional recompute is fine per DESIGN §4.
+      // network read. Unconditional recompute is fine per DESIGN §4 (all ops here idempotent).
       const outputs = module.compute(barsRef.current, inst.params)
       const series = map.get(inst.id) ?? []
-      lineOutputs.forEach((output, idx) => {
-        const lineSeries = series[idx]
-        if (!lineSeries) return
-        const data = (outputs[output.key] ?? []).map((d) => ({ time: d.time as UTCTimestamp, value: d.value }))
-        lineSeries.setData(data)
-        lineSeries.applyOptions({ color: inst.colors[output.key], visible: inst.visible })
+      drawOutputs.forEach((output, idx) => {
+        const s = series[idx]
+        if (!s) return
+        if (output.kind === 'histogram') {
+          const hs = s as ISeriesApi<'Histogram'>
+          const data = ((outputs[output.key] ?? []) as HistPoint[]).map((d) => ({
+            time: d.time as UTCTimestamp, value: d.value, color: d.color
+          }))
+          hs.setData(data)
+          hs.applyOptions({ visible: inst.visible })
+        } else {
+          const ls = s as ISeriesApi<'Line'>
+          const data = ((outputs[output.key] ?? []) as LineData[]).map((d) => ({
+            time: d.time as UTCTimestamp, value: d.value
+          }))
+          ls.setData(data)
+          ls.applyOptions({ color: inst.colors[output.key], visible: inst.visible })
+        }
       })
+
+      // Move param-driven guide lines to their current threshold values (Landmine #1) — applyOptions,
+      // not createPriceLine, so no duplicates stack.
+      if (module.guides) {
+        const lines = guideLineRef.current.get(inst.id)
+        if (lines) {
+          const guides = module.guides(inst.params)
+          lines.forEach((pl, i) => { const g = guides[i]; if (g) pl.applyOptions({ price: g.value }) })
+        }
+      }
 
       const bandOutput = module.outputs.find((o) => o.kind === 'band')
       if (bandOutput && bandOutput.kind === 'band') {
         const primitive = bandPrimitiveRef.current.get(inst.id)
         if (primitive) {
           const toBandData = (key: string): { time: UTCTimestamp; value: number }[] =>
-            (outputs[key] ?? []).map((d) => ({ time: d.time as UTCTimestamp, value: d.value }))
+            ((outputs[key] ?? []) as LineData[]).map((d) => ({ time: d.time as UTCTimestamp, value: d.value }))
           const color = hexToRgba(inst.colors[bandOutput.key] ?? '#000000', 0.15)
           primitive.update(toBandData(bandOutput.between[0]), toBandData(bandOutput.between[1]), color, inst.visible)
         }
+      } else if (module.band) {
+        // RSI zone: two constant-value series spanning every bar, translucent fill (RESEARCH Q5).
+        const primitive = bandPrimitiveRef.current.get(inst.id)
+        if (primitive) {
+          const zone = module.band(inst.params)
+          const upper = barsRef.current.map((b) => ({ time: b.time as UTCTimestamp, value: zone.to }))
+          const lower = barsRef.current.map((b) => ({ time: b.time as UTCTimestamp, value: zone.from }))
+          primitive.update(upper, lower, hexToRgba(zone.color, 0.12), inst.visible)
+        }
       }
+
+      // D-40 non-hover fallback: last defined value of EACH draw output (same multi-value shape as
+      // the onCrosshairMove producer, so hover and non-hover legends agree). Generic, no inst.type.
+      const readout: Record<string, number> = {}
+      for (const output of drawOutputs) {
+        const arr = outputs[output.key] ?? []
+        if (arr.length) readout[output.key] = arr[arr.length - 1].value
+      }
+      latest[inst.id] = readout
     }
+
+    const bars = barsRef.current
+    if (bars.length) {
+      const lb = bars[bars.length - 1]
+      latest.price = { open: lb.open, high: lb.high, low: lb.low, close: lb.close }
+    }
+    latestValuesRef.current = latest
+    // Seed every pane's legend with the latest-bar values so they read correctly before any hover.
+    useAppStore.getState().setCrosshair(latest)
+  }, [indicators, q.data, timeframe])
+
+  // Position one legend per pane at its top-left. No lightweight-charts "pane resized" event exists
+  // (Landmine #2), so measure each pane's <tr> via getBoundingClientRect and observe it for drag/
+  // resize. Re-derived on pane composition change (D-36 shifts indices). Legends mount as siblings
+  // in the chart wrapper (Landmine #3 — never appended into the <tr>).
+  useEffect(() => {
+    const chart = chartRef.current
+    const wrapper = containerRef.current?.parentElement
+    if (!chart || !wrapper) return
+
+    // Group live instances by their pane index (derived live from each series' pane, not stored).
+    const byPane = new Map<number, string[]>()
+    byPane.set(0, []) // price pane always present (carries the OHLC readout)
+    for (const inst of indicators) {
+      const module = registry[inst.type]
+      if (!module) continue
+      let paneIndex = 0
+      if (module.pane === 'separate') {
+        const s = indicatorSeriesRef.current.get(inst.id)?.[0]
+        paneIndex = s?.getPane().paneIndex() ?? 0
+      }
+      const list = byPane.get(paneIndex) ?? []
+      list.push(inst.id)
+      byPane.set(paneIndex, list)
+    }
+
+    const reposition = (): void => {
+      const wrapperRect = wrapper.getBoundingClientRect()
+      const next: PaneLegend[] = []
+      for (const [paneIndex, instanceIds] of byPane) {
+        const paneEl = chart.panes()[paneIndex]?.getHTMLElement()
+        if (!paneEl) continue
+        const paneRect = paneEl.getBoundingClientRect()
+        next.push({ paneIndex, top: paneRect.top - wrapperRect.top + 8, left: 8, instanceIds })
+      }
+      next.sort((a, b) => a.paneIndex - b.paneIndex)
+      setPaneLegends(next)
+    }
+
+    const observers: ResizeObserver[] = []
+    for (const [paneIndex] of byPane) {
+      const paneEl = chart.panes()[paneIndex]?.getHTMLElement()
+      if (!paneEl) continue
+      const ro = new ResizeObserver(reposition)
+      ro.observe(paneEl)
+      observers.push(ro)
+    }
+    reposition()
+
+    return () => { for (const ro of observers) ro.disconnect() }
   }, [indicators, q.data, timeframe])
 
   // A symbol outside the current FMP plan's coverage manifests two ways on this key: a 402/403
@@ -251,7 +457,14 @@ export function Chart({ symbol, timeframe }: { symbol: string; timeframe: Timefr
   return (
     <div className="relative h-full w-full">
       <div ref={containerRef} className="h-full w-full" />
-      <IndicatorLegend />
+      {paneLegends.map((pl) => (
+        <IndicatorLegend
+          key={pl.paneIndex}
+          instanceIds={pl.instanceIds}
+          isPricePane={pl.paneIndex === 0}
+          style={{ top: `${pl.top}px`, left: `${pl.left}px` }}
+        />
+      ))}
       {q.isLoading && (
         <div className="absolute inset-0 z-10 p-6 text-muted-foreground">Loading chart…</div>
       )}

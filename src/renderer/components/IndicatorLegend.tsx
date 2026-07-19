@@ -6,25 +6,58 @@ import { Button } from './ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { IndicatorEditForm } from './IndicatorEditForm'
 
-// Absolute top-left overlay (UI-SPEC E2): top:8px left:8px, bg-card/80. Renders nothing at zero
-// instances — the "+ Indicator" button is the sole always-visible entry point (Copywriting Contract).
-// E2 overflow (user decision): capped at ~50% of the chart canvas, scrolls internally so the
-// chart is never fully covered no matter how many instances stack.
-export function IndicatorLegend(): React.JSX.Element | null {
+// Fallback readout for modules without a formatReadout hook (ma/bb/rsi): first output, 2 decimals.
+function defaultReadout(v: Record<string, number>): string {
+  const n = Object.values(v)[0]
+  return typeof n === 'number' ? n.toFixed(2) : ''
+}
+
+// One legend per pane (UI-SPEC E2, D-37/38): absolutely positioned at its pane's top-left by
+// Chart.tsx (via `style`), bg-card/80, capped at ~50% height with internal scroll. Renders the
+// instances of that pane plus its crosshair readout — the price pane also shows the OHLC row.
+// E2 overflow: never fully covers the chart no matter how many instances stack.
+export function IndicatorLegend({
+  instanceIds,
+  isPricePane,
+  style
+}: {
+  instanceIds: string[]
+  isPricePane: boolean
+  style: React.CSSProperties
+}): React.JSX.Element | null {
   const indicators = useAppStore((s) => s.indicators)
+  const crosshair = useAppStore((s) => s.crosshair)
   const toggleVisible = useAppStore((s) => s.toggleVisible)
   const removeIndicator = useAppStore((s) => s.removeIndicator)
   const [editingId, setEditingId] = useState<string | null>(null)
 
-  if (indicators.length === 0) return null
+  const rows = indicators.filter((i) => instanceIds.includes(i.id))
+  const price = crosshair.price
+  const showPrice = isPricePane && price !== undefined && 'open' in price
+  if (rows.length === 0 && !showPrice) return null
 
   return (
     <>
-      <div className="absolute left-2 top-2 z-10 max-h-[50%] overflow-y-auto rounded bg-card/80 p-2 text-xs">
-        {indicators.map((inst) => {
+      <div className="absolute z-10 max-h-[50%] overflow-y-auto rounded bg-card/80 p-2 text-xs" style={style}>
+        {showPrice && (
+          // D-39/DD-3: OHLC four values only, no percent-change.
+          <div className="flex items-center gap-2 whitespace-nowrap py-0.5 text-[#E4E7EB]">
+            <span>O {price.open.toFixed(2)}</span>
+            <span>H {price.high.toFixed(2)}</span>
+            <span>L {price.low.toFixed(2)}</span>
+            <span>C {price.close.toFixed(2)}</span>
+          </div>
+        )}
+        {rows.map((inst) => {
           const module = registry[inst.type]
           if (!module) return null
           const color = Object.values(inst.colors)[0]
+          // Instance ids map to a per-output readout record ('open' in v ⇒ it's the price OHLC, skip).
+          const v = crosshair[inst.id]
+          const readout = v && !('open' in v) ? v : {}
+          const text = module.formatReadout
+            ? module.formatReadout(readout, inst.params)
+            : defaultReadout(readout)
           return (
             <div key={inst.id} className="flex items-center gap-1 whitespace-nowrap py-0.5">
               <span
@@ -34,6 +67,9 @@ export function IndicatorLegend(): React.JSX.Element | null {
               <span className={inst.visible ? 'text-[#E4E7EB]' : 'text-muted-foreground'}>
                 {module.label(inst.params)}
               </span>
+              {text && <span className="text-muted-foreground">{text}</span>}
+              {!inst.fixed && (
+              <>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -78,6 +114,8 @@ export function IndicatorLegend(): React.JSX.Element | null {
                 </TooltipTrigger>
                 <TooltipContent>Remove</TooltipContent>
               </Tooltip>
+              </>
+              )}
             </div>
           )
         })}

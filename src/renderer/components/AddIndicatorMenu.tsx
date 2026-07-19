@@ -18,7 +18,9 @@ export function AddIndicatorMenu(): React.JSX.Element {
       </Button>
       {open && (
         <div className="absolute left-0 top-full z-20 mt-1 flex flex-col gap-1 rounded-md border border-border bg-card p-2 shadow-md">
-          {Object.values(registry).map((module) => (
+          {Object.values(registry)
+            .filter((module) => module.type !== 'volume') // D-34: Volume is fixed, not addable via menu
+            .map((module) => (
             <button
               key={module.type}
               className="rounded px-2 py-1 text-left text-sm hover:bg-accent"

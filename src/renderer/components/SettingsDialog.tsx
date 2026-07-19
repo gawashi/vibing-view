@@ -3,7 +3,6 @@ import { useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { api } from '@/api'
 
 export function SettingsDialog(): React.JSX.Element {
@@ -41,12 +40,10 @@ export function SettingsDialog(): React.JSX.Element {
           <DialogTitle>Settings</DialogTitle>
         </DialogHeader>
         {status && !status.encryptionAvailable && (
-          <Alert variant="destructive">
-            <AlertDescription>
-              Your OS doesn't support secure credential storage. Your API key will be saved in plain text on this
-              device — avoid using this app on a shared machine until this is resolved.
-            </AlertDescription>
-          </Alert>
+          <div role="alert" className="rounded-lg border border-destructive/50 p-4 text-sm text-destructive">
+            Your OS doesn't support secure credential storage. Your API key will be saved in plain text on this
+            device — avoid using this app on a shared machine until this is resolved.
+          </div>
         )}
         <div className="mt-4 flex flex-col gap-3">
           <Input

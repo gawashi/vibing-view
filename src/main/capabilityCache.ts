@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import { writeFileSync, existsSync, rmSync } from 'fs'
+import { writeFileSync, rmSync } from 'fs'
 import { join } from 'path'
 import { createHash } from 'crypto'
 import type { Timeframe } from '@shared/types'
@@ -51,5 +51,5 @@ export function setStatus(apiKey: string, tf: Timeframe, status: CapabilityStatu
 }
 
 export function clearForKeyChange(): void {
-  if (existsSync(capabilitiesPath())) rmSync(capabilitiesPath())
+  rmSync(capabilitiesPath(), { force: true })
 }
