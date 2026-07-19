@@ -105,7 +105,24 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. Moving the crosshair shows synchronized price/time plus every visible indicator's value at that timestamp across the price pane and all sub-panes.
   3. Computed indicator values match TradingView reference values for a fixed symbol/date range — RSI Wilder smoothing (SMA-seeded), MACD EMA signal line, Bollinger population standard deviation, correct EMA seeding — verified by a reference-value test suite (correctness gate covering all five v1 indicators).
 
-**Plans**: TBD
+**Plans:** 4 plans
+
+**Wave 1**
+
+- [ ] 04-01-PLAN.md — Tracer: RSI sub-pane end-to-end (contract + generic pane/legend/crosshair machinery — the flagged high-risk item)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 04-02-PLAN.md — Volume fixed sub-pane (reuses tracer machinery, no Chart.tsx change)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 04-03-PLAN.md — MACD sub-pane (line/signal/4-color histogram, EMA-signal gap-compaction)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 04-04-PLAN.md — Correctness gate (IND-09): self-contained TradingView golden fixtures + all-5 reference test
+
 **UI hint**: yes
 
 ### Phase 5: Layouts, Persistence & Watchlist
@@ -134,5 +151,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 1. Core Pipeline Slice | 0/TBD | Not started | - |
 | 2. Timeframes & Free-Tier Resilience | 0/5 | Not started | - |
 | 3. Indicator Engine & Overlays | 0/3 | Not started | - |
-| 4. Pane Indicators, Crosshair & Correct Math | 0/TBD | Not started | - |
+| 4. Pane Indicators, Crosshair & Correct Math | 0/4 | Not started | - |
 | 5. Layouts, Persistence & Watchlist | 0/TBD | Not started | - |
