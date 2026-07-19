@@ -1,7 +1,7 @@
 ---
 phase: 2
 slug: timeframes-free-tier-resilience
-status: draft
+status: approved
 shadcn_initialized: true
 preset: "zinc base color, CSS variables, dark-mode-only (inherited from Phase 1, already initialized in components.json)"
 created: 2026-07-19
@@ -108,17 +108,20 @@ Accent reserved for: primary CTA buttons, input focus rings, selected list-row s
 
 ## UI Considerations
 
-Applicable state considerations resolved: 6 covered, 1 backstop, 0 unresolved.
+State-coverage probe over the described surfaces (timeframe row E1, gated button E2, gap-fetch chart E3, rate-limit toast E4). Applicable considerations resolved: 7 covered, 1 backstop, 0 unresolved. Non-applicable taxonomy categories dismissed with reason (below).
 
 | Category | Element(s) | Status | Resolution / Reason |
 |----------|------------|--------|---------------------|
+| loading — capability probe interim | timeframe button row during async FMP capability probe (initial load + re-probe on key change, D-19 / criterion 4) | ✅ covered | **Last-known + revalidate**: keep the previously-probed availability rendered and update each button in place when the re-probe returns — no flash-then-demote, no dead "nothing clickable" beat. First-ever load with no known state falls back to optimistic (all enabled) until the first probe resolves. If the probe itself fails, retain last-known availability rather than blanking the row. |
 | gated/disabled | timeframe button (toggle-group item) | ✅ covered | Grayed out + Lock/Clock badge, unselectable, tooltip shows the distinct reason copy above (D-13/D-14) |
-| loading | chart area during pan-triggered gap-fetch | ✅ covered | Subtle non-blocking indicator only (e.g. edge spinner or dimmed timescale strip) — existing cached bars stay rendered throughout, no full-chart loading state re-triggered |
-| error (mid-session) | chart area, rate-limit hit while viewing an active timeframe | ✅ covered | Toast notification (copy above) fires once; cached bars remain visible per D-15, chart does not blank or error out |
+| loading — gap-fetch | chart area during pan-triggered gap-fetch | ✅ covered | Subtle non-blocking indicator only (e.g. edge spinner or dimmed timescale strip) — existing cached bars stay rendered throughout, no full-chart loading state re-triggered |
+| error (mid-session) | chart area / rate-limit toast, rate-limit hit while viewing an active timeframe | ✅ covered | Toast notification (copy above) fires once; cached bars remain visible per D-15, chart does not blank or error out |
 | zero-one-many | timeframe button row | ✅ covered | Fixed set of exactly 7 buttons always rendered (1m/5m/15m/1h/D/W/M) — no variable count, no empty-row case |
 | populated | timeframe button row | ✅ covered | All 7 always visible; availability (active vs gated) varies per D-19 capability probe, but the row itself never changes shape |
 | reset-on-switch | chart view after timeframe click | ✅ covered | D-11: always resets to latest/`fitContent`-equivalent view on switch — no "restore scroll position" state to design for |
 | overflow / long-text | gated tooltip copy on narrow window widths | 🧪 backstop | Tooltip copy above is 1–2 sentences; needs a visual check once the app shell's minimum window width is known (Phase 1 didn't declare one) to confirm the tooltip doesn't clip |
+
+**Dismissed (not applicable this phase):** `empty` / `partial` on the timeframe row and gated button — the row is a fixed 7-button set with static labels, never data-driven, so there is no zero-data or partial-data rendering. `long-text` on the buttons — labels are fixed short strings ("1m"…"M"), no user/dynamic text to overflow (tooltip overflow is tracked as the backstop above). Chart error/empty for the initial fetch stays governed by Phase 1's chart copy, not re-litigated here.
 
 ---
 
@@ -133,11 +136,11 @@ Applicable state considerations resolved: 6 covered, 1 backstop, 0 unresolved.
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: PASS
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS
 
-**Approval:** pending
+**Approval:** approved
