@@ -1,4 +1,4 @@
-export type Timeframe = '1d'
+export type Timeframe = '1m' | '5m' | '15m' | '1h' | '1d' | '1w' | '1M'
 
 export type Bar = {
   time: number // UTC epoch seconds

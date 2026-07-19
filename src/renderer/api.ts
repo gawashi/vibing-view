@@ -1,7 +1,10 @@
+import type { Timeframe } from '@shared/types'
+
 // Single renderer entry point to the preload bridge. Never touch window.api elsewhere.
 export const api = window.api
 
 export const qk = {
-  ohlcv: (symbol: string) => ['ohlcv', symbol, '1d'] as const,
-  search: (query: string) => ['search', query] as const
+  ohlcv: (symbol: string, tf: Timeframe) => ['ohlcv', symbol, tf] as const,
+  search: (query: string) => ['search', query] as const,
+  capabilities: () => ['capabilities'] as const
 }

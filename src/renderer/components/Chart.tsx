@@ -1,17 +1,40 @@
-import React, { useEffect, useRef } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { createChart, CandlestickSeries, type IChartApi, type ISeriesApi, type UTCTimestamp } from 'lightweight-charts'
+import React, { useEffect, useRef, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  createChart,
+  CandlestickSeries,
+  type IChartApi,
+  type ISeriesApi,
+  type UTCTimestamp,
+  type LogicalRange
+} from 'lightweight-charts'
 import { api, qk } from '@/api'
-import type { Bar } from '@shared/types'
+import type { Bar, Timeframe } from '@shared/types'
 
-export function Chart({ symbol }: { symbol: string }): React.JSX.Element {
+export function Chart({ symbol, timeframe }: { symbol: string; timeframe: Timeframe }): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
+  const queryClient = useQueryClient()
+
+  // Handler closures below live inside the create-once effect (deps `[]`), so they read the
+  // *current* symbol/timeframe/bars via refs rather than capturing stale values from mount.
+  const symbolRef = useRef(symbol)
+  const timeframeRef = useRef(timeframe)
+  const barsRef = useRef<Bar[]>([])
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const inFlightRef = useRef<Set<string>>(new Set())
+  const lastKeyRef = useRef<string | null>(null)
+  const [gapLoading, setGapLoading] = useState(false)
+
+  useEffect(() => {
+    symbolRef.current = symbol
+    timeframeRef.current = timeframe
+  }, [symbol, timeframe])
 
   const q = useQuery<Bar[]>({
-    queryKey: qk.ohlcv(symbol),
-    queryFn: () => api.ohlcv.get(symbol, '1d', undefined)
+    queryKey: qk.ohlcv(symbol, timeframe),
+    queryFn: () => api.ohlcv.get(symbol, timeframe, undefined)
   })
 
   // Create the chart once.
@@ -33,27 +56,128 @@ export function Chart({ symbol }: { symbol: string }): React.JSX.Element {
     })
     chartRef.current = chart
     seriesRef.current = series
-    return () => { chart.remove(); chartRef.current = null; seriesRef.current = null }
+
+    // Pan-left gap-fetch (D-16 / DESIGN-ADDENDUM §5): fetch only the missing older sub-range,
+    // never a full re-fetch. Cached bars stay rendered throughout (UI-SPEC E3).
+    const runGapFetch = async (range: LogicalRange): Promise<void> => {
+      const bars = barsRef.current
+      if (bars.length < 2) return
+
+      const sym = symbolRef.current
+      const tf = timeframeRef.current
+      // '1w'/'1M' are derived from the full cached daily history — the whole series is already
+      // aggregated, there is no older sub-range to backfill. Fetching here returns the FULL derived
+      // series again, which the merge below would duplicate → setData asc-order assertion crash.
+      if (tf === '1w' || tf === '1M') return
+      const key = `${sym}:${tf}`
+      if (inFlightRef.current.has(key)) return // single-flight per (symbol, tf)
+
+      const oldestLoadedTime = bars[0].time
+      const visibleWidth = range.to - range.from
+      // seconds-per-bar estimated from currently loaded data, used to convert the "one
+      // visible-range width" prefetch pad (§5, expressed in bar units) into a time span.
+      const secondsPerBar = (bars[bars.length - 1].time - oldestLoadedTime) / (bars.length - 1)
+      const padSeconds = Math.round(visibleWidth * secondsPerBar)
+      const targetFrom = oldestLoadedTime - padSeconds - 1
+      if (targetFrom >= oldestLoadedTime) return // nothing older to fetch
+
+      inFlightRef.current.add(key)
+      setGapLoading(true)
+      try {
+        const older = await queryClient.fetchQuery({
+          queryKey: ['ohlcv-gap', sym, tf, targetFrom, oldestLoadedTime - 1],
+          queryFn: () => api.ohlcv.get(sym, tf, { from: targetFrom, to: oldestLoadedTime - 1 })
+        })
+        // Only merge if the user hasn't switched symbol/timeframe while the fetch was in flight.
+        if (older.length > 0 && symbolRef.current === sym && timeframeRef.current === tf) {
+          // Dedupe by time — lightweight-charts requires strictly-ascending unique times, and a
+          // sub-range fetch can return a bar at an already-loaded boundary. Last write wins.
+          const byTime = new Map<number, Bar>()
+          for (const b of [...barsRef.current, ...older]) byTime.set(b.time, b)
+          const merged = [...byTime.values()].sort((a, b) => a.time - b.time)
+          queryClient.setQueryData<Bar[]>(qk.ohlcv(sym, tf), merged)
+        }
+      } catch (err) {
+        // Background prefetch — never surface a user-facing error for a failed backfill
+        // (rate limit / network blip mid-pan); single-flight clears below so the next pan retries.
+        console.debug('gap-fetch failed', err)
+        // Main already recorded a fresh capability verdict (e.g. 'rate-limited') for this tf when
+        // the gap-fetch's underlying ohlcv:get failed — refresh the renderer's map so TimeframeRow
+        // re-gates and App's rate-limit toast can fire, without touching the chart's cached data.
+        void queryClient.invalidateQueries({ queryKey: qk.capabilities() })
+      } finally {
+        inFlightRef.current.delete(key)
+        setGapLoading(false)
+      }
+    }
+
+    const onVisibleLogicalRangeChange = (range: LogicalRange | null): void => {
+      if (!range) return
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+      // ponytail: 300ms debounce (§5) — tune if pan feels laggy (raise) or jumpy/over-fetchy (lower).
+      debounceRef.current = setTimeout(() => {
+        // ponytail: "left edge within ~1 bar of index 0" threshold — tune if the fetch fires
+        // too early/late relative to when the user actually reaches uncached history.
+        if (range.from <= 1) void runGapFetch(range)
+      }, 300)
+    }
+    chart.timeScale().subscribeVisibleLogicalRangeChange(onVisibleLogicalRangeChange)
+
+    return () => {
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(onVisibleLogicalRangeChange)
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+      chart.remove()
+      chartRef.current = null
+      seriesRef.current = null
+    }
   }, [])
 
   // Push data whenever it changes.
   useEffect(() => {
-    if (!seriesRef.current || !q.data) return
+    if (!seriesRef.current) return
+    // On a symbol/timeframe switch the new key's data is undefined until it resolves (and stays
+    // undefined if it errors — e.g. an out-of-plan symbol's 402). Clear to [] rather than bailing,
+    // so the previous symbol's candles don't linger under the new header while loading/errored.
+    const bars = q.data ?? []
     seriesRef.current.setData(
-      q.data.map((b) => ({ time: b.time as UTCTimestamp, open: b.open, high: b.high, low: b.low, close: b.close }))
+      bars.map((b) => ({ time: b.time as UTCTimestamp, open: b.open, high: b.high, low: b.low, close: b.close }))
     )
-    chartRef.current?.timeScale().fitContent()
-  }, [q.data])
+    barsRef.current = bars
+    // Only reset the view (D-11) on a genuine symbol/timeframe switch — a gap-fetch merge updates
+    // q.data for the *same* key and must NOT jump the user's pan position (§5).
+    const key = `${symbol}:${timeframe}`
+    if (lastKeyRef.current !== key) {
+      lastKeyRef.current = key
+      chartRef.current?.timeScale().fitContent()
+    }
+  }, [q.data, symbol, timeframe])
+
+  // A symbol outside the current FMP plan's coverage manifests two ways on this key: a 402/403
+  // ("FMP HTTP 40x" survives IPC serialization in the rejected error's message) OR a plain empty
+  // 200 array. Treat both as "not covered" so D-graying's replacement message always shows.
+  const isCoverageError = q.isError && /FMP HTTP 40[23]/.test(String((q.error as Error)?.message))
+  const isEmpty = !q.isLoading && !q.isError && Array.isArray(q.data) && q.data.length === 0
+  const notCovered = isCoverageError || isEmpty
 
   return (
     <div className="relative h-full w-full">
       <div ref={containerRef} className="h-full w-full" />
       {q.isLoading && (
-        <div className="absolute inset-0 p-6 text-muted-foreground">Loading chart…</div>
+        <div className="absolute inset-0 z-10 p-6 text-muted-foreground">Loading chart…</div>
       )}
-      {q.isError && (
-        <div className="absolute inset-0 p-6 text-destructive">
-          Couldn't load chart data. Check your connection or your FMP API key in Settings, then try again.
+      {notCovered && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-background p-6 text-center text-muted-foreground">
+          This symbol isn’t available on your current FMP plan.
+        </div>
+      )}
+      {q.isError && !isCoverageError && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-background p-6 text-center text-destructive">
+          Couldn’t load chart data. Check your connection or your FMP API key in Settings, then try again.
+        </div>
+      )}
+      {gapLoading && (
+        <div className="absolute bottom-2 left-2 rounded bg-card/80 px-2 py-1 text-xs text-muted-foreground">
+          Loading history…
         </div>
       )}
     </div>

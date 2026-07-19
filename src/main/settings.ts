@@ -1,18 +1,12 @@
 import { app } from 'electron'
-import { readFileSync, writeFileSync, existsSync } from 'fs'
+import { writeFileSync } from 'fs'
 import { join } from 'path'
+import { readJsonFile } from './jsonStore'
 
 // ponytail: one small JSON under userData, not electron-store — no dependency for one field (design doc)
 const settingsPath = (): string => join(app.getPath('userData'), 'settings.json')
 
-function read(): Record<string, unknown> {
-  if (!existsSync(settingsPath())) return {}
-  try {
-    return JSON.parse(readFileSync(settingsPath(), 'utf8'))
-  } catch {
-    return {} // corrupt file → treat as empty; next write heals it
-  }
-}
+const read = (): Record<string, unknown> => readJsonFile(settingsPath(), {})
 
 export function getLastSymbol(): string | null {
   const v = read().lastSymbol

@@ -7,11 +7,13 @@ export const CH = {
   apikeyStatus: 'apikey:status',
   apikeyClear: 'apikey:clear',
   settingsGetLastSymbol: 'settings:getLastSymbol',
-  settingsSetLastSymbol: 'settings:setLastSymbol'
+  settingsSetLastSymbol: 'settings:setLastSymbol',
+  capabilitiesGet: 'capabilities:get'
 } as const
 
 export type KeyStatus = { hasKey: boolean; encryptionAvailable: boolean }
 export type SetKeyResult = { ok: boolean; encryptionAvailable: boolean }
+export type CapabilityStatus = 'available' | 'requires-plan' | 'rate-limited' | 'unknown'
 
 export interface Api {
   symbols: { search(query: string): Promise<SymbolResult[]> }
@@ -25,6 +27,7 @@ export interface Api {
     getLastSymbol(): Promise<string | null>
     setLastSymbol(symbol: string): Promise<void>
   }
+  capabilities: { get(): Promise<Record<Timeframe, CapabilityStatus>> }
 }
 
 declare global {

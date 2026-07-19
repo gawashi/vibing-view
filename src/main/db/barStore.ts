@@ -5,13 +5,8 @@ import { bars, coverage } from './schema'
 
 export function coverageFromBars(input: Bar[]): { oldestTime: number; newestTime: number } | null {
   if (input.length === 0) return null
-  let oldest = input[0].time
-  let newest = input[0].time
-  for (const b of input) {
-    if (b.time < oldest) oldest = b.time
-    if (b.time > newest) newest = b.time
-  }
-  return { oldestTime: oldest, newestTime: newest }
+  const times = input.map((b) => b.time)
+  return { oldestTime: Math.min(...times), newestTime: Math.max(...times) }
 }
 
 export function getCoverage(symbol: string, tf: Timeframe): { oldestTime: number; newestTime: number } | null {

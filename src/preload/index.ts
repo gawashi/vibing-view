@@ -16,7 +16,8 @@ const api: Api = {
   settings: {
     getLastSymbol: () => ipcRenderer.invoke(CH.settingsGetLastSymbol),
     setLastSymbol: (symbol) => ipcRenderer.invoke(CH.settingsSetLastSymbol, symbol)
-  }
+  },
+  capabilities: { get: () => ipcRenderer.invoke(CH.capabilitiesGet) }
 }
 
 contextBridge.exposeInMainWorld('api', api)

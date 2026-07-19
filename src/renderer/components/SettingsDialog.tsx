@@ -17,17 +17,18 @@ export function SettingsDialog(): React.JSX.Element {
   }, [open])
 
   const save = async (): Promise<void> => {
-    const res = await api.apikey.set(key)
+    await api.apikey.set(key)
     setKey('')
     setStatus(await api.apikey.status())
     void queryClient.invalidateQueries({ queryKey: ['ohlcv'] })
-    if (!res.encryptionAvailable) return // warning already shown by status render below
+    void queryClient.invalidateQueries({ queryKey: ['capabilities'] }) // SC4: paid key re-enables intraday, no code change
   }
 
   const clear = async (): Promise<void> => {
     if (!confirm("Remove your saved FMP API key? You'll need to re-enter it to fetch new data. Already-cached charts keep working offline.")) return
     await api.apikey.clear()
     setStatus(await api.apikey.status())
+    void queryClient.invalidateQueries({ queryKey: ['capabilities'] })
   }
 
   return (

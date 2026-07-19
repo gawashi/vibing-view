@@ -10,6 +10,8 @@ export const fmpHistoricalRow = z.object({
 })
 
 // FMP stable `historical-price-eod/full` returns a flat array (no { symbol, historical } wrapper).
+// `historical-chart/{interval}` (intraday) returns the same flat-array shape — reuse this schema;
+// intraday `date` is just a datetime string (e.g. "2024-01-02 09:30:00", exchange-local).
 export const fmpHistoricalResponse = z.array(fmpHistoricalRow)
 
 export const fmpSearchRow = z.object({
