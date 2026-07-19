@@ -1,7 +1,7 @@
 ---
 phase: 4
 slug: pane-indicators-crosshair-correct-math
-status: draft
+status: approved
 shadcn_initialized: true
 preset: "zinc base color, CSS variables, dark-mode-only (inherited from Phase 1/2/3, already initialized in components.json)"
 created: 2026-07-19
@@ -100,6 +100,11 @@ Inherited base tokens from Phase 1/2/3 (unchanged) plus sub-pane-specific usages
 | MACD histogram — negative, rising (less negative) | `#EF4444` at 50% opacity | lighter red — improving but still negative |
 | MACD zero line | `#8B92A0` (solid, 1px) | Fixed horizontal reference at y=0 (D-46); same muted stroke as the RSI guide lines for visual consistency across sub-panes |
 
+**Color distribution (60/30/10, formalized):** 60% Dominant `#0B0E11` (app + all pane backgrounds),
+30% Secondary `#151920` (legend chrome), 10% Accent `#2E7DE1` (CTAs/focus/selected only). Sub-pane
+data colors (volume green/red, palette-assigned RSI/MACD lines, muted-gray reference bands) sit
+*outside* the accent budget — they are data ink, not chrome accent, so they never inflate the 10%.
+
 Accent reserved for: unchanged from Phase 1/2/3 (primary CTAs, focus rings, selected-state) — nothing
 in this phase's sub-pane/crosshair work introduces a new accent usage.
 
@@ -196,11 +201,11 @@ sync — flagged applicable categories against Phase 3's already-resolved menu/l
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PASS
-- [ ] Dimension 2 Visuals: PASS
-- [ ] Dimension 3 Color: PASS
-- [ ] Dimension 4 Typography: PASS
-- [ ] Dimension 5 Spacing: PASS
-- [ ] Dimension 6 Registry Safety: PASS
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: PASS
+- [x] Dimension 3 Color: PASS (60/30/10 split now formally declared — FLAG resolved)
+- [x] Dimension 4 Typography: PASS
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS
 
-**Approval:** pending
+**Approval:** approved
