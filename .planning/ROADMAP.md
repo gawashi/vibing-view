@@ -44,7 +44,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. User can pan and zoom along the time axis, and panning into uncached history fetches only the missing sub-range, not a full re-fetch.
   3. When a timeframe/endpoint is unavailable on the current FMP plan or the daily request budget is exhausted, the UI shows a distinct "requires higher plan" / "rate-limited" state for that timeframe rather than an empty or broken chart.
   4. Switching to a paid FMP key enables previously-gated intraday timeframes with no code change (capability re-probed on key change).
-**Plans**: TBD
+**Plans:** 5 plans
+- [ ] 02-01-PLAN.md — Tracer: timeframe-switching spine (intraday 1m/5m/15m/1h + daily render end-to-end)
+- [ ] 02-02-PLAN.md — Weekly/monthly candles derived from cached daily bars (no extra FMP fetch)
+- [ ] 02-03-PLAN.md — Pan/zoom gap-fetch (only the missing sub-range)
+- [ ] 02-04-PLAN.md — Free-tier capability detection engine + capabilities.get() IPC
+- [ ] 02-05-PLAN.md — Gated timeframe UI (lock/clock + tooltip) + mid-session rate-limit toast
 **UI hint**: yes
 
 ### Phase 3: Indicator Engine & Overlays
@@ -93,7 +98,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Core Pipeline Slice | 0/TBD | Not started | - |
-| 2. Timeframes & Free-Tier Resilience | 0/TBD | Not started | - |
+| 2. Timeframes & Free-Tier Resilience | 0/5 | Not started | - |
 | 3. Indicator Engine & Overlays | 0/TBD | Not started | - |
 | 4. Pane Indicators, Crosshair & Correct Math | 0/TBD | Not started | - |
 | 5. Layouts, Persistence & Watchlist | 0/TBD | Not started | - |
