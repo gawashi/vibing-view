@@ -81,7 +81,16 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. User can live-edit each instance's parameters (period, source, color, stddev multiplier) and see the overlay update immediately with no data re-fetch.
   4. A new indicator can be registered as a self-contained module (compute function + parameter schema + render metadata) without modifying chart-rendering code.
 
-**Plans**: TBD
+**Plans:** 3 plans
+**Wave 1**
+
+- [ ] 03-01-PLAN.md — Tracer: SMA overlay end-to-end (module contract → math+test → ma module → registry → store CRUD+palette → Chart reconcile → +指標 menu → legend)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 03-02-PLAN.md — Schema-driven edit form (D-25) + full legend controls (toggle/edit/delete, overflow scroll)
+- [ ] 03-03-PLAN.md — Bollinger Bands module + translucent band fill (proves IND-01: new module, no chart-code change)
+
 **UI hint**: yes
 
 ### Phase 4: Pane Indicators, Crosshair & Correct Math
@@ -124,6 +133,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 |-------|----------------|--------|-----------|
 | 1. Core Pipeline Slice | 0/TBD | Not started | - |
 | 2. Timeframes & Free-Tier Resilience | 0/5 | Not started | - |
-| 3. Indicator Engine & Overlays | 0/TBD | Not started | - |
+| 3. Indicator Engine & Overlays | 0/3 | Not started | - |
 | 4. Pane Indicators, Crosshair & Correct Math | 0/TBD | Not started | - |
 | 5. Layouts, Persistence & Watchlist | 0/TBD | Not started | - |
