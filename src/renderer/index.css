@@ -1,0 +1,37 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Dark-only. Values mapped to 01-UI-SPEC.md palette.
+   #0B0E11 background, #151920 secondary/card/popover, #2E7DE1 accent(primary),
+   #E5484D destructive, #E4E7EB text, #8B92A0 muted text. */
+:root, .dark {
+  --background: 210 24% 6%;          /* #0B0E11 */
+  --foreground: 213 15% 90%;         /* #E4E7EB */
+  --card: 213 21% 10%;               /* #151920 */
+  --card-foreground: 213 15% 90%;
+  --popover: 213 21% 10%;
+  --popover-foreground: 213 15% 90%;
+  --primary: 212 74% 53%;            /* #2E7DE1 accent = primary CTA */
+  --primary-foreground: 0 0% 100%;
+  --secondary: 213 21% 10%;          /* #151920 */
+  --secondary-foreground: 213 15% 90%;
+  --muted: 213 21% 14%;
+  --muted-foreground: 216 11% 59%;   /* #8B92A0 */
+  --accent: 212 74% 53%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 358 76% 59%;        /* #E5484D */
+  --destructive-foreground: 0 0% 100%;
+  --border: 213 15% 20%;
+  --input: 213 15% 20%;
+  --ring: 212 74% 53%;               /* focus ring = accent */
+  --radius: 0.5rem;
+}
+
+* { border-color: hsl(var(--border)); }
+html, body, #root { margin: 0; height: 100%; }
+body {
+  font-family: ui-sans-serif, -apple-system, "Segoe UI", sans-serif;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}

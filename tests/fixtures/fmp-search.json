@@ -1,0 +1,4 @@
+[
+  { "symbol": "AAPL", "name": "Apple Inc.", "currency": "USD", "exchangeFullName": "NASDAQ Global Select", "exchange": "NASDAQ" },
+  { "symbol": "AAPL.NE", "name": "Apple Inc. (CAD-Hedged)", "currency": "CAD", "exchangeFullName": "NEO Exchange", "exchange": "NEO" }
+]

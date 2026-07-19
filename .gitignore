@@ -1,2 +1,8 @@
 .env
 .envrc
+
+node_modules/
+out/
+dist/
+*.log
+*.tsbuildinfo
