@@ -1,6 +1,8 @@
 .env
 .envrc
 
+.claude/
+
 node_modules/
 out/
 dist/
