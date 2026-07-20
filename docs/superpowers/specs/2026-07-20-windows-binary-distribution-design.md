@@ -40,6 +40,7 @@
   "files": ["out/**/*"],
   "win": { "target": "nsis" },
   "nsis": {
+    "artifactName": "${name}-setup-${version}.${ext}",
     "oneClick": false,
     "perMachine": false,
     "allowToChangeInstallationDirectory": true
@@ -64,7 +65,7 @@ release/
 `npm run dist`
 → electron-vite が `out/` を生成
 → electron-builder が native 依存を Electron ABI で再ビルド
-→ `release/Vibing View Setup 0.1.0.exe` を生成
+→ `release/vibing-view-setup-0.1.0.exe` を生成
 → 手渡し配布。
 
 ## 検証（手動スモークテスト1回）

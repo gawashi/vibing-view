@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "dist": "electron-vite build && electron-builder --win",
     "start": "electron-vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -52,5 +53,18 @@
     "vite": "^7.0.0",
     "vitest": "^3.0.0",
     "zustand": "^5.0.0"
+  },
+  "build": {
+    "appId": "com.gawashi.vibingview",
+    "productName": "Vibing View",
+    "directories": { "output": "release" },
+    "files": ["out/**/*"],
+    "win": { "target": "nsis" },
+    "nsis": {
+      "artifactName": "${name}-setup-${version}.${ext}",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }
