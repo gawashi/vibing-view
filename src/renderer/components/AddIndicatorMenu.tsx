@@ -6,7 +6,7 @@ import { useAppStore } from '../store'
 
 // Plain button + inline menu (DESIGN §6 — no dropdown-menu/popover dependency for 2 items).
 // Menu items are derived from `registry` so a newly-registered module needs zero edits here (IND-01).
-export function AddIndicatorMenu(): React.JSX.Element {
+export function AddIndicatorMenu({ cellId }: { cellId?: string } = {}): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const addIndicator = useAppStore((s) => s.addIndicator)
 
@@ -25,7 +25,7 @@ export function AddIndicatorMenu(): React.JSX.Element {
               key={module.type}
               className="rounded px-2 py-1 text-left text-sm hover:bg-accent"
               onClick={() => {
-                addIndicator(module.type)
+                addIndicator(module.type, cellId)
                 setOpen(false)
               }}
             >

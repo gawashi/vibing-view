@@ -16,3 +16,14 @@ export function getLastSymbol(): string | null {
 export function setLastSymbol(symbol: string): void {
   writeFileSync(settingsPath(), JSON.stringify({ ...read(), lastSymbol: symbol }))
 }
+
+// D-63: sidebar open/closed is UI chrome, persisted here (not in layouts.json/Workspace) so it
+// never gets carried by a named layout's save/load.
+export function getSidebarOpen(): boolean | null {
+  const v = read().sidebarOpen
+  return typeof v === 'boolean' ? v : null
+}
+
+export function setSidebarOpen(open: boolean): void {
+  writeFileSync(settingsPath(), JSON.stringify({ ...read(), sidebarOpen: open }))
+}

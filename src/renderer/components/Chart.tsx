@@ -25,7 +25,7 @@ import type { Bar, Timeframe } from '@shared/types'
 
 type PaneLegend = { paneIndex: number; top: number; left: number; instanceIds: string[] }
 
-export function Chart({ symbol, timeframe }: { symbol: string; timeframe: Timeframe }): React.JSX.Element {
+export function Chart({ cellId, symbol, timeframe }: { cellId: string; symbol: string; timeframe: Timeframe }): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
@@ -39,7 +39,7 @@ export function Chart({ symbol, timeframe }: { symbol: string; timeframe: Timefr
   // (Landmine #1) without re-calling the non-idempotent createPriceLine.
   const guideLineRef = useRef<Map<string, IPriceLine[]>>(new Map())
   const queryClient = useQueryClient()
-  const indicators = useAppStore((s) => s.indicators)
+  const indicators = useAppStore((s) => s.cells.find((c) => c.id === cellId)?.indicators ?? [])
 
   // Per-pane legend geometry (recomputed on pane composition/resize) — one legend per pane.
   const [paneLegends, setPaneLegends] = useState<PaneLegend[]>([])
@@ -51,6 +51,7 @@ export function Chart({ symbol, timeframe }: { symbol: string; timeframe: Timefr
   // *current* symbol/timeframe/bars via refs rather than capturing stale values from mount.
   const symbolRef = useRef(symbol)
   const timeframeRef = useRef(timeframe)
+  const cellIdRef = useRef(cellId)
   const barsRef = useRef<Bar[]>([])
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const inFlightRef = useRef<Set<string>>(new Set())
@@ -60,7 +61,8 @@ export function Chart({ symbol, timeframe }: { symbol: string; timeframe: Timefr
   useEffect(() => {
     symbolRef.current = symbol
     timeframeRef.current = timeframe
-  }, [symbol, timeframe])
+    cellIdRef.current = cellId
+  }, [symbol, timeframe, cellId])
 
   const q = useQuery<Bar[]>({
     queryKey: qk.ohlcv(symbol, timeframe),
@@ -74,6 +76,9 @@ export function Chart({ symbol, timeframe }: { symbol: string; timeframe: Timefr
       layout: {
         background: { color: '#0B0E11' },
         textColor: '#8B92A0',
+        // Hide the on-canvas TradingView logo — it would repeat in every grid cell (up to 4 in 2x2).
+        // Optional mark; Apache-2.0 attribution is satisfied by the repo NOTICE, not this overlay.
+        attributionLogo: false,
         // D-32/RESEARCH Q6: recolor the native pane separator to the app's grid token.
         panes: { separatorColor: '#151920', separatorHoverColor: 'rgba(139, 146, 160, 0.2)' }
       },
@@ -166,7 +171,7 @@ export function Chart({ symbol, timeframe }: { symbol: string; timeframe: Timefr
         rafRef.current = null
         // Cursor off-chart → fall back to the latest (rightmost) bar values (D-40).
         if (param.time === undefined) {
-          useAppStore.getState().setCrosshair(latestValuesRef.current)
+          useAppStore.getState().setCrosshair(cellIdRef.current, latestValuesRef.current)
           return
         }
         const values: CrosshairValues = {}
@@ -177,7 +182,7 @@ export function Chart({ symbol, timeframe }: { symbol: string; timeframe: Timefr
         }
         // Surface EVERY draw output per instance (generic, no inst.type branch). The series list
         // was built in reconcile by zipping drawOutputs in order, so index i ↔ drawOutputs[i].
-        const insts = useAppStore.getState().indicators
+        const insts = useAppStore.getState().cells.find((c) => c.id === cellIdRef.current)?.indicators ?? []
         for (const [id, list] of indicatorSeriesRef.current) {
           const inst = insts.find((i) => i.id === id)
           const module = inst && registry[inst.type]
@@ -192,7 +197,7 @@ export function Chart({ symbol, timeframe }: { symbol: string; timeframe: Timefr
           })
           values[id] = perInstance
         }
-        useAppStore.getState().setCrosshair(values)
+        useAppStore.getState().setCrosshair(cellIdRef.current, values)
       })
     }
     chart.subscribeCrosshairMove(onCrosshairMove)
@@ -393,8 +398,8 @@ export function Chart({ symbol, timeframe }: { symbol: string; timeframe: Timefr
     }
     latestValuesRef.current = latest
     // Seed every pane's legend with the latest-bar values so they read correctly before any hover.
-    useAppStore.getState().setCrosshair(latest)
-  }, [indicators, q.data, timeframe])
+    useAppStore.getState().setCrosshair(cellId, latest)
+  }, [indicators, q.data, timeframe, cellId])
 
   // Position one legend per pane at its top-left. No lightweight-charts "pane resized" event exists
   // (Landmine #2), so measure each pane's <tr> via getBoundingClientRect and observe it for drag/
@@ -460,6 +465,7 @@ export function Chart({ symbol, timeframe }: { symbol: string; timeframe: Timefr
       {paneLegends.map((pl) => (
         <IndicatorLegend
           key={pl.paneIndex}
+          cellId={cellId}
           instanceIds={pl.instanceIds}
           isPricePane={pl.paneIndex === 0}
           style={{ top: `${pl.top}px`, left: `${pl.left}px` }}

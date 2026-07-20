@@ -1,8 +1,8 @@
-import type { Bar } from '@shared/types'
+import type { Bar, Params } from '@shared/types'
+
+export type { Params, IndicatorInstance } from '@shared/types'
 
 export type Source = 'close' | 'open' | 'high' | 'low' | 'hl2' | 'hlc3'
-
-export type Params = Record<string, number | string>
 
 export type LineData = { time: number; value: number }
 
@@ -40,17 +40,6 @@ export type IndicatorModule = {
   // Omit it → legend falls back to a single-value 2-decimal render (ma/bb/rsi).
   formatReadout?: (values: Record<string, number>, p: Params) => string
   compute: (bars: Bar[], p: Params) => Record<string, LineData[] | HistPoint[]>
-}
-
-export type IndicatorInstance = {
-  id: string
-  type: string
-  params: Params
-  colors: Record<string, string>
-  visible: boolean
-  // Always-on, user-immutable instance (Volume, D-34) — removeIndicator ignores it and its
-  // legend hides the eye/gear/× affordances. ma/bb/rsi instances omit it (undefined = false).
-  fixed?: boolean
 }
 
 // Collapse an aligned (leading-undefined) series into LineData, dropping the undefined gaps.

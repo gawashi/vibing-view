@@ -1,10 +1,14 @@
 import React, { useState } from 'react'
 import { Eye, EyeOff, Settings2, X } from 'lucide-react'
 import { registry } from '../indicators/registry'
-import { useAppStore } from '../store'
+import { useAppStore, type CrosshairValues } from '../store'
 import { Button } from './ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { IndicatorEditForm } from './IndicatorEditForm'
+
+// Stable empty-crosshair fallback — a fresh `{}` in the selector would return a new reference every
+// render, tripping useSyncExternalStore's getSnapshot cache and looping forever (zustand v5).
+const EMPTY_CROSSHAIR: CrosshairValues = {}
 
 // Fallback readout for modules without a formatReadout hook (ma/bb/rsi): first output, 2 decimals.
 function defaultReadout(v: Record<string, number>): string {
@@ -17,16 +21,21 @@ function defaultReadout(v: Record<string, number>): string {
 // instances of that pane plus its crosshair readout — the price pane also shows the OHLC row.
 // E2 overflow: never fully covers the chart no matter how many instances stack.
 export function IndicatorLegend({
+  cellId,
   instanceIds,
   isPricePane,
   style
 }: {
+  cellId: string
   instanceIds: string[]
   isPricePane: boolean
   style: React.CSSProperties
 }): React.JSX.Element | null {
-  const indicators = useAppStore((s) => s.indicators)
-  const crosshair = useAppStore((s) => s.crosshair)
+  // Select the stable `cells` reference and flatten in render — a selector returning
+  // `flatMap(...)` yields a fresh array every call and loops useSyncExternalStore forever.
+  const cells = useAppStore((s) => s.cells)
+  const indicators = cells.flatMap((c) => c.indicators)
+  const crosshair = useAppStore((s) => s.crosshairByCell[cellId] ?? EMPTY_CROSSHAIR)
   const toggleVisible = useAppStore((s) => s.toggleVisible)
   const removeIndicator = useAppStore((s) => s.removeIndicator)
   const [editingId, setEditingId] = useState<string | null>(null)

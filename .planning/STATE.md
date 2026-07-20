@@ -5,8 +5,8 @@ milestone_name: milestone
 current_phase: 1
 current_phase_name: Core Pipeline Slice
 status: executing
-stopped_at: Phase 5 context gathered
-last_updated: "2026-07-19T23:54:12.569Z"
+stopped_at: Phase 05 UI-SPEC approved
+last_updated: "2026-07-20T00:03:22.897Z"
 last_activity: 2026-07-18
 last_activity_desc: Roadmap created (5 phases, 25/25 requirements mapped)
 progress:
@@ -90,6 +90,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-07-19T23:54:12.542Z
-Stopped at: Phase 5 context gathered
-Resume file: .planning/phases/05-layouts-persistence-watchlist/05-CONTEXT.md
+Last session: 2026-07-20T00:03:22.873Z
+Stopped at: Phase 05 UI-SPEC approved
+Resume file: .planning/phases/05-layouts-persistence-watchlist/05-UI-SPEC.md

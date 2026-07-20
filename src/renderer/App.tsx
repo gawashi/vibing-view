@@ -1,106 +1,125 @@
-import React, { useEffect, useRef, useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { toast } from 'sonner'
-import { api, qk } from './api'
-import { AddIndicatorMenu } from './components/AddIndicatorMenu'
-import { Chart } from './components/Chart'
+import React, { useEffect, useState } from 'react'
+import { PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { api } from './api'
+import { Button } from './components/ui/button'
+import { GridHost } from './components/GridHost'
+import { GridShapeRow } from './components/GridShapeRow'
+import { LayoutMenu } from './components/LayoutMenu'
 import { SearchBar } from './components/SearchBar'
 import { SettingsDialog } from './components/SettingsDialog'
-import { TimeframeRow, TF_LABELS } from './components/TimeframeRow'
-import { TooltipProvider } from './components/ui/tooltip'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './components/ui/tooltip'
 import { Toaster } from './components/ui/sonner'
+import { Watchlist } from './components/Watchlist'
 import { useAppStore } from './store'
-import type { Timeframe } from '@shared/types'
+import { parseWorkspace } from './workspace'
 
 export default function App(): React.JSX.Element {
-  const activeSymbol = useAppStore((s) => s.activeSymbol)
-  const setActiveSymbol = useAppStore((s) => s.setActiveSymbol)
-  const [timeframe, setTimeframe] = useState<Timeframe>('1d') // D-12: default is always D
-  const queryClient = useQueryClient()
-  const toastedFor = useRef<string | null>(null) // single-flight guard: one toast per rate-limit transition
+  const activeSymbol = useAppStore((s) => s.cells.find((c) => c.id === s.activeCellId)?.symbol ?? null)
+  // Sidebar open/closed (D-63) — UI chrome, persisted separately from the Workspace/named-layout
+  // model via settings.json (see api.settings.get/setSidebarOpen), NOT via layout.setCurrent.
+  const [sidebarOpen, setSidebarOpen] = useState(true)
 
+  // One-time startup restore (D-59/LAYOUT-04): replaces the old getLastSymbol restore. main is a
+  // dumb persister — parseWorkspace owns the trust boundary and never throws (T-05-01). A null
+  // result (first-ever launch or corrupt file) leaves the store's own default (1x1 + AAPL).
   useEffect(() => {
-    void api.settings.getLastSymbol().then((last) => setActiveSymbol(last ?? 'AAPL')) // D-06/D-07
-  }, [setActiveSymbol])
-  useEffect(() => {
-    setTimeframe('1d') // never persisted per-symbol (D-12)
-  }, [activeSymbol])
+    void api.layout.getCurrent().then((raw) => {
+      const ws = parseWorkspace(raw)
+      if (ws) useAppStore.getState().hydrate(ws)
+    })
+    void api.watchlist.get().then((items) => {
+      for (const item of items) useAppStore.getState().addToWatchlist(item)
+    })
+    void api.settings.getSidebarOpen().then((open) => {
+      if (open !== null) setSidebarOpen(open)
+    })
+  }, [])
 
-  // Reuses Chart's own query key/cache entry — no extra fetch — purely to observe rate-limit errors
-  // on the currently-viewed timeframe (D-15). Never clears the chart's cached data.
-  const ohlcvQ = useQuery({
-    queryKey: qk.ohlcv(activeSymbol ?? '', timeframe),
-    queryFn: () => api.ohlcv.get(activeSymbol ?? '', timeframe, undefined),
-    enabled: !!activeSymbol
-  })
-  // Shares the ['capabilities'] cache entry with TimeframeRow's own useQuery — no extra fetch either.
-  const capsQ = useQuery({ queryKey: qk.capabilities(), queryFn: () => api.capabilities.get() })
-
+  // Persist-on-change for the watchlist (debounced, mirrors the layout auto-save below) — separate
+  // JSON file (watchlist.json via IPC), never bundled into the Workspace snapshot.
   useEffect(() => {
-    // Eager one-time probe (user override of D-21): grey gated intraday timeframes from startup
-    // instead of only after a click. Only probes tfs still 'unknown' for the current key, so it runs
-    // once per key — main persists the verdict (sticky requires-plan / available) and later launches
-    // read it as non-unknown and skip. A key change resets the map to 'unknown' → re-probes the new key.
-    if (!activeSymbol || !capsQ.data) return
-    const intraday: Timeframe[] = ['1m', '5m', '15m', '1h']
-    const unknown = intraday.filter((tf) => capsQ.data?.[tf] === 'unknown')
-    if (unknown.length === 0) return
-    void Promise.allSettled(unknown.map((tf) => api.ohlcv.get(activeSymbol, tf, undefined)))
-      .then(() => queryClient.invalidateQueries({ queryKey: qk.capabilities() }))
-  }, [activeSymbol, capsQ.data, queryClient])
-
-  useEffect(() => {
-    // main's ohlcv:get handler already classifies+persists the capability status before rethrowing,
-    // so an error here means the capabilities map may be stale — refresh it so the row re-gates.
-    if (ohlcvQ.isError) void queryClient.invalidateQueries({ queryKey: qk.capabilities() })
-  }, [ohlcvQ.isError, queryClient])
-
-  useEffect(() => {
-    // Phase goal: a gated timeframe must show *why* (greyed button + Lock badge), never a broken
-    // chart. A tf is only discovered gated after its first click (lazy probe → requires-plan); snap
-    // the view back to D so the daily chart stays visible while the now-disabled button explains it.
-    // '1d' is never requires-plan, so no loop. (rate-limited is left alone — D-15 keeps cached bars.)
-    if (capsQ.data?.[timeframe] === 'requires-plan') setTimeframe('1d')
-  }, [capsQ.data, timeframe])
-
-  useEffect(() => {
-    // Driven off the capabilities map (not just ohlcvQ.isError) so this also catches a rate limit
-    // recorded by main during a pan-induced gap-fetch (Chart.tsx runGapFetch), which fails on its
-    // own ['ohlcv-gap', ...] query key and never flips ohlcvQ.isError for the active tf.
-    const transitionKey = `${activeSymbol}:${timeframe}`
-    const isRateLimited = capsQ.data?.[timeframe] === 'rate-limited'
-    if (isRateLimited && toastedFor.current !== transitionKey) {
-      toastedFor.current = transitionKey
-      toast(`Rate limit reached for ${TF_LABELS[timeframe]}. Showing cached data — new bars will load once the limit resets.`)
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const unsubscribe = useAppStore.subscribe(
+      (s) => s.watchlist,
+      (watchlist) => {
+        if (timer) clearTimeout(timer)
+        timer = setTimeout(() => { void api.watchlist.set(watchlist) }, 500)
+      }
+    )
+    return () => {
+      if (timer) clearTimeout(timer)
+      unsubscribe()
     }
-    if (!isRateLimited) toastedFor.current = null
-  }, [capsQ.data, activeSymbol, timeframe])
+  }, [])
+
+  const toggleSidebar = (): void => {
+    setSidebarOpen((prev) => {
+      const next = !prev
+      void api.settings.setSidebarOpen(next)
+      return next
+    })
+  }
+
+  // Debounced auto-save (~500ms, ponytail: avoids write-thrash on rapid param edits) — persists
+  // only the serializable workspace fields, NEVER crosshair (that stays session-only, D-60).
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const unsubscribe = useAppStore.subscribe(
+      (s) => [s.cells, s.shape, s.activeCellId] as const, // never crosshairByCell (D-60)
+      () => {
+        if (timer) clearTimeout(timer)
+        timer = setTimeout(() => {
+          // Single source of truth for workspace serialization (store.currentWorkspace) — reused
+          // by switchToLayout/saveLayoutAs so there is never a second, divergent serialization.
+          void api.layout.setCurrent(useAppStore.getState().currentWorkspace())
+        }, 500)
+      },
+      // Default equalityFn is Object.is on the whole tuple, which is a fresh array every call —
+      // without this, a crosshair-only update (rAF-throttled mousemove) would still reset the
+      // debounce timer on every hover tick. Compare the three fields by reference instead.
+      { equalityFn: (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2] }
+    )
+    return () => {
+      if (timer) clearTimeout(timer)
+      unsubscribe()
+    }
+  }, [])
+
+  // Per-cell capability gating (eager intraday probe, requires-plan→snap-to-daily, rate-limit
+  // toast) has moved into GridHost's GridCell (D-60) — each rendered cell now gates its own row off
+  // its own symbol/timeframe instead of one App-level effect tied to a single active symbol.
 
   return (
     <TooltipProvider>
       <div className="flex h-screen flex-col bg-background text-foreground">
         <header className="flex items-center gap-4 border-b border-border bg-card px-8 py-4">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={toggleSidebar}
+                aria-label={sidebarOpen ? 'Hide watchlist' : 'Show watchlist'}
+              >
+                {sidebarOpen ? <PanelLeftClose className="size-4" /> : <PanelLeftOpen className="size-4" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{sidebarOpen ? 'Hide watchlist' : 'Show watchlist'}</TooltipContent>
+          </Tooltip>
           <span className="text-2xl font-semibold">{activeSymbol ?? '—'}</span>
+          <GridShapeRow />
+          <LayoutMenu />
           <div className="ml-auto flex items-center gap-4">
             <SearchBar />
             <SettingsDialog />
           </div>
         </header>
-        <main className="flex-1">
-          {activeSymbol
-            ? (
-              <div className="flex h-full flex-col gap-4">
-                <div className="flex items-center gap-4">
-                  <TimeframeRow value={timeframe} onChange={setTimeframe} />
-                  <AddIndicatorMenu />
-                </div>
-                <div className="flex-1">
-                  <Chart symbol={activeSymbol} timeframe={timeframe} />
-                </div>
-              </div>
-              )
-            : <div className="p-6 text-muted-foreground">Search a symbol to begin.</div>}
-        </main>
+        <div className="flex flex-1 overflow-hidden">
+          <Watchlist open={sidebarOpen} />
+          <main className="flex-1 overflow-hidden">
+            <GridHost />
+          </main>
+        </div>
       </div>
       <Toaster />
     </TooltipProvider>

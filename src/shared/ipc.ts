@@ -1,4 +1,4 @@
-import type { Bar, SymbolResult, Timeframe, DateRange } from './types'
+import type { Bar, SymbolResult, Timeframe, DateRange, Workspace, WatchlistItem } from './types'
 
 export const CH = {
   symbolsSearch: 'symbols:search',
@@ -8,7 +8,18 @@ export const CH = {
   apikeyClear: 'apikey:clear',
   settingsGetLastSymbol: 'settings:getLastSymbol',
   settingsSetLastSymbol: 'settings:setLastSymbol',
-  capabilitiesGet: 'capabilities:get'
+  settingsGetSidebarOpen: 'settings:getSidebarOpen',
+  settingsSetSidebarOpen: 'settings:setSidebarOpen',
+  capabilitiesGet: 'capabilities:get',
+  layoutGetCurrent: 'layout:getCurrent',
+  layoutSetCurrent: 'layout:setCurrent',
+  layoutList: 'layout:list',
+  layoutGet: 'layout:get',
+  layoutSave: 'layout:save',
+  layoutDelete: 'layout:delete',
+  layoutRename: 'layout:rename',
+  watchlistGet: 'watchlist:get',
+  watchlistSet: 'watchlist:set'
 } as const
 
 export type KeyStatus = { hasKey: boolean; encryptionAvailable: boolean }
@@ -26,8 +37,25 @@ export interface Api {
   settings: {
     getLastSymbol(): Promise<string | null>
     setLastSymbol(symbol: string): Promise<void>
+    // Sidebar open/closed flag (D-63) — persisted separately from Workspace/named layouts, since
+    // it's UI chrome, not workspace config. Same small-JSON pattern as lastSymbol, same file.
+    getSidebarOpen(): Promise<boolean | null>
+    setSidebarOpen(open: boolean): Promise<void>
   }
   capabilities: { get(): Promise<Record<Timeframe, CapabilityStatus>> }
+  layout: {
+    getCurrent(): Promise<Workspace | null>
+    setCurrent(ws: Workspace): Promise<void>
+    list(): Promise<string[]>
+    get(name: string): Promise<Workspace | null>
+    save(name: string, ws: Workspace): Promise<void>
+    delete(name: string): Promise<void>
+    rename(from: string, to: string): Promise<void>
+  }
+  watchlist: {
+    get(): Promise<WatchlistItem[]>
+    set(items: WatchlistItem[]): Promise<void>
+  }
 }
 
 declare global {

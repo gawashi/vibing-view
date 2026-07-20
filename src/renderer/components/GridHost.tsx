@@ -1,0 +1,151 @@
+import React, { useEffect } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
+import { api, qk } from '@/api'
+import { useAppStore } from '@/store'
+import { VISIBLE_COUNT } from '@/workspace'
+import { AddIndicatorMenu } from './AddIndicatorMenu'
+import { Chart } from './Chart'
+import { TimeframeRow, TF_LABELS } from './TimeframeRow'
+import { cn } from '@/lib/utils'
+import type { Cell, Timeframe } from '@shared/types'
+
+// Module-level (shared across every cell, not per-cell state): the rate-limited-tf toast guard.
+// capabilities is a single map keyed by timeframe alone (one entry per API key, D-60 review), and
+// grid-expand (D-55) commonly duplicates the same timeframe into 2-4 cells — a per-cell guard would
+// let each cell's own effect pass its own single-flight check and stack N identical toasts. Keying
+// this guard by timeframe alone, at module scope, gives one toast per rate-limited tf regardless of
+// how many cells currently share it.
+//
+// The renderer only ever sees a plain CapabilityStatus string per tf (capabilities:get returns
+// Record<Timeframe, CapabilityStatus> — no probedAt/episode identity crosses IPC; that timestamp
+// lives only in main's capabilityCache.ts Entry). So this guard can't tell "still the same
+// rate-limit episode" from "a new one after today's UTC rollover" by content alone. Instead it
+// resets whenever the shared capsQ.data *reference* changes: main hands back a brand-new object on
+// every capabilities:get call, and a call only happens via this hook's own invalidateQueries calls
+// below (eager probe done / ohlcv error) — i.e. on a real observed state transition. That means a
+// resolved-then-recurring rate limit gets a fresh reference (and so a fresh toast) once anything
+// re-probes it, instead of staying permanently suppressed by a stale per-tf boolean.
+let lastCapsData: unknown
+const toastedForTf = new Set<Timeframe>()
+
+// Per-cell capability gating (D-60): each rendered cell independently probes/gates its own row off
+// its OWN symbol+timeframe, mirroring the logic that used to live once at App level (05-01 and
+// earlier). Reuses Chart's own ['ohlcv', symbol, tf] query cache entry and the single shared
+// ['capabilities'] entry — no extra fetches, same as the pre-grid App.tsx effects. The rate-limit
+// toast itself is the one exception (see toastedForTf above) — it's a shared side effect, not
+// per-cell state, so its guard lives at module scope instead of in this hook's local state.
+function useCellCapabilityGating(cellId: string, symbol: string | null, timeframe: Timeframe): void {
+  const queryClient = useQueryClient()
+  const setCellTimeframe = useAppStore((s) => s.setCellTimeframe)
+
+  const ohlcvQ = useQuery({
+    queryKey: qk.ohlcv(symbol ?? '', timeframe),
+    queryFn: () => api.ohlcv.get(symbol ?? '', timeframe, undefined),
+    enabled: !!symbol
+  })
+  const capsQ = useQuery({
+    queryKey: qk.capabilities(),
+    queryFn: () => api.capabilities.get(),
+    // structuralSharing (TanStack default: true) would keep the OLD object reference when a
+    // refetch returns a deep-equal result — e.g. day-2's rate-limited verdict deep-equals the
+    // still-cached day-1 one. That would defeat the toastedForTf reference-change reset above.
+    // This query only ever refetches on an explicit invalidateQueries(qk.capabilities()) call (see
+    // this hook's own invalidate calls; global staleTime is Infinity, no focus/interval refetch),
+    // so with structural sharing off, a reference change here means exactly one thing: a real
+    // refetch happened. Do not remove — the toast dedup's correctness depends on it.
+    structuralSharing: false
+  })
+
+  useEffect(() => {
+    // Eager one-time probe (D-21 override): grey gated intraday timeframes from startup instead of
+    // only after a click. Only probes tfs still 'unknown' for the current key — self-limiting, since
+    // once any cell resolves the (key-wide, not per-symbol) capability map, the rest see it as known.
+    if (!symbol || !capsQ.data) return
+    const intraday: Timeframe[] = ['1m', '5m', '15m', '1h']
+    const unknown = intraday.filter((tf) => capsQ.data?.[tf] === 'unknown')
+    if (unknown.length === 0) return
+    void Promise.allSettled(unknown.map((tf) => api.ohlcv.get(symbol, tf, undefined)))
+      .then(() => queryClient.invalidateQueries({ queryKey: qk.capabilities() }))
+  }, [symbol, capsQ.data, queryClient])
+
+  useEffect(() => {
+    if (ohlcvQ.isError) void queryClient.invalidateQueries({ queryKey: qk.capabilities() })
+  }, [ohlcvQ.isError, queryClient])
+
+  useEffect(() => {
+    // A tf discovered gated (requires-plan) after its first probe snaps THIS cell back to daily so
+    // its chart stays visible while the now-disabled button explains why.
+    if (capsQ.data?.[timeframe] === 'requires-plan') setCellTimeframe(cellId, '1d')
+  }, [capsQ.data, timeframe, cellId, setCellTimeframe])
+
+  useEffect(() => {
+    // A fresh capabilities snapshot (new object reference) may carry a new episode — clear the
+    // guard so a still/newly rate-limited tf can re-announce instead of staying suppressed forever.
+    if (capsQ.data && capsQ.data !== lastCapsData) {
+      lastCapsData = capsQ.data
+      toastedForTf.clear()
+    }
+    const isRateLimited = capsQ.data?.[timeframe] === 'rate-limited'
+    if (isRateLimited && !toastedForTf.has(timeframe)) {
+      toastedForTf.add(timeframe)
+      toast(`Rate limit reached for ${TF_LABELS[timeframe]}. Showing cached data — new bars will load once the limit resets.`)
+    }
+  }, [capsQ.data, timeframe])
+}
+
+function GridCell({ cell, active }: { cell: Cell; active: boolean }): React.JSX.Element {
+  const setActiveCell = useAppStore((s) => s.setActiveCell)
+  const setCellTimeframe = useAppStore((s) => s.setCellTimeframe)
+  useCellCapabilityGating(cell.id, cell.symbol, cell.timeframe)
+
+  return (
+    <div
+      onClick={() => setActiveCell(cell.id)}
+      className={cn(
+        // min-h-0 + min-w-0: a grid item defaults to min-height:auto and won't shrink below its
+        // content, so in 2x2 the chart's autoSize measurement would balloon the row past 1fr and
+        // the top cell renders double-height, clipping the one below. Let the cell shrink to its track.
+        'flex h-full min-h-0 min-w-0 flex-col gap-4 rounded-md',
+        active && 'ring-2 ring-primary ring-offset-2 ring-offset-background'
+      )}
+    >
+      {cell.symbol
+        ? (
+          <>
+            <div className="flex items-center gap-4">
+              <TimeframeRow
+                value={cell.timeframe}
+                onChange={(tf) => setCellTimeframe(cell.id, tf)}
+              />
+              <AddIndicatorMenu cellId={cell.id} />
+            </div>
+            <div className="min-h-0 flex-1">
+              <Chart cellId={cell.id} symbol={cell.symbol} timeframe={cell.timeframe} />
+            </div>
+          </>
+          )
+        : <div className="p-6 text-muted-foreground">Search a symbol to begin.</div>}
+    </div>
+  )
+}
+
+export function GridHost(): React.JSX.Element {
+  const cells = useAppStore((s) => s.cells)
+  const shape = useAppStore((s) => s.shape)
+  const activeCellId = useAppStore((s) => s.activeCellId)
+
+  const visible = cells.slice(0, VISIBLE_COUNT[shape])
+  const templateClass =
+    shape === '1x1' ? 'grid-cols-1 grid-rows-1'
+      : shape === '2x1' ? 'grid-cols-2 grid-rows-1'
+        : 'grid-cols-2 grid-rows-2'
+
+  return (
+    <div className={cn('grid h-full gap-4 p-4', templateClass)}>
+      {visible.map((cell) => (
+        <GridCell key={cell.id} cell={cell} active={cell.id === activeCellId} />
+      ))}
+    </div>
+  )
+}

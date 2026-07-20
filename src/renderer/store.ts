@@ -1,6 +1,9 @@
 import { create } from 'zustand'
+import { subscribeWithSelector } from 'zustand/middleware'
+import { toast } from 'sonner'
 import { registry } from './indicators/registry'
-import type { IndicatorInstance, Params } from './indicators/types'
+import { defaultWorkspace, duplicateCell, parseWorkspace, SCHEMA_VERSION, VISIBLE_COUNT } from './workspace'
+import type { Cell, GridShape, IndicatorInstance, Params, Timeframe, Workspace, WatchlistItem } from '@shared/types'
 
 // Crosshair readout injected into each pane's legend (D-38/39/40). Keyed by instance id for
 // per-output indicator values (keyed by draw-output key), plus a reserved `price` key holding the
@@ -15,34 +18,103 @@ export const PALETTE = ['#F5A623', '#A78BFA', '#2DD4BF', '#F472B6', '#FACC15', '
 
 let nextId = 1 // module-level counter (no Date/random) — JSON-stable ids for P5 persistence
 
+// Ids are minted as String(n); parse defensively and return the next-safe counter value (id+1),
+// or the current nextId (no-op) for anything non-numeric/NaN.
+const bumpId = (id: string): number => {
+  const n = parseInt(id, 10)
+  return Number.isFinite(n) ? n + 1 : nextId
+}
+
 type AppState = {
-  activeSymbol: string | null
+  cells: Cell[]
+  activeCellId: string
+  shape: GridShape
+  setActiveCell: (id: string) => void
+  setShape: (shape: GridShape) => void
   setActiveSymbol: (symbol: string) => void
-  indicators: IndicatorInstance[]
-  addIndicator: (type: string) => void
+  setTimeframe: (tf: Timeframe) => void
+  // Per-cell timeframe setter (05-02 grid) — targets an explicit cell, not activeCellId, so a
+  // non-active cell's own TimeframeRow (or an automatic gating effect) can set it directly without
+  // depending on click-event ordering to focus the cell first.
+  setCellTimeframe: (cellId: string, tf: Timeframe) => void
+  addIndicator: (type: string, cellId?: string) => void
   removeIndicator: (id: string) => void
   toggleVisible: (id: string) => void
   updateParams: (id: string, patch: Params) => void
   setColor: (id: string, outputKey: string, color: string) => void
-  crosshair: CrosshairValues
-  setCrosshair: (values: CrosshairValues) => void
+  hydrate: (ws: Workspace) => void
+  // Keyed by cellId so each grid cell's crosshair readout is isolated (05-02 grid).
+  crosshairByCell: Record<string, CrosshairValues>
+  setCrosshair: (cellId: string, values: CrosshairValues) => void
+
+  // Named-layout orchestration (05-03/D-56/D-58). `activeLayoutName` is null when the current
+  // workspace has never been saved under a name (or was switched away from one) — Rename/overwrite
+  // Save both key off this.
+  activeLayoutName: string | null
+  currentWorkspace: () => Workspace
+  saveLayoutAs: (name: string) => Promise<{ ok: true } | { ok: false; error: string }>
+  saveActiveLayout: () => Promise<void>
+  renameActiveLayout: (to: string) => Promise<{ ok: true } | { ok: false; error: string }>
+  deleteLayout: (name: string) => Promise<void>
+  switchToLayout: (name: string) => Promise<void>
+
+  // Persistent watchlist (05-04/D-62) — global across layouts, App wires load-on-startup and
+  // persist-on-change (Task 2). Kept here as pure state mutations so they're unit-testable in
+  // isolation from IPC.
+  watchlist: WatchlistItem[]
+  addToWatchlist: (item: WatchlistItem) => void
+  removeFromWatchlist: (symbol: string) => void
+  reorderWatchlist: (from: number, to: number) => void
 }
 
-export const useAppStore = create<AppState>((set, get) => ({
-  activeSymbol: null,
-  setActiveSymbol: (symbol) => set({ activeSymbol: symbol }),
+const initialWorkspace = defaultWorkspace(String(nextId++), String(nextId++))
 
-  crosshair: {},
-  setCrosshair: (values) => set({ crosshair: values }),
+export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) => ({
+  cells: initialWorkspace.cells,
+  activeCellId: initialWorkspace.activeCellId,
+  shape: initialWorkspace.shape,
 
-  // D-34: Volume is always present, non-removable, not addable — seeded once, same shape as addIndicator.
-  indicators: [
-    { id: String(nextId++), type: 'volume', params: {}, colors: {}, visible: true, fixed: true }
-  ],
-  addIndicator: (type) => {
+  crosshairByCell: {},
+  setCrosshair: (cellId, values) => set((state) => ({
+    crosshairByCell: { ...state.crosshairByCell, [cellId]: values }
+  })),
+
+  setActiveCell: (id) => set({ activeCellId: id }),
+  setShape: (shape) => set((state) => {
+    const target = VISIBLE_COUNT[shape]
+    let cells = state.cells
+    if (target > cells.length) {
+      const activeCell = cells.find((c) => c.id === state.activeCellId) ?? cells[0]
+      const added: Cell[] = []
+      for (let i = cells.length; i < target; i++) {
+        const newIndicatorIds = activeCell.indicators.map(() => String(nextId++))
+        added.push(duplicateCell(activeCell, String(nextId++), newIndicatorIds))
+      }
+      cells = [...cells, ...added]
+    }
+    const visible = cells.slice(0, target)
+    const activeCellId = visible.some((c) => c.id === state.activeCellId)
+      ? state.activeCellId
+      : visible[0].id
+    return { shape, cells, activeCellId }
+  }),
+
+  setActiveSymbol: (symbol) => set((state) => ({
+    cells: state.cells.map((c) => (c.id === state.activeCellId ? { ...c, symbol } : c))
+  })),
+  setTimeframe: (tf) => set((state) => ({
+    cells: state.cells.map((c) => (c.id === state.activeCellId ? { ...c, timeframe: tf } : c))
+  })),
+  setCellTimeframe: (cellId, tf) => set((state) => ({
+    cells: state.cells.map((c) => (c.id === cellId ? { ...c, timeframe: tf } : c))
+  })),
+  addIndicator: (type, cellId) => {
     const module = registry[type]
     if (!module) return
-    const base = get().indicators.length
+    const targetId = cellId ?? get().activeCellId
+    const activeCell = get().cells.find((c) => c.id === targetId)
+    if (!activeCell) return
+    const base = activeCell.indicators.length
     const colors: Record<string, string> = {}
     // Multi-line-no-band modules (MACD: macd+signal, no band) get CONSECUTIVE hues so the two lines
     // are distinguishable; derived from outputs structure, never inst.type. ma/rsi (single line) and
@@ -67,20 +139,136 @@ export const useAppStore = create<AppState>((set, get) => ({
       colors,
       visible: true
     }
-    set((state) => ({ indicators: [...state.indicators, instance] }))
+    set((state) => ({
+      cells: state.cells.map((c) =>
+        c.id === targetId ? { ...c, indicators: [...c.indicators, instance] } : c
+      )
+    }))
   },
   removeIndicator: (id) => set((state) => ({
-    indicators: state.indicators.filter((i) => i.id !== id || i.fixed)
+    cells: state.cells.map((c) => ({
+      ...c,
+      indicators: c.indicators.filter((i) => i.id !== id || i.fixed)
+    }))
   })),
   toggleVisible: (id) => set((state) => ({
-    indicators: state.indicators.map((i) => (i.id === id ? { ...i, visible: !i.visible } : i))
+    cells: state.cells.map((c) => ({
+      ...c,
+      indicators: c.indicators.map((i) => (i.id === id ? { ...i, visible: !i.visible } : i))
+    }))
   })),
   updateParams: (id, patch) => set((state) => ({
-    indicators: state.indicators.map((i) => (i.id === id ? { ...i, params: { ...i.params, ...patch } } : i))
+    cells: state.cells.map((c) => ({
+      ...c,
+      indicators: c.indicators.map((i) => (i.id === id ? { ...i, params: { ...i.params, ...patch } } : i))
+    }))
   })),
   setColor: (id, outputKey, color) => set((state) => ({
-    indicators: state.indicators.map((i) =>
-      i.id === id ? { ...i, colors: { ...i.colors, [outputKey]: color } } : i
-    )
-  }))
-}))
+    cells: state.cells.map((c) => ({
+      ...c,
+      indicators: c.indicators.map((i) =>
+        i.id === id ? { ...i, colors: { ...i.colors, [outputKey]: color } } : i
+      )
+    }))
+  })),
+  hydrate: (ws) => {
+    // Reseed the module-level id counter past every id in the loaded workspace — otherwise ids
+    // minted post-hydrate (addIndicator/setShape/duplicateCell) can collide with restored ids
+    // from a prior session's counter (see Phase 5 review: nextId collision bug).
+    for (const cell of ws.cells) {
+      nextId = Math.max(nextId, bumpId(cell.id))
+      for (const inst of cell.indicators) nextId = Math.max(nextId, bumpId(inst.id))
+    }
+    set({ cells: ws.cells, shape: ws.shape, activeCellId: ws.activeCellId })
+  },
+
+  // Named-layout actions call `window.api.*` directly (NOT the `./api` wrapper) on purpose:
+  // importing `./api` touches `window` at module-load time, which breaks the node-env vitest
+  // run (store.test.ts imports store.ts with no DOM) and `tsc -p tsconfig.node.json` (api.ts
+  // isn't in that project's include). Do not "clean this up" to use `./api`.
+  activeLayoutName: null,
+  currentWorkspace: () => {
+    const { cells, shape, activeCellId } = get()
+    return { schemaVersion: SCHEMA_VERSION, cells, shape, activeCellId }
+  },
+  saveLayoutAs: async (name) => {
+    const existing = await window.api.layout.list()
+    if (existing.includes(name)) {
+      return { ok: false, error: `A layout named "${name}" already exists.` }
+    }
+    try {
+      await window.api.layout.save(name, get().currentWorkspace())
+      set({ activeLayoutName: name })
+      return { ok: true }
+    } catch {
+      toast("Couldn't save layout. Try again.")
+      return { ok: false, error: "Couldn't save layout. Try again." }
+    }
+  },
+  saveActiveLayout: async () => {
+    const name = get().activeLayoutName
+    if (!name) return
+    try {
+      await window.api.layout.save(name, get().currentWorkspace())
+    } catch {
+      toast("Couldn't save layout. Try again.")
+    }
+  },
+  renameActiveLayout: async (to) => {
+    const from = get().activeLayoutName
+    if (!from) return { ok: false, error: "No active layout to rename." }
+    if (to !== from) {
+      const existing = await window.api.layout.list()
+      if (existing.includes(to)) {
+        return { ok: false, error: `A layout named "${to}" already exists.` }
+      }
+    }
+    try {
+      await window.api.layout.rename(from, to)
+      set({ activeLayoutName: to })
+      return { ok: true }
+    } catch {
+      toast("Couldn't save layout. Try again.")
+      return { ok: false, error: "Couldn't save layout. Try again." }
+    }
+  },
+  deleteLayout: async (name) => {
+    try {
+      await window.api.layout.delete(name)
+      if (get().activeLayoutName === name) set({ activeLayoutName: null })
+    } catch {
+      toast("Couldn't save layout. Try again.")
+    }
+  },
+  switchToLayout: async (name) => {
+    try {
+      // D-58: auto-save current state before switching away, no confirmation.
+      await window.api.layout.setCurrent(get().currentWorkspace())
+      const raw = await window.api.layout.get(name)
+      const ws = parseWorkspace(raw)
+      // Corrupt/unparseable stored layout — abort the switch, keep current state (never wipe it).
+      if (!ws) return
+      get().hydrate(ws)
+      set({ activeLayoutName: name })
+    } catch {
+      toast("Couldn't save layout. Try again.")
+    }
+  },
+
+  watchlist: [],
+  addToWatchlist: (item) => set((state) =>
+    // WATCH-01: adding an already-present symbol is a no-op (dedupe by symbol).
+    state.watchlist.some((w) => w.symbol === item.symbol)
+      ? state
+      : { watchlist: [...state.watchlist, item] }
+  ),
+  removeFromWatchlist: (symbol) => set((state) => ({
+    watchlist: state.watchlist.filter((w) => w.symbol !== symbol)
+  })),
+  reorderWatchlist: (from, to) => set((state) => {
+    const list = [...state.watchlist]
+    const [moved] = list.splice(from, 1)
+    list.splice(to, 0, moved)
+    return { watchlist: list }
+  })
+})))

@@ -19,7 +19,7 @@ export function IndicatorEditForm({
   open: boolean
   onOpenChange: (open: boolean) => void
 }): React.JSX.Element | null {
-  const instance = useAppStore((s) => s.indicators.find((i) => i.id === instanceId))
+  const instance = useAppStore((s) => s.cells.flatMap((c) => c.indicators).find((i) => i.id === instanceId))
   const updateParams = useAppStore((s) => s.updateParams)
   const setColor = useAppStore((s) => s.setColor)
 
