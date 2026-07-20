@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { api, qk } from '@/api'
-import { useAppStore } from '@/store'
+import { useAppStore, selectActiveItems } from '@/store'
 import { SearchResults } from './SearchResults'
 import type { SymbolResult } from '@shared/types'
 
@@ -23,7 +23,7 @@ export function SearchBar(): React.JSX.Element {
     return () => document.removeEventListener('mousedown', onDown)
   }, [confirmed])
   const setActiveSymbol = useAppStore((s) => s.setActiveSymbol)
-  const watchlist = useAppStore((s) => s.watchlist)
+  const watchlist = useAppStore(selectActiveItems)
   const addToWatchlist = useAppStore((s) => s.addToWatchlist)
   const removeFromWatchlist = useAppStore((s) => s.removeFromWatchlist)
 

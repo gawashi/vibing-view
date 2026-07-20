@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { Timeframe, DateRange, Workspace, WatchlistItem } from '@shared/types'
+import type { Timeframe, DateRange, Workspace, WatchlistCollection } from '@shared/types'
 import { CH, type Api } from '@shared/ipc'
 
 const api: Api = {
@@ -17,7 +17,9 @@ const api: Api = {
     getLastSymbol: () => ipcRenderer.invoke(CH.settingsGetLastSymbol),
     setLastSymbol: (symbol) => ipcRenderer.invoke(CH.settingsSetLastSymbol, symbol),
     getSidebarOpen: () => ipcRenderer.invoke(CH.settingsGetSidebarOpen),
-    setSidebarOpen: (open) => ipcRenderer.invoke(CH.settingsSetSidebarOpen, open)
+    setSidebarOpen: (open) => ipcRenderer.invoke(CH.settingsSetSidebarOpen, open),
+    getSidebarWidth: () => ipcRenderer.invoke(CH.settingsGetSidebarWidth),
+    setSidebarWidth: (width) => ipcRenderer.invoke(CH.settingsSetSidebarWidth, width)
   },
   capabilities: { get: () => ipcRenderer.invoke(CH.capabilitiesGet) },
   layout: {
@@ -31,7 +33,7 @@ const api: Api = {
   },
   watchlist: {
     get: () => ipcRenderer.invoke(CH.watchlistGet),
-    set: (items: WatchlistItem[]) => ipcRenderer.invoke(CH.watchlistSet, items)
+    set: (c: WatchlistCollection) => ipcRenderer.invoke(CH.watchlistSet, c)
   }
 }
 

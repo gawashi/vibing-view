@@ -2,8 +2,10 @@ import React from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { GripVertical, X } from 'lucide-react'
 import { api, qk } from '@/api'
-import { useAppStore } from '@/store'
+import { useAppStore, selectActiveItems } from '@/store'
 import { cn } from '@/lib/utils'
+import { computeChange } from '@/lib/priceChange'
+import { WatchlistSwitcher } from './WatchlistSwitcher'
 import type { Bar, WatchlistItem } from '@shared/types'
 
 function Row({
@@ -20,17 +22,16 @@ function Row({
   const setActiveSymbol = useAppStore((s) => s.setActiveSymbol)
   const removeFromWatchlist = useAppStore((s) => s.removeFromWatchlist)
 
-  // Cached-only latest close (D-64) — `enabled: false` means queryFn is NEVER called (no fetch,
-  // ever), but the observer still subscribes to this key's cache entry, so the row re-renders when
-  // Chart/GridHost later populates it (unlike a bare getQueryData() read, which is a one-shot with
-  // no subscription and would stay stuck blank until an unrelated re-render).
+  // 起動時から価格を表示する（ユーザー要望 #5）。queryFn は CacheService 経由のキャッシュ読み抜き
+  // なので、キャッシュ済み銘柄は無通信、未取得の日足だけ1回フェッチ。staleTime:Infinity で以後は
+  // 再取得しない。描画される行（=アクティブリスト）だけが走るので非アクティブ銘柄は取得しない。
   const { data: bars } = useQuery<Bar[]>({
     queryKey: qk.ohlcv(item.symbol, '1d'),
     queryFn: () => api.ohlcv.get(item.symbol, '1d', undefined),
-    enabled: false,
     staleTime: Infinity
   })
-  const lastClose = bars && bars.length > 0 ? bars[bars.length - 1].close : undefined
+  // 前日比（日足基準）: price=bars[-1].close, pct= (price - bars[-2].close)/bars[-2].close。
+  const change = computeChange(bars, '1d', undefined)
 
   return (
     <li
@@ -57,7 +58,7 @@ function Row({
         draggable
         onDragStart={(e) => {
           e.stopPropagation()
-          const from = useAppStore.getState().watchlist.findIndex((w) => w.symbol === item.symbol)
+          const from = selectActiveItems(useAppStore.getState()).findIndex((w) => w.symbol === item.symbol)
           e.dataTransfer.setData('text/plain', String(from))
         }}
         onDragEnd={() => setOverIndex(null)}
@@ -69,7 +70,14 @@ function Row({
       </span>
       <span className="font-semibold">{item.symbol}</span>
       <span className="truncate text-xs text-muted-foreground" title={item.name}>{item.name}</span>
-      <span className="ml-auto shrink-0 text-sm">{lastClose !== undefined ? lastClose.toFixed(2) : ''}</span>
+      <span
+        className={cn(
+          'ml-auto shrink-0 text-sm',
+          change?.pct != null && (change.pct >= 0 ? 'text-green-500' : 'text-red-500')
+        )}
+      >
+        {change ? change.price.toFixed(2) : ''}
+      </span>
       <button
         onClick={(e) => {
           e.stopPropagation()
@@ -84,18 +92,32 @@ function Row({
   )
 }
 
-export function Watchlist({ open }: { open: boolean }): React.JSX.Element {
-  const watchlist = useAppStore((s) => s.watchlist)
+export function Watchlist({
+  open,
+  width,
+  onWidthChange
+}: {
+  open: boolean
+  width: number
+  onWidthChange: (w: number) => void
+}): React.JSX.Element {
+  const watchlist = useAppStore(selectActiveItems)
   const [overIndex, setOverIndex] = React.useState<number | null>(null)
+  const [dragging, setDragging] = React.useState(false)
 
   return (
     <aside
+      style={{ width: open ? width : 0 }}
       className={cn(
-        'h-full overflow-hidden border-r border-border bg-background transition-[width]',
-        open ? 'w-[240px]' : 'w-0'
+        'relative h-full overflow-hidden border-r border-border bg-background',
+        // トランジションはドラッグ中は無効(追従ラグ防止)、開閉時のみ有効。
+        !dragging && 'transition-[width]'
       )}
     >
-      <div className="h-full w-[240px] overflow-y-auto">
+      <div className="h-full overflow-y-auto" style={{ width }}>
+        <div className="border-b border-border p-2">
+          <WatchlistSwitcher />
+        </div>
         {watchlist.length === 0
           ? (
             <div className="p-2 text-sm text-muted-foreground">
@@ -113,9 +135,42 @@ export function Watchlist({ open }: { open: boolean }): React.JSX.Element {
                   setOverIndex={setOverIndex}
                 />
               ))}
+              {/* 末尾ドロップゾーン: 最終行の下へ落とすと末尾へ移動。marker(border-t)= 最終行の下端。
+                  reorder(from, length) は from<length で to-1=末尾スロットに挿入。 */}
+              <li
+                onDragOver={(e) => { e.preventDefault(); setOverIndex(watchlist.length) }}
+                onDrop={(e) => {
+                  e.preventDefault()
+                  const from = Number(e.dataTransfer.getData('text/plain'))
+                  if (!Number.isNaN(from)) useAppStore.getState().reorderWatchlist(from, watchlist.length)
+                  setOverIndex(null)
+                }}
+                className={cn('h-8 border-t-2 border-transparent', overIndex === watchlist.length && 'border-primary')}
+              />
             </ul>
             )}
       </div>
+      {open && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize sidebar"
+          onPointerDown={(e) => {
+            e.currentTarget.setPointerCapture(e.pointerId)
+            setDragging(true)
+          }}
+          onPointerMove={(e) => {
+            if (!dragging) return
+            const left = e.currentTarget.parentElement!.getBoundingClientRect().left
+            onWidthChange(Math.min(640, Math.max(240, e.clientX - left)))
+          }}
+          onPointerUp={(e) => {
+            e.currentTarget.releasePointerCapture(e.pointerId)
+            setDragging(false)
+          }}
+          className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary"
+        />
+      )}
     </aside>
   )
 }

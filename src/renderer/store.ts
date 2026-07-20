@@ -3,7 +3,7 @@ import { subscribeWithSelector } from 'zustand/middleware'
 import { toast } from 'sonner'
 import { registry } from './indicators/registry'
 import { defaultWorkspace, duplicateCell, parseWorkspace, SCHEMA_VERSION, VISIBLE_COUNT } from './workspace'
-import type { Cell, GridShape, IndicatorInstance, Params, Timeframe, Workspace, WatchlistItem } from '@shared/types'
+import type { Cell, GridShape, IndicatorInstance, Params, Timeframe, Workspace, WatchlistItem, NamedWatchlist, WatchlistCollection } from '@shared/types'
 
 // Crosshair readout injected into each pane's legend (D-38/39/40). Keyed by instance id for
 // per-output indicator values (keyed by draw-output key), plus a reserved `price` key holding the
@@ -15,6 +15,8 @@ export type CrosshairValues = Record<string, OhlcValues | InstReadout>
 // D-30: fixed 6-hue dark-theme palette, round-robin assigned by add order. Disjoint from candle
 // colors, the app accent, and destructive — see 03-UI-SPEC.md Color section.
 export const PALETTE = ['#F5A623', '#A78BFA', '#2DD4BF', '#F472B6', '#FACC15', '#38BDF8']
+
+export type WatchlistActionResult = { ok: true } | { ok: false; error: string }
 
 let nextId = 1 // module-level counter (no Date/random) — JSON-stable ids for P5 persistence
 
@@ -62,14 +64,23 @@ type AppState = {
   deleteLayout: (name: string) => Promise<void>
   switchToLayout: (name: string) => Promise<void>
 
-  // Persistent watchlist (05-04/D-62) — global across layouts, App wires load-on-startup and
-  // persist-on-change (Task 2). Kept here as pure state mutations so they're unit-testable in
-  // isolation from IPC.
-  watchlist: WatchlistItem[]
+  // Persistent multi-watchlist (D-62). All actions act on the ACTIVE list; App wires
+  // load-on-startup and persist-on-change. Pure state mutations (no IPC) so they're unit-testable.
+  watchlists: NamedWatchlist[]
+  activeWatchlist: string
   addToWatchlist: (item: WatchlistItem) => void
   removeFromWatchlist: (symbol: string) => void
   reorderWatchlist: (from: number, to: number) => void
+  createWatchlist: (name: string) => WatchlistActionResult
+  renameWatchlist: (from: string, to: string) => WatchlistActionResult
+  deleteWatchlist: (name: string) => void
+  switchWatchlist: (name: string) => void
+  hydrateWatchlists: (collection: WatchlistCollection) => void
 }
+
+// アクティブリストの items。見つからなければ空配列。found 時は items 参照が安定（再描画churn防止）。
+export const selectActiveItems = (s: AppState): WatchlistItem[] =>
+  s.watchlists.find((w) => w.name === s.activeWatchlist)?.items ?? []
 
 const initialWorkspace = defaultWorkspace(String(nextId++), String(nextId++))
 
@@ -283,20 +294,63 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
     }
   },
 
-  watchlist: [],
-  addToWatchlist: (item) => set((state) =>
-    // WATCH-01: adding an already-present symbol is a no-op (dedupe by symbol).
-    state.watchlist.some((w) => w.symbol === item.symbol)
-      ? state
-      : { watchlist: [...state.watchlist, item] }
-  ),
-  removeFromWatchlist: (symbol) => set((state) => ({
-    watchlist: state.watchlist.filter((w) => w.symbol !== symbol)
+  watchlists: [{ name: 'Watchlist', items: [] }],
+  activeWatchlist: 'Watchlist',
+  addToWatchlist: (item) => set((state) => ({
+    watchlists: state.watchlists.map((w) =>
+      w.name === state.activeWatchlist
+        ? (w.items.some((i) => i.symbol === item.symbol) ? w : { ...w, items: [...w.items, item] })
+        : w
+    )
   })),
-  reorderWatchlist: (from, to) => set((state) => {
-    const list = [...state.watchlist]
-    const [moved] = list.splice(from, 1)
-    list.splice(to, 0, moved)
-    return { watchlist: list }
+  removeFromWatchlist: (symbol) => set((state) => ({
+    watchlists: state.watchlists.map((w) =>
+      w.name === state.activeWatchlist ? { ...w, items: w.items.filter((i) => i.symbol !== symbol) } : w
+    )
+  })),
+  // ずれ修正: from を抜いた後の座標系に合わせ、下方向(from<to)は挿入位置を1つ詰める。
+  // これでマーカー(行上端=その行の前)と実挿入位置が上下両方向で一致する。
+  reorderWatchlist: (from, to) => set((state) => ({
+    watchlists: state.watchlists.map((w) => {
+      if (w.name !== state.activeWatchlist) return w
+      const items = [...w.items]
+      const [moved] = items.splice(from, 1)
+      items.splice(from < to ? to - 1 : to, 0, moved)
+      return { ...w, items }
+    })
+  })),
+  createWatchlist: (name) => {
+    const trimmed = name.trim()
+    if (trimmed.length === 0) return { ok: false, error: 'Name cannot be empty.' }
+    if (get().watchlists.some((w) => w.name === trimmed)) {
+      return { ok: false, error: `A watchlist named "${trimmed}" already exists.` }
+    }
+    set((state) => ({ watchlists: [...state.watchlists, { name: trimmed, items: [] }], activeWatchlist: trimmed }))
+    return { ok: true }
+  },
+  renameWatchlist: (from, to) => {
+    const trimmed = to.trim()
+    if (trimmed.length === 0) return { ok: false, error: 'Name cannot be empty.' }
+    if (trimmed !== from && get().watchlists.some((w) => w.name === trimmed)) {
+      return { ok: false, error: `A watchlist named "${trimmed}" already exists.` }
+    }
+    set((state) => ({
+      watchlists: state.watchlists.map((w) => (w.name === from ? { ...w, name: trimmed } : w)),
+      activeWatchlist: state.activeWatchlist === from ? trimmed : state.activeWatchlist
+    }))
+    return { ok: true }
+  },
+  deleteWatchlist: (name) => set((state) => {
+    if (state.watchlists.length <= 1) return state // 最後の1リストは削除不可
+    const watchlists = state.watchlists.filter((w) => w.name !== name)
+    const activeWatchlist = state.activeWatchlist === name ? watchlists[0].name : state.activeWatchlist
+    return { watchlists, activeWatchlist }
+  }),
+  switchWatchlist: (name) => set((state) =>
+    state.watchlists.some((w) => w.name === name) ? { activeWatchlist: name } : state
+  ),
+  hydrateWatchlists: (collection) => set({
+    watchlists: collection.lists,
+    activeWatchlist: collection.active
   })
 })))

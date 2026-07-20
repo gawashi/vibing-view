@@ -17,6 +17,15 @@ export type SymbolResult = {
 
 export type WatchlistItem = SymbolResult
 
+export type NamedWatchlist = { name: string; items: WatchlistItem[] }
+
+// version は将来のスキーマ変更検知用。lists は最低1件を getWatchlists が保証する。
+export type WatchlistCollection = {
+  version: 2
+  active: string
+  lists: NamedWatchlist[]
+}
+
 export type DateRange = { from: number; to: number } | undefined
 
 export type Params = Record<string, number | string>

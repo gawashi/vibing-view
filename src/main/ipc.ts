@@ -1,11 +1,11 @@
 import { ipcMain } from 'electron'
-import type { Timeframe, DateRange, Workspace, WatchlistItem } from '@shared/types'
+import type { Timeframe, DateRange, Workspace, WatchlistCollection } from '@shared/types'
 import { CH, type CapabilityStatus } from '@shared/ipc'
 import { FmpProvider, FmpHttpError } from './providers/FmpProvider'
 import { createCacheService } from './cache/CacheService'
 import * as barStore from './db/barStore'
 import { getApiKey, setApiKey, getKeyStatus, clearApiKey } from './keystore'
-import { getLastSymbol, setLastSymbol, getSidebarOpen, setSidebarOpen } from './settings'
+import { getLastSymbol, setLastSymbol, getSidebarOpen, setSidebarOpen, getSidebarWidth, setSidebarWidth } from './settings'
 import { createSearchCache } from './searchCache'
 import { classify } from './capabilityClassifier'
 import * as capabilityCache from './capabilityCache'
@@ -88,6 +88,8 @@ export function registerIpc(): void {
   ipcMain.handle(CH.settingsSetLastSymbol, (_e, symbol: string) => setLastSymbol(symbol))
   ipcMain.handle(CH.settingsGetSidebarOpen, () => getSidebarOpen())
   ipcMain.handle(CH.settingsSetSidebarOpen, (_e, open: boolean) => setSidebarOpen(open))
+  ipcMain.handle(CH.settingsGetSidebarWidth, () => getSidebarWidth())
+  ipcMain.handle(CH.settingsSetSidebarWidth, (_e, width: number) => setSidebarWidth(width))
   ipcMain.handle(CH.layoutGetCurrent, () => layoutStore.getCurrent())
   ipcMain.handle(CH.layoutSetCurrent, (_e, ws: Workspace) => layoutStore.setCurrent(ws))
   ipcMain.handle(CH.layoutList, () => layoutStore.listLayouts())
@@ -95,8 +97,8 @@ export function registerIpc(): void {
   ipcMain.handle(CH.layoutSave, (_e, name: string, ws: Workspace) => layoutStore.saveLayout(name, ws))
   ipcMain.handle(CH.layoutDelete, (_e, name: string) => layoutStore.deleteLayout(name))
   ipcMain.handle(CH.layoutRename, (_e, from: string, to: string) => layoutStore.renameLayout(from, to))
-  ipcMain.handle(CH.watchlistGet, () => watchlistStore.getWatchlist())
-  ipcMain.handle(CH.watchlistSet, (_e, items: WatchlistItem[]) => watchlistStore.setWatchlist(items))
+  ipcMain.handle(CH.watchlistGet, () => watchlistStore.getWatchlists())
+  ipcMain.handle(CH.watchlistSet, (_e, c: WatchlistCollection) => watchlistStore.setWatchlists(c))
 
   ipcMain.handle(CH.capabilitiesGet, () => {
     const apiKey = getApiKey()

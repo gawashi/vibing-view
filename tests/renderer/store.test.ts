@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { useAppStore } from '../../src/renderer/store'
+import { useAppStore, selectActiveItems } from '../../src/renderer/store'
 import type { Workspace } from '../../src/shared/types'
 
 describe('useAppStore grid shape logic', () => {
@@ -215,39 +215,101 @@ describe('useAppStore grid shape logic', () => {
     })
   })
 
-  describe('watchlist', () => {
+  describe('watchlists (multi-list)', () => {
     beforeEach(() => {
-      useAppStore.setState({ watchlist: [] })
+      useAppStore.setState({
+        watchlists: [{ name: 'Watchlist', items: [] }],
+        activeWatchlist: 'Watchlist'
+      })
     })
 
-    it('addToWatchlist twice with the same symbol yields one entry (WATCH-01 dedupe)', () => {
+    const items = () => selectActiveItems(useAppStore.getState())
+
+    it('addToWatchlist twice with the same symbol yields one entry (dedupe, active list)', () => {
       const item = { symbol: 'AAPL', name: 'Apple Inc.', exchange: 'NASDAQ' }
       useAppStore.getState().addToWatchlist(item)
       useAppStore.getState().addToWatchlist(item)
-
-      expect(useAppStore.getState().watchlist).toEqual([item])
+      expect(items()).toEqual([item])
     })
 
-    it('removeFromWatchlist removes only the matching symbol', () => {
+    it('removeFromWatchlist removes only the matching symbol in the active list', () => {
       const a = { symbol: 'AAPL', name: 'Apple Inc.', exchange: 'NASDAQ' }
       const m = { symbol: 'MSFT', name: 'Microsoft Corp.', exchange: 'NASDAQ' }
       useAppStore.getState().addToWatchlist(a)
       useAppStore.getState().addToWatchlist(m)
-
       useAppStore.getState().removeFromWatchlist('AAPL')
-
-      expect(useAppStore.getState().watchlist).toEqual([m])
+      expect(items()).toEqual([m])
     })
 
-    it('reorderWatchlist(0, 2) moves the item and preserves the rest in order', () => {
-      const a = { symbol: 'A', name: 'A Inc.', exchange: 'NYSE' }
-      const b = { symbol: 'B', name: 'B Inc.', exchange: 'NYSE' }
-      const c = { symbol: 'C', name: 'C Inc.', exchange: 'NYSE' }
-      useAppStore.setState({ watchlist: [a, b, c] })
-
+    // マーカー(行上端 = その行の前に挿入)と実挿入位置を一致させる:
+    it('reorder DOWN inserts before the target row (marker == actual)', () => {
+      const [a, b, c] = [
+        { symbol: 'A', name: 'A', exchange: 'NYSE' },
+        { symbol: 'B', name: 'B', exchange: 'NYSE' },
+        { symbol: 'C', name: 'C', exchange: 'NYSE' }
+      ]
+      useAppStore.setState({ watchlists: [{ name: 'Watchlist', items: [a, b, c] }], activeWatchlist: 'Watchlist' })
+      // A(0) を C(index2) の上（=Cの前）にドロップ → [B, A, C]
       useAppStore.getState().reorderWatchlist(0, 2)
+      expect(items()).toEqual([b, a, c])
+    })
 
-      expect(useAppStore.getState().watchlist).toEqual([b, c, a])
+    it('reorder UP inserts before the target row', () => {
+      const [a, b, c] = [
+        { symbol: 'A', name: 'A', exchange: 'NYSE' },
+        { symbol: 'B', name: 'B', exchange: 'NYSE' },
+        { symbol: 'C', name: 'C', exchange: 'NYSE' }
+      ]
+      useAppStore.setState({ watchlists: [{ name: 'Watchlist', items: [a, b, c] }], activeWatchlist: 'Watchlist' })
+      // C(2) を A(index0) の上にドロップ → [C, A, B]
+      useAppStore.getState().reorderWatchlist(2, 0)
+      expect(items()).toEqual([c, a, b])
+    })
+
+    it('reorder to length moves the item to the last slot (末尾ドロップゾーン)', () => {
+      const [a, b, c] = [
+        { symbol: 'A', name: 'A', exchange: 'NYSE' },
+        { symbol: 'B', name: 'B', exchange: 'NYSE' },
+        { symbol: 'C', name: 'C', exchange: 'NYSE' }
+      ]
+      useAppStore.setState({ watchlists: [{ name: 'Watchlist', items: [a, b, c] }], activeWatchlist: 'Watchlist' })
+      // A(0) を末尾ゾーン(index=length=3)へドロップ → [B, C, A]
+      useAppStore.getState().reorderWatchlist(0, 3)
+      expect(items()).toEqual([b, c, a])
+    })
+
+    it('createWatchlist adds a list and switches to it; rejects duplicate/empty names', () => {
+      expect(useAppStore.getState().createWatchlist('Tech')).toEqual({ ok: true })
+      expect(useAppStore.getState().activeWatchlist).toBe('Tech')
+      expect(useAppStore.getState().createWatchlist('Tech').ok).toBe(false)
+      expect(useAppStore.getState().createWatchlist('   ').ok).toBe(false)
+    })
+
+    it('switchWatchlist scopes add/remove to the active list', () => {
+      const a = { symbol: 'AAPL', name: 'Apple', exchange: 'NASDAQ' }
+      useAppStore.getState().createWatchlist('Tech')
+      useAppStore.getState().addToWatchlist(a)
+      useAppStore.getState().switchWatchlist('Watchlist')
+      expect(items()).toEqual([])
+      useAppStore.getState().switchWatchlist('Tech')
+      expect(items()).toEqual([a])
+    })
+
+    it('renameWatchlist renames and moves active pointer; rejects duplicates', () => {
+      useAppStore.getState().createWatchlist('Tech') // active = Tech
+      expect(useAppStore.getState().renameWatchlist('Tech', 'Growth')).toEqual({ ok: true })
+      expect(useAppStore.getState().activeWatchlist).toBe('Growth')
+      expect(useAppStore.getState().renameWatchlist('Growth', 'Watchlist').ok).toBe(false)
+    })
+
+    it('deleteWatchlist protects the last list and re-points active to the first', () => {
+      useAppStore.getState().createWatchlist('Tech') // lists: [Watchlist, Tech], active Tech
+      useAppStore.getState().deleteWatchlist('Tech')
+      expect(useAppStore.getState().watchlists.map((w) => w.name)).toEqual(['Watchlist'])
+      expect(useAppStore.getState().activeWatchlist).toBe('Watchlist')
+      // last list is protected — no-op
+      useAppStore.getState().deleteWatchlist('Watchlist')
+      expect(useAppStore.getState().watchlists).toHaveLength(1)
     })
   })
 })

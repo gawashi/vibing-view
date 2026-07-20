@@ -26,3 +26,13 @@ export function getSidebarOpen(): boolean | null {
 export function setSidebarOpen(open: boolean): void {
   writeJsonFile(settingsPath(), { ...read(), sidebarOpen: open })
 }
+
+// D-63 と同じ扱い（UI chrome）。幅もここへ。clamp は呼び出し側(renderer)の責務。
+export function getSidebarWidth(): number | null {
+  const v = read().sidebarWidth
+  return typeof v === 'number' ? v : null
+}
+
+export function setSidebarWidth(width: number): void {
+  writeJsonFile(settingsPath(), { ...read(), sidebarWidth: width })
+}

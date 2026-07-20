@@ -1,4 +1,4 @@
-import type { Bar, SymbolResult, Timeframe, DateRange, Workspace, WatchlistItem } from './types'
+import type { Bar, SymbolResult, Timeframe, DateRange, Workspace, WatchlistCollection } from './types'
 
 export const CH = {
   symbolsSearch: 'symbols:search',
@@ -10,6 +10,8 @@ export const CH = {
   settingsSetLastSymbol: 'settings:setLastSymbol',
   settingsGetSidebarOpen: 'settings:getSidebarOpen',
   settingsSetSidebarOpen: 'settings:setSidebarOpen',
+  settingsGetSidebarWidth: 'settings:getSidebarWidth',
+  settingsSetSidebarWidth: 'settings:setSidebarWidth',
   capabilitiesGet: 'capabilities:get',
   layoutGetCurrent: 'layout:getCurrent',
   layoutSetCurrent: 'layout:setCurrent',
@@ -41,6 +43,8 @@ export interface Api {
     // it's UI chrome, not workspace config. Same small-JSON pattern as lastSymbol, same file.
     getSidebarOpen(): Promise<boolean | null>
     setSidebarOpen(open: boolean): Promise<void>
+    getSidebarWidth(): Promise<number | null>
+    setSidebarWidth(width: number): Promise<void>
   }
   capabilities: { get(): Promise<Record<Timeframe, CapabilityStatus>> }
   layout: {
@@ -53,8 +57,8 @@ export interface Api {
     rename(from: string, to: string): Promise<void>
   }
   watchlist: {
-    get(): Promise<WatchlistItem[]>
-    set(items: WatchlistItem[]): Promise<void>
+    get(): Promise<WatchlistCollection>
+    set(c: WatchlistCollection): Promise<void>
   }
 }
 

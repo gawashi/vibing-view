@@ -17,6 +17,7 @@ export default function App(): React.JSX.Element {
   // Sidebar open/closed (D-63) — UI chrome, persisted separately from the Workspace/named-layout
   // model via settings.json (see api.settings.get/setSidebarOpen), NOT via layout.setCurrent.
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sidebarWidth, setSidebarWidth] = useState(240)
 
   // One-time startup restore (D-59/LAYOUT-04): replaces the old getLastSymbol restore. main is a
   // dumb persister — parseWorkspace owns the trust boundary and never throws (T-05-01). A null
@@ -26,24 +27,34 @@ export default function App(): React.JSX.Element {
       const ws = parseWorkspace(raw)
       if (ws) useAppStore.getState().hydrate(ws)
     })
-    void api.watchlist.get().then((items) => {
-      for (const item of items) useAppStore.getState().addToWatchlist(item)
-    })
+    void api.watchlist.get().then((c) => useAppStore.getState().hydrateWatchlists(c))
     void api.settings.getSidebarOpen().then((open) => {
       if (open !== null) setSidebarOpen(open)
     })
+    void api.settings.getSidebarWidth().then((w) => {
+      if (w !== null) setSidebarWidth(w)
+    })
   }, [])
 
-  // Persist-on-change for the watchlist (debounced, mirrors the layout auto-save below) — separate
-  // JSON file (watchlist.json via IPC), never bundled into the Workspace snapshot.
+  // ponytail: React-state (not a store subscribe) so a plain 500ms debounced effect is enough.
+  // The one redundant write of the default 240 on first mount (before load resolves) is harmless.
+  useEffect(() => {
+    const t = setTimeout(() => { void api.settings.setSidebarWidth(sidebarWidth) }, 500)
+    return () => clearTimeout(t)
+  }, [sidebarWidth])
+
+  // Persist-on-change for watchlists (debounced). Serializes the whole collection into watchlist.json.
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null
     const unsubscribe = useAppStore.subscribe(
-      (s) => s.watchlist,
-      (watchlist) => {
+      (s) => [s.watchlists, s.activeWatchlist] as const,
+      ([watchlists, activeWatchlist]) => {
         if (timer) clearTimeout(timer)
-        timer = setTimeout(() => { void api.watchlist.set(watchlist) }, 500)
-      }
+        timer = setTimeout(() => {
+          void api.watchlist.set({ version: 2, active: activeWatchlist, lists: watchlists })
+        }, 500)
+      },
+      { equalityFn: (a, b) => a[0] === b[0] && a[1] === b[1] }
     )
     return () => {
       if (timer) clearTimeout(timer)
@@ -113,7 +124,7 @@ export default function App(): React.JSX.Element {
           </div>
         </header>
         <div className="flex flex-1 overflow-hidden">
-          <Watchlist open={sidebarOpen} />
+          <Watchlist open={sidebarOpen} width={sidebarWidth} onWidthChange={setSidebarWidth} />
           <main className="flex-1 overflow-hidden">
             <GridHost />
           </main>
