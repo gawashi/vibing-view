@@ -1,10 +1,10 @@
 import { app } from 'electron'
-import { writeFileSync, rmSync } from 'fs'
+import { rmSync } from 'fs'
 import { join } from 'path'
 import { createHash } from 'crypto'
 import type { Timeframe } from '@shared/types'
 import type { CapabilityStatus } from '@shared/ipc'
-import { readJsonFile } from './jsonStore'
+import { readJsonFile, writeJsonFile } from './jsonStore'
 
 type Entry = { status: CapabilityStatus; probedAt: number }
 type CapabilitiesFile = Record<string, Partial<Record<Timeframe, Entry>>>
@@ -17,9 +17,7 @@ const capabilitiesPath = (): string => join(app.getPath('userData'), 'capabiliti
 // hashApiKey) is unit-tested.
 const read = (): CapabilitiesFile => readJsonFile(capabilitiesPath(), {})
 
-function write(data: CapabilitiesFile): void {
-  writeFileSync(capabilitiesPath(), JSON.stringify(data))
-}
+const write = (data: CapabilitiesFile): void => writeJsonFile(capabilitiesPath(), data)
 
 export function hashApiKey(apiKey: string): string {
   return createHash('sha256').update(apiKey).digest('hex')

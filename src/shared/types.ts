@@ -15,7 +15,7 @@ export type SymbolResult = {
   exchange: string
 }
 
-export type WatchlistItem = { symbol: string; name: string; exchange: string }
+export type WatchlistItem = SymbolResult
 
 export type DateRange = { from: number; to: number } | undefined
 

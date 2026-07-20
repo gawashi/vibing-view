@@ -1,7 +1,6 @@
 import { app } from 'electron'
-import { writeFileSync } from 'fs'
 import { join } from 'path'
-import { readJsonFile } from './jsonStore'
+import { readJsonFile, writeJsonFile } from './jsonStore'
 
 // ponytail: one small JSON under userData, not electron-store — no dependency for one field (design doc)
 const settingsPath = (): string => join(app.getPath('userData'), 'settings.json')
@@ -14,7 +13,7 @@ export function getLastSymbol(): string | null {
 }
 
 export function setLastSymbol(symbol: string): void {
-  writeFileSync(settingsPath(), JSON.stringify({ ...read(), lastSymbol: symbol }))
+  writeJsonFile(settingsPath(), { ...read(), lastSymbol: symbol })
 }
 
 // D-63: sidebar open/closed is UI chrome, persisted here (not in layouts.json/Workspace) so it
@@ -25,5 +24,5 @@ export function getSidebarOpen(): boolean | null {
 }
 
 export function setSidebarOpen(open: boolean): void {
-  writeFileSync(settingsPath(), JSON.stringify({ ...read(), sidebarOpen: open }))
+  writeJsonFile(settingsPath(), { ...read(), sidebarOpen: open })
 }
