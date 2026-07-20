@@ -1,7 +1,7 @@
 ---
 phase: 5
 slug: layouts-persistence-watchlist
-status: draft
+status: approved
 shadcn_initialized: true
 preset: "zinc base color, CSS variables, dark-mode-only (inherited from Phase 1-4, already initialized in components.json)"
 created: 2026-07-20
@@ -178,7 +178,7 @@ buttons all use neutral/muted tokens.
 State-coverage probe (`ui-consideration-probe.cjs`) over the 4 described surfaces — E1 grid cells
 (1-4, shape switch, focus, expand/shrink), E2 layout menu (save/rename/delete/switch, empty list), E3
 watchlist sidebar (rows, add/remove/reorder, collapse), E4 startup auto-restore — reusing Phase 1-4's
-already-resolved legend/dialog/toast baseline where applicable (not re-probed). Resolved: **11 covered,
+already-resolved legend/dialog/toast baseline where applicable (not re-probed). Resolved: **15 covered,
 1 backstop, 2 n/a (dismissed with reason), 0 unresolved.**
 
 | Category | Element(s) | Status | Resolution / Reason |
@@ -194,6 +194,10 @@ already-resolved legend/dialog/toast baseline where applicable (not re-probed). 
 | non-hover / default state | E3 watchlist row icons | ✅ covered | Drag handle + remove `X` hover-revealed; row's core info (symbol/name/price) always visible regardless of hover, matching the "core content never depends on hover" principle |
 | startup / first-run | E4 auto-restore | ✅ covered | **User decision (D-59):** first-ever launch (no saved state, no named layout) defaults to 1x1 + AAPL, extending existing D-06/07 |
 | loading (per-cell restore) | E1 grid cells on restore | ✅ covered | Each cell's OHLCV fetch is independently cache-first (P1 read-through, unchanged) — cells populate as their own query resolves, no app-wide blocking spinner; matches existing per-symbol loading precedent |
+| error / corrupt persisted state | E4 startup restore | ✅ covered | **User decision:** if the saved layout/watchlist JSON is corrupt or unparseable, silently discard it and fall back to first-launch defaults (1x1 + AAPL, D-59). Never block startup; no toast for this case (startup path stays quiet) |
+| partial / invalid persisted state | E4 startup restore | ✅ covered | **User decision:** restore all valid fields; fill missing or invalid ones with defaults (unresolvable symbol → skip/default, missing sidebar flag → expanded, absent field from an older schema → its default). Forward-compatible, no all-or-nothing discard |
+| overflow (saved-layout list) | E2 layout menu | ✅ covered | **User decision:** the `DropdownMenu` content scrolls past its max-height (Radix default) when the saved-layout list is long — no cap on layout count |
+| long-text (layout name) | E2 layout menu item / switch list | ✅ covered | **User decision:** menu items have a max-width; long layout names truncate with ellipsis (`title` attr carries the full name), consistent with the E3 watchlist name-truncation backstop below |
 | long-text (watchlist name truncation) | E3 watchlist row | 🧪 backstop | `{ statement: "Company name at 240px sidebar width with a long name (e.g. 'International Business Machines Corporation') must truncate with ellipsis, not wrap or push the close-price column off-row", verification: backstop }` — visual check once a long-name symbol is actually rendered in the sidebar |
 | error / partial | E2/E3 persistence writes | ⊘ n/a | Local JSON write via IPC (D-67); no network path, no partial-success state possible — a rare disk-level failure is a single all-or-nothing toast (see Copywriting), not a per-field partial state |
 | color/palette exhaustion | E1 grid cells (indicator palette per cell) | ⊘ n/a | Each cell now holds its own independent indicator set (D-61) but reuses the same unchanged 6-hue `PALETTE` round-robin already accepted in Phase 3 — no new exhaustion case, no cross-cell palette coordination needed since cells are visually and logically independent |
@@ -218,11 +222,11 @@ already-resolved legend/dialog/toast baseline where applicable (not re-probed). 
 
 ## Checker Sign-Off
 
-- [ ] Dimension 1 Copywriting: PENDING
-- [ ] Dimension 2 Visuals: PENDING
-- [ ] Dimension 3 Color: PENDING
-- [ ] Dimension 4 Typography: PENDING
-- [ ] Dimension 5 Spacing: PENDING
-- [ ] Dimension 6 Registry Safety: PENDING
+- [x] Dimension 1 Copywriting: PASS
+- [x] Dimension 2 Visuals: PASS
+- [x] Dimension 3 Color: PASS
+- [x] Dimension 4 Typography: PASS
+- [x] Dimension 5 Spacing: PASS
+- [x] Dimension 6 Registry Safety: PASS
 
-**Approval:** draft — awaiting gsd-ui-checker verification
+**Approval:** APPROVED — gsd-ui-checker verified all 6 dimensions (0 FLAGs); UI-consideration probe resolved (15 covered, 1 backstop, 2 n/a, 0 unresolved)
