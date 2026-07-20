@@ -132,6 +132,87 @@ describe('useAppStore grid shape logic', () => {
         expect(Number(cell.id)).toBeGreaterThan(900)
       }
     })
+
+    it('hydrate re-seeds the always-on fixed Volume for a cell restored without it', () => {
+      const ws: Workspace = {
+        schemaVersion: 1,
+        shape: '1x1',
+        activeCellId: '900',
+        // volume-less cell (e.g. saved by an older build whose clearCell wiped all indicators)
+        cells: [{ id: '900', symbol: 'AAPL', timeframe: '1d', indicators: [] }]
+      }
+
+      useAppStore.getState().hydrate(ws)
+
+      const cell = useAppStore.getState().cells.find((c) => c.id === '900')!
+      const volume = cell.indicators.find((i) => i.type === 'volume')
+      expect(volume).toBeDefined()
+      expect(volume!.fixed).toBe(true)
+      expect(Number(volume!.id)).toBeGreaterThan(900) // fresh id past the reseeded counter
+    })
+
+    it('hydrate leaves an existing Volume untouched (no duplicate)', () => {
+      const ws: Workspace = {
+        schemaVersion: 1,
+        shape: '1x1',
+        activeCellId: 'c9',
+        cells: [{
+          id: 'c9',
+          symbol: 'AAPL',
+          timeframe: '1d',
+          indicators: [{ id: 'v9', type: 'volume', params: {}, colors: {}, visible: true, fixed: true }]
+        }]
+      }
+
+      useAppStore.getState().hydrate(ws)
+
+      const cell = useAppStore.getState().cells.find((c) => c.id === 'c9')!
+      expect(cell.indicators.filter((i) => i.type === 'volume')).toHaveLength(1)
+      expect(cell.indicators[0].id).toBe('v9')
+    })
+  })
+
+  describe('clearCell', () => {
+    it('empties a cell: symbol null, user indicators cleared but fixed Volume kept, crosshair removed', () => {
+      // Seed a deterministic cell with the always-on fixed Volume + a user-added indicator
+      // (beforeEach can't guarantee volume — the preceding hydrate tests leave volume-less cells).
+      const id = 'clear-target'
+      useAppStore.setState({
+        cells: [{
+          id,
+          symbol: 'AAPL',
+          timeframe: '1d',
+          indicators: [
+            { id: 'vol1', type: 'volume', params: {}, colors: {}, visible: true, fixed: true },
+            { id: 'ma1', type: 'ma', params: {}, colors: {}, visible: true }
+          ]
+        }],
+        activeCellId: id,
+        shape: '1x1'
+      })
+      useAppStore.getState().setCrosshair(id, { price: { open: 1, high: 1, low: 1, close: 1 } })
+
+      useAppStore.getState().clearCell(id)
+
+      const cell = useAppStore.getState().cells.find((c) => c.id === id)!
+      expect(cell.symbol).toBeNull()
+      // the always-on fixed Volume survives (so re-searching a symbol still shows volume); the
+      // user-added 'ma' is gone.
+      expect(cell.indicators.every((i) => i.fixed)).toBe(true)
+      expect(cell.indicators.map((i) => i.type)).toEqual(['volume'])
+      expect(useAppStore.getState().crosshairByCell[id]).toBeUndefined()
+      // active cell unchanged
+      expect(useAppStore.getState().activeCellId).toBe(id)
+    })
+
+    it('only clears the target cell, leaving others intact', () => {
+      useAppStore.getState().setShape('2x2')
+      const [c0, c1] = useAppStore.getState().cells
+      useAppStore.getState().clearCell(c0.id)
+      const after = useAppStore.getState().cells
+      expect(after.find((c) => c.id === c0.id)!.symbol).toBeNull()
+      expect(after.find((c) => c.id === c1.id)!.symbol).toBe(c1.symbol)
+    })
   })
 
   describe('watchlist', () => {

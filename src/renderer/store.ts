@@ -37,6 +37,10 @@ type AppState = {
   // non-active cell's own TimeframeRow (or an automatic gating effect) can set it directly without
   // depending on click-event ordering to focus the cell first.
   setCellTimeframe: (cellId: string, tf: Timeframe) => void
+  // チャート削除: 対象セルを空(symbol=null)に戻す。ユーザー追加の指標は消すが、常時表示の
+  // 固定指標(Volume, fixed:true)は残す — 再検索で銘柄を入れ直したとき出来高が消えないように。
+  // そのセルの crosshair も破棄。
+  clearCell: (cellId: string) => void
   addIndicator: (type: string, cellId?: string) => void
   removeIndicator: (id: string) => void
   toggleVisible: (id: string) => void
@@ -108,6 +112,16 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
   setCellTimeframe: (cellId, tf) => set((state) => ({
     cells: state.cells.map((c) => (c.id === cellId ? { ...c, timeframe: tf } : c))
   })),
+  clearCell: (cellId) => set((state) => {
+    const { [cellId]: _removed, ...crosshairByCell } = state.crosshairByCell
+    return {
+      cells: state.cells.map((c) =>
+        // keep fixed (always-on Volume) instances, drop user-added ones — mirrors removeIndicator
+        c.id === cellId ? { ...c, symbol: null, indicators: c.indicators.filter((i) => i.fixed) } : c
+      ),
+      crosshairByCell
+    }
+  }),
   addIndicator: (type, cellId) => {
     const module = registry[type]
     if (!module) return
@@ -179,7 +193,21 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
       nextId = Math.max(nextId, bumpId(cell.id))
       for (const inst of cell.indicators) nextId = Math.max(nextId, bumpId(inst.id))
     }
-    set({ cells: ws.cells, shape: ws.shape, activeCellId: ws.activeCellId })
+    // Heal cells restored without their always-on fixed Volume (D-34) — e.g. saved by an older
+    // build whose clearCell wiped ALL indicators. Volume is non-removable, so a volume-less cell is
+    // always corrupt; re-seed it (fresh id, past the reseed above) so the chart shows volume again.
+    const cells = ws.cells.map((c) =>
+      c.indicators.some((i) => i.type === 'volume')
+        ? c
+        : {
+            ...c,
+            indicators: [
+              { id: String(nextId++), type: 'volume', params: {}, colors: {}, visible: true, fixed: true },
+              ...c.indicators
+            ]
+          }
+    )
+    set({ cells, shape: ws.shape, activeCellId: ws.activeCellId })
   },
 
   // Named-layout actions call `window.api.*` directly (NOT the `./api` wrapper) on purpose:

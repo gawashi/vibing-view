@@ -1,14 +1,17 @@
 import React, { useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { X } from 'lucide-react'
 import { api, qk } from '@/api'
 import { useAppStore } from '@/store'
 import { VISIBLE_COUNT } from '@/workspace'
 import { AddIndicatorMenu } from './AddIndicatorMenu'
+import { Button } from './ui/button'
 import { Chart } from './Chart'
 import { TimeframeRow, TF_LABELS } from './TimeframeRow'
 import { cn } from '@/lib/utils'
-import type { Cell, Timeframe } from '@shared/types'
+import { computeChange } from '@/lib/priceChange'
+import type { Bar, Cell, Timeframe } from '@shared/types'
 
 // Module-level (shared across every cell, not per-cell state): the rate-limited-tf toast guard.
 // capabilities is a single map keyed by timeframe alone (one entry per API key, D-60 review), and
@@ -94,9 +97,45 @@ function useCellCapabilityGating(cellId: string, symbol: string | null, timefram
   }, [capsQ.data, timeframe])
 }
 
+// 各セルの銘柄＋現在値＋騰落率。データは Chart / gating フックが埋めた ohlcv キャッシュを
+// subscribe-only(enabled:false)で読むだけ(追加フェッチ無し)。intraday の前日終値は日足が要るため、
+// intraday セルのみ日足を1回実フェッチ(1銘柄1リクエスト・永続キャッシュ、週足/月足にも再利用)。
+function SymbolLabel({ symbol, timeframe }: { symbol: string; timeframe: Timeframe }): React.JSX.Element {
+  const isIntraday = timeframe === '1m' || timeframe === '5m' || timeframe === '15m' || timeframe === '1h'
+  const barsQ = useQuery<Bar[]>({
+    queryKey: qk.ohlcv(symbol, timeframe),
+    queryFn: () => api.ohlcv.get(symbol, timeframe, undefined),
+    enabled: false // subscribe-only: Chart/gating が同キーを埋める
+  })
+  const dailyQ = useQuery<Bar[]>({
+    queryKey: qk.ohlcv(symbol, '1d'),
+    queryFn: () => api.ohlcv.get(symbol, '1d', undefined),
+    enabled: isIntraday, // intraday のみ前日終値のため実フェッチ
+    staleTime: Infinity
+  })
+  const change = computeChange(barsQ.data, timeframe, dailyQ.data)
+
+  return (
+    <div className="flex items-baseline gap-2">
+      <span className="text-lg font-semibold">{symbol}</span>
+      {change && (
+        <>
+          <span className="text-sm text-muted-foreground">{change.price.toFixed(2)}</span>
+          {change.pct !== null && (
+            <span className={cn('text-sm', change.pct >= 0 ? 'text-green-500' : 'text-red-500')}>
+              {change.pct >= 0 ? '+' : ''}{change.pct.toFixed(2)}%
+            </span>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 function GridCell({ cell, active }: { cell: Cell; active: boolean }): React.JSX.Element {
   const setActiveCell = useAppStore((s) => s.setActiveCell)
   const setCellTimeframe = useAppStore((s) => s.setCellTimeframe)
+  const clearCell = useAppStore((s) => s.clearCell)
   useCellCapabilityGating(cell.id, cell.symbol, cell.timeframe)
 
   return (
@@ -113,12 +152,25 @@ function GridCell({ cell, active }: { cell: Cell; active: boolean }): React.JSX.
       {cell.symbol
         ? (
           <>
-            <div className="flex items-center gap-4">
+            {/* min-w-0 + flex-wrap: in a narrow 2x2 cell the toolbar's intrinsic width (label +
+                7 tf buttons + Indicator + X) exceeds the track; without these it overflows into
+                the neighbouring cell. Let it wrap to a second line instead. */}
+            <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
+              <SymbolLabel symbol={cell.symbol} timeframe={cell.timeframe} />
               <TimeframeRow
                 value={cell.timeframe}
                 onChange={(tf) => setCellTimeframe(cell.id, tf)}
               />
               <AddIndicatorMenu cellId={cell.id} />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="ml-auto h-6 w-6 [&_svg]:size-3.5"
+                aria-label={`Remove ${cell.symbol} chart`}
+                onClick={(e) => { e.stopPropagation(); clearCell(cell.id) }}
+              >
+                <X />
+              </Button>
             </div>
             <div className="min-h-0 flex-1">
               <Chart cellId={cell.id} symbol={cell.symbol} timeframe={cell.timeframe} />

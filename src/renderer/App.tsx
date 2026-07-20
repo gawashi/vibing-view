@@ -14,7 +14,6 @@ import { useAppStore } from './store'
 import { parseWorkspace } from './workspace'
 
 export default function App(): React.JSX.Element {
-  const activeSymbol = useAppStore((s) => s.cells.find((c) => c.id === s.activeCellId)?.symbol ?? null)
   // Sidebar open/closed (D-63) — UI chrome, persisted separately from the Workspace/named-layout
   // model via settings.json (see api.settings.get/setSidebarOpen), NOT via layout.setCurrent.
   const [sidebarOpen, setSidebarOpen] = useState(true)
@@ -106,7 +105,6 @@ export default function App(): React.JSX.Element {
             </TooltipTrigger>
             <TooltipContent>{sidebarOpen ? 'Hide watchlist' : 'Show watchlist'}</TooltipContent>
           </Tooltip>
-          <span className="text-2xl font-semibold">{activeSymbol ?? '—'}</span>
           <GridShapeRow />
           <LayoutMenu />
           <div className="ml-auto flex items-center gap-4">

@@ -12,7 +12,11 @@ export function AddIndicatorMenu({ cellId }: { cellId?: string } = {}): React.JS
 
   return (
     <div className="relative">
-      <Button onClick={() => setOpen((v) => !v)}>
+      <Button
+        size="sm"
+        onClick={() => setOpen((v) => !v)}
+        className="h-6 gap-1 px-2 text-xs [&_svg]:size-3"
+      >
         <Plus />
         Indicator
       </Button>

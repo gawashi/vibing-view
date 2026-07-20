@@ -1,9 +1,15 @@
 import React from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Lock, Clock } from 'lucide-react'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { Lock, Clock, ChevronDown } from 'lucide-react'
+import { Button } from './ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
 import { api, qk } from '@/api'
+import { cn } from '@/lib/utils'
 import type { Timeframe } from '@shared/types'
 import type { CapabilityStatus } from '@shared/ipc'
 
@@ -24,6 +30,10 @@ function statusFor(tf: Timeframe, caps: Partial<Record<Timeframe, CapabilityStat
   return caps?.[tf] ?? 'available' // optimistic: undefined probe (in-flight or not-yet-run) = available
 }
 
+// Collapsed timeframe picker: the trigger shows only the current timeframe (all-7 buttons wasted
+// horizontal space in a 2x2 cell). The menu lists every timeframe; gated ones stay disabled with a
+// Lock/Clock icon and a native `title` hint (a radix Tooltip inside a DropdownMenu fights the menu's
+// own hover/focus handling — the title attribute is the lazy, correct fit here).
 export function TimeframeRow({
   value,
   onChange
@@ -36,41 +46,32 @@ export function TimeframeRow({
   const caps = useQuery({ queryKey: qk.capabilities(), queryFn: () => api.capabilities.get() })
 
   return (
-    <ToggleGroup
-      type="single"
-      value={value}
-      onValueChange={(v) => { if (v) onChange(v as Timeframe) }}
-      className="justify-start gap-1 rounded-md bg-card p-2"
-    >
-      {TIMEFRAMES.map((tf) => {
-        const status = statusFor(tf, caps.data)
-        // Narrow to the gated union so GATED_TOOLTIP/icon are type-safe; null = selectable.
-        const gated = status === 'requires-plan' || status === 'rate-limited' ? status : null
-        const Icon = gated === 'requires-plan' ? Lock : Clock
-        const item = (
-          <ToggleGroupItem
-            value={tf}
-            size="sm"
-            disabled={!!gated}
-            className={gated ? 'text-[#8B92A0]' : undefined}
-          >
-            {TF_LABELS[tf]}
-            {gated && <Icon className="ml-1 h-3 w-3" />}
-          </ToggleGroupItem>
-        )
-        // A disabled <button> emits no hover events, so the tooltip trigger must live on a
-        // non-disabled <span> wrapping the item (standard shadcn "tooltip on disabled" pattern).
-        return gated
-          ? (
-            <Tooltip key={tf}>
-              <TooltipTrigger asChild>
-                <span className="inline-flex">{item}</span>
-              </TooltipTrigger>
-              <TooltipContent>{GATED_TOOLTIP[gated]}</TooltipContent>
-            </Tooltip>
-            )
-          : <React.Fragment key={tf}>{item}</React.Fragment>
-      })}
-    </ToggleGroup>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="secondary" size="sm" className="h-6 gap-1 px-2 text-xs [&_svg]:size-3">
+          {TF_LABELS[value]}
+          <ChevronDown />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="min-w-[6rem]">
+        {TIMEFRAMES.map((tf) => {
+          const status = statusFor(tf, caps.data)
+          const gated = status === 'requires-plan' || status === 'rate-limited' ? status : null
+          const Icon = gated === 'requires-plan' ? Lock : Clock
+          return (
+            <DropdownMenuItem
+              key={tf}
+              disabled={!!gated}
+              title={gated ? GATED_TOOLTIP[gated] : undefined}
+              className={cn('text-sm', tf === value && 'font-semibold text-accent-foreground')}
+              onClick={() => onChange(tf)}
+            >
+              {TF_LABELS[tf]}
+              {gated && <Icon className="ml-auto h-3 w-3" />}
+            </DropdownMenuItem>
+          )
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
