@@ -37,6 +37,15 @@ export function IndicatorEditForm({
             min={field.min}
             step={field.step}
             value={Number.isNaN(value) ? '' : value}
+            // Enter commits nothing new (onChange already persists each edit) — it just closes the
+            // dialog so the user doesn't have to reach for the top-right X. Tab between boxes is left
+            // to the browser's native focus order inside the Dialog's focus trap.
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                onOpenChange(false)
+              }
+            }}
             onChange={(e) => {
               const raw = e.target.value
               if (raw === '') return
