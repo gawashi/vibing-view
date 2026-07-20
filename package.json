@@ -1,7 +1,8 @@
 {
-  "name": "trading-view",
+  "name": "vibing-view",
   "version": "0.1.0",
-  "description": "Personal TradingView-alternative charting app",
+  "description": "A personal, unlimited charting desktop app — a vibe-coded TradingView alternative",
+  "license": "MIT",
   "main": "./out/main/index.js",
   "author": "gawashi",
   "scripts": {
