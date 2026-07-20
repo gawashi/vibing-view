@@ -138,7 +138,24 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. User can save a named layout and restore it later; on startup the most recent (or default) layout auto-restores so the workspace looks as it was left.
   4. User can manage a watchlist (add / remove / reorder) that persists across sessions, and clicking a watchlist symbol loads it into the active chart.
 
-**Plans**: TBD
+**Plans:** 4 plans
+
+**Wave 1**
+
+- [ ] 05-01-PLAN.md — Tracer: serializable cell-workspace model + last-state auto-save/restore (1 cell end-to-end)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
+- [ ] 05-02-PLAN.md — Multi-cell grid: 1x1/2x1/2x2 switcher, active-cell focus ring, expand-duplicate/shrink-retain, per-cell crosshair
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
+- [ ] 05-03-PLAN.md — Named layouts: save/save-as/rename/delete/switch + auto-save-current-on-switch (dropdown + dialogs)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
+- [ ] 05-04-PLAN.md — Watchlist sidebar: persist, add-from-search star, remove, HTML5 DnD reorder, click-to-load-active-cell
+
 **UI hint**: yes
 
 ## Progress
@@ -152,4 +169,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 2. Timeframes & Free-Tier Resilience | 0/5 | Not started | - |
 | 3. Indicator Engine & Overlays | 0/3 | Not started | - |
 | 4. Pane Indicators, Crosshair & Correct Math | 0/4 | Not started | - |
-| 5. Layouts, Persistence & Watchlist | 0/TBD | Not started | - |
+| 5. Layouts, Persistence & Watchlist | 0/4 | Not started | - |
