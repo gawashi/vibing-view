@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { volume } from '../../src/renderer/indicators/volume'
+import { volume, abbreviate } from '../../src/renderer/indicators/volume'
 import type { HistPoint } from '../../src/renderer/indicators/types'
 import type { Bar } from '../../src/shared/types'
 
@@ -43,5 +43,20 @@ describe('volume (module)', () => {
     // This is the meaningful boundary check: if the source used `>` instead of
     // `>=`, this equal-candle bar would incorrectly come out red (#EF4444).
     expect(points[2].color).toBe('#22C55E')
+  })
+})
+
+describe('abbreviate (volume axis formatter)', () => {
+  it('formats thousands as K with 2 decimals', () => {
+    expect(abbreviate(1234)).toBe('1.23K')
+  })
+  it('formats millions as M with 2 decimals', () => {
+    expect(abbreviate(12450200)).toBe('12.45M')
+  })
+  it('formats billions as B with 2 decimals', () => {
+    expect(abbreviate(3.4e9)).toBe('3.40B')
+  })
+  it('leaves values below 1000 as an integer', () => {
+    expect(abbreviate(950)).toBe('950')
   })
 })

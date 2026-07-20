@@ -79,8 +79,9 @@ export function Chart({ cellId, symbol, timeframe }: { cellId: string; symbol: s
         // Hide the on-canvas TradingView logo — it would repeat in every grid cell (up to 4 in 2x2).
         // Optional mark; Apache-2.0 attribution is satisfied by the repo NOTICE, not this overlay.
         attributionLogo: false,
-        // D-32/RESEARCH Q6: recolor the native pane separator to the app's grid token.
-        panes: { separatorColor: '#151920', separatorHoverColor: 'rgba(139, 146, 160, 0.2)' }
+        // D-32/RESEARCH Q6: pane separator — グリッド色(#151920)だと境目が見えないため、
+        // グリッドとテキスト色の中間(#2A2F3A)にしてペイン境界をはっきり見せる。
+        panes: { separatorColor: '#2A2F3A', separatorHoverColor: 'rgba(139, 146, 160, 0.2)' }
       },
       grid: { vertLines: { color: '#151920' }, horzLines: { color: '#151920' } },
       autoSize: true,
@@ -294,7 +295,12 @@ export function Chart({ cellId, symbol, timeframe }: { cellId: string; symbol: s
             if (module.scale) ls.priceScale().applyOptions({ scaleMargins: { top: 0.05, bottom: 0.05 } })
             series.push(ls)
           } else {
-            series.push(chartRef.current.addSeries(HistogramSeries, { base: 0 }, paneIndex))
+            // Custom axis formatter (e.g. Volume K/M/B) when the output declares one; minMove:1
+            // keeps the crosshair price label integer-precise. MACD omits priceFormat → default.
+            const histOpts = output.priceFormat
+              ? { base: 0, priceFormat: { type: 'custom' as const, minMove: 1, formatter: output.priceFormat } }
+              : { base: 0 }
+            series.push(chartRef.current.addSeries(HistogramSeries, histOpts, paneIndex))
           }
         }
         map.set(inst.id, series)

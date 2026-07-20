@@ -18,7 +18,7 @@ export type FieldDesc =
 export type OutputMeta =
   | { key: string; kind: 'line' }
   | { key: string; kind: 'band'; between: [string, string] }
-  | { key: string; kind: 'histogram' }
+  | { key: string; kind: 'histogram'; priceFormat?: (v: number) => string }
 
 export type IndicatorModule = {
   type: string
