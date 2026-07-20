@@ -1,5 +1,5 @@
 import { ipcMain } from 'electron'
-import type { Timeframe, DateRange, Workspace, WatchlistCollection } from '@shared/types'
+import type { Bar, Timeframe, DateRange, Workspace, WatchlistCollection } from '@shared/types'
 import { CH, type CapabilityStatus } from '@shared/ipc'
 import { FmpProvider, FmpHttpError } from './providers/FmpProvider'
 import { createCacheService } from './cache/CacheService'
@@ -41,11 +41,15 @@ export function registerIpc(): void {
     return results
   })
 
-  ipcMain.handle(CH.ohlcvGet, async (_e, symbol: string, timeframe: Timeframe, range: DateRange) => {
+  // Shared capability bookkeeping for every real OHLCV fetch (get + refresh): short-circuit known
+  // out-of-plan daily-backed symbols, record 'available' on success, and classify FmpHttpErrors.
+  const withCapabilityTracking = async (
+    symbol: string, timeframe: Timeframe, run: () => Promise<Bar[]>
+  ): Promise<Bar[]> => {
     // Known out-of-plan daily → don't re-hit FMP for any daily-backed timeframe.
     if (DAILY_BACKED.includes(timeframe) && dailyOutOfPlan.has(symbol)) return []
     try {
-      const bars = await cacheFor().getOHLCV(symbol, timeframe, range)
+      const bars = await run()
       const apiKey = getApiKey()
       if (apiKey && !DERIVED_TIMEFRAMES.includes(timeframe)) {
         capabilityCache.setStatus(apiKey, timeframe, 'available')
@@ -70,7 +74,15 @@ export function registerIpc(): void {
       }
       throw err
     }
-  })
+  }
+
+  ipcMain.handle(CH.ohlcvGet, async (_e, symbol: string, timeframe: Timeframe, range: DateRange) =>
+    withCapabilityTracking(symbol, timeframe, () => cacheFor().getOHLCV(symbol, timeframe, range))
+  )
+
+  ipcMain.handle(CH.ohlcvRefresh, async (_e, symbol: string, timeframe: Timeframe) =>
+    withCapabilityTracking(symbol, timeframe, () => cacheFor().refreshOHLCV(symbol, timeframe))
+  )
 
   ipcMain.handle(CH.apikeySet, (_e, key: string) => {
     const result = setApiKey(key)

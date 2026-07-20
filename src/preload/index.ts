@@ -6,7 +6,9 @@ const api: Api = {
   symbols: { search: (query) => ipcRenderer.invoke(CH.symbolsSearch, query) },
   ohlcv: {
     get: (symbol, timeframe: Timeframe, range: DateRange) =>
-      ipcRenderer.invoke(CH.ohlcvGet, symbol, timeframe, range)
+      ipcRenderer.invoke(CH.ohlcvGet, symbol, timeframe, range),
+    refresh: (symbol, timeframe: Timeframe) =>
+      ipcRenderer.invoke(CH.ohlcvRefresh, symbol, timeframe)
   },
   apikey: {
     set: (key) => ipcRenderer.invoke(CH.apikeySet, key),
