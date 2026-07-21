@@ -82,14 +82,37 @@ export class FmpProvider {
   }
 
   async searchSymbols(query: string): Promise<SymbolResult[]> {
-    const url = `${BASE}/search-symbol?query=${encodeURIComponent(query)}&limit=8&apikey=${this.apiKey}`
-    // zod .parse throws on error-shaped payloads → never surfaces bad data
-    const rows = fmpSearchResponse.parse(await this.httpGetJson(url))
-    return rows.map((r) => ({
-      symbol: r.symbol,
-      name: r.name ?? r.symbol,
-      exchange: r.exchange ?? r.exchangeFullName ?? ''
-    }))
+    const q = encodeURIComponent(query)
+    const fetchEndpoint = async (endpoint: 'search-symbol' | 'search-name'): Promise<SymbolResult[]> => {
+      const url = `${BASE}/${endpoint}?query=${q}&limit=50&apikey=${this.apiKey}`
+      // zod .parse throws on error-shaped payloads → never surfaces bad data
+      const rows = fmpSearchResponse.parse(await this.httpGetJson(url))
+      return rows.map((r) => ({
+        symbol: r.symbol,
+        name: r.name ?? r.symbol,
+        exchange: r.exchange ?? r.exchangeFullName ?? ''
+      }))
+    }
+
+    // search-symbol (ticker) first so exact-ticker matches sort above name matches; dedup by symbol
+    // with the earlier (search-symbol) entry winning. Tolerate one endpoint failing (rate-limit etc).
+    const [bySymbol, byName] = await Promise.allSettled([
+      fetchEndpoint('search-symbol'),
+      fetchEndpoint('search-name')
+    ])
+    if (bySymbol.status === 'rejected' && byName.status === 'rejected') throw bySymbol.reason
+
+    const seen = new Set<string>()
+    const merged: SymbolResult[] = []
+    for (const settled of [bySymbol, byName]) {
+      if (settled.status !== 'fulfilled') continue
+      for (const r of settled.value) {
+        if (seen.has(r.symbol)) continue
+        seen.add(r.symbol)
+        merged.push(r)
+      }
+    }
+    return merged
   }
 
   async getOHLCV(symbol: string, timeframe: Timeframe, range: DateRange): Promise<Bar[]> {

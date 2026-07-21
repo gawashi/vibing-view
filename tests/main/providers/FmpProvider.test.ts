@@ -77,4 +77,41 @@ describe('FmpProvider.searchSymbols', () => {
     expect(results[0]).toEqual({ symbol: 'AAPL', name: 'Apple Inc.', exchange: 'NASDAQ' })
     expect(results).toHaveLength(2)
   })
+
+  it('queries both search-symbol and search-name, merging and deduping by symbol', async () => {
+    const httpGetJson = vi.fn(async (url: string) => {
+      if (url.includes('search-symbol')) return [{ symbol: 'AAPL', name: 'Apple Inc.', exchange: 'NASDAQ' }]
+      if (url.includes('search-name')) return [
+        { symbol: 'AAPL', name: 'Apple Inc. (dup)', exchange: 'NASDAQ' }, // dup — search-symbol wins
+        { symbol: 'APLE', name: 'Apple Hospitality REIT', exchange: 'NYSE' }
+      ]
+      throw new Error(`unexpected url ${url}`)
+    })
+    const results = await new FmpProvider({ apiKey: 'k', httpGetJson }).searchSymbols('apple')
+    expect(httpGetJson).toHaveBeenCalledTimes(2)
+    expect(httpGetJson.mock.calls.some((c) => c[0].includes('search-symbol'))).toBe(true)
+    expect(httpGetJson.mock.calls.some((c) => c[0].includes('search-name'))).toBe(true)
+    expect(results.map((r) => r.symbol)).toEqual(['AAPL', 'APLE'])
+    expect(results[0].name).toBe('Apple Inc.') // search-symbol wins the dup
+  })
+
+  it('requests limit=50 on both endpoints', async () => {
+    const httpGetJson = vi.fn(async (_url: string) => [])
+    await new FmpProvider({ apiKey: 'k', httpGetJson }).searchSymbols('x')
+    expect(httpGetJson.mock.calls.every((c) => c[0].includes('limit=50'))).toBe(true)
+  })
+
+  it('returns the surviving endpoint results when the other fails', async () => {
+    const httpGetJson = vi.fn(async (url: string) => {
+      if (url.includes('search-symbol')) throw new Error('rate limited')
+      return [{ symbol: 'APLE', name: 'Apple Hospitality REIT', exchange: 'NYSE' }]
+    })
+    const results = await new FmpProvider({ apiKey: 'k', httpGetJson }).searchSymbols('apple')
+    expect(results.map((r) => r.symbol)).toEqual(['APLE'])
+  })
+
+  it('throws only when both endpoints fail', async () => {
+    const httpGetJson = vi.fn(async (_url: string) => { throw new Error('down') })
+    await expect(new FmpProvider({ apiKey: 'k', httpGetJson }).searchSymbols('apple')).rejects.toThrow()
+  })
 })
