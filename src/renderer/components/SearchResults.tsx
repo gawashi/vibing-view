@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Star } from 'lucide-react'
 import type { SymbolResult } from '@shared/types'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
@@ -32,9 +32,29 @@ export function SearchResults({ loading, error, results, onSelect, watchlistSymb
         </div>
       </div>
     )
+
+  const INITIAL = 15
+  const STEP = 15
+  const [visibleCount, setVisibleCount] = useState(INITIAL)
+  const listRef = useRef<HTMLUListElement>(null)
+
+  // Reset the reveal window whenever a new result set arrives (new search).
+  useEffect(() => {
+    setVisibleCount(INITIAL)
+    if (listRef.current) listRef.current.scrollTop = 0
+  }, [results])
+
+  // Reveal +15 more when scrolled near the bottom. Capped at results.length in the render slice —
+  // no additional network (all rows already fetched into `results`).
+  const onScroll = (e: React.UIEvent<HTMLUListElement>): void => {
+    const el = e.currentTarget
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 48) {
+      setVisibleCount((c) => Math.min(c + STEP, results.length))
+    }
+  }
   return (
-    <ul className="max-h-[280px] overflow-y-auto rounded-md border border-border bg-card">
-      {results.slice(0, 8).map((r) => {
+    <ul ref={listRef} onScroll={onScroll} className="max-h-[280px] overflow-y-auto rounded-md border border-border bg-card">
+      {results.slice(0, visibleCount).map((r) => {
         const watched = watchlistSymbols.includes(r.symbol)
         return (
           <li
