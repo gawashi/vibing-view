@@ -1,63 +1,65 @@
-import React, { useEffect, useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import React, { useState } from 'react'
+import { Settings as SettingsIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { api } from '@/api'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { cn } from '@/lib/utils'
+import { ThemeSetting } from './settings/ThemeSetting'
+import { ApiKeySetting } from './settings/ApiKeySetting'
+
+// Declarative registry. Add a category = one SECTIONS entry. Move an item between categories =
+// change its `section` string. Order within a category = order in ITEMS. (spec: settings-dialog-structure)
+const SECTIONS = [{ id: 'general', label: 'General' }] as const
+type SectionId = (typeof SECTIONS)[number]['id']
+
+const ITEMS: { id: string; section: SectionId; render: () => React.JSX.Element }[] = [
+  { id: 'theme', section: 'general', render: () => <ThemeSetting /> },
+  { id: 'apikey', section: 'general', render: () => <ApiKeySetting /> }
+]
 
 export function SettingsDialog(): React.JSX.Element {
   const [open, setOpen] = useState(false)
-  const [key, setKey] = useState('')
-  const [status, setStatus] = useState<{ hasKey: boolean; encryptionAvailable: boolean } | null>(null)
-  const queryClient = useQueryClient()
-
-  useEffect(() => {
-    if (open) void api.apikey.status().then(setStatus)
-  }, [open])
-
-  const save = async (): Promise<void> => {
-    await api.apikey.set(key)
-    setKey('')
-    setStatus(await api.apikey.status())
-    void queryClient.invalidateQueries({ queryKey: ['ohlcv'] })
-    void queryClient.invalidateQueries({ queryKey: ['capabilities'] }) // SC4: paid key re-enables intraday, no code change
-    void queryClient.invalidateQueries({ queryKey: ['profile'] }) // キー登録でヘッダー社名/取引所を再解決
-  }
-
-  const clear = async (): Promise<void> => {
-    if (!confirm("Remove your saved FMP API key? You'll need to re-enter it to fetch new data. Already-cached charts keep working offline.")) return
-    await api.apikey.clear()
-    setStatus(await api.apikey.status())
-    void queryClient.invalidateQueries({ queryKey: ['capabilities'] })
-  }
+  const [active, setActive] = useState<SectionId>(SECTIONS[0].id)
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="secondary">Settings</Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon" aria-label="Settings">
+              <SettingsIcon className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Settings</TooltipContent>
+        </Tooltip>
       </DialogTrigger>
-      <DialogContent className="p-6">
-        <DialogHeader>
-          <DialogTitle>Settings</DialogTitle>
-        </DialogHeader>
-        {status && !status.encryptionAvailable && (
-          <div role="alert" className="rounded-lg border border-destructive/50 p-4 text-sm text-destructive">
-            Your OS doesn't support secure credential storage. Your API key will be saved in plain text on this
-            device — avoid using this app on a shared machine until this is resolved.
-          </div>
-        )}
-        <div className="mt-4 flex flex-col gap-3">
-          <Input
-            type="password"
-            value={key}
-            onChange={(e) => setKey(e.target.value)}
-            placeholder={status?.hasKey ? 'API key saved — enter a new key to replace' : 'Enter your FMP API key'}
-          />
-          <div className="flex gap-2">
-            <Button onClick={save} disabled={key.length === 0}>Save API Key</Button>
-            {status?.hasKey && (
-              <Button variant="destructive" onClick={clear}>Remove API Key</Button>
-            )}
+      <DialogContent className="max-w-2xl p-0">
+        <div className="flex min-h-[360px]">
+          <nav className="w-40 shrink-0 border-r border-border p-3">
+            <DialogHeader className="mb-3 px-1">
+              <DialogTitle>Settings</DialogTitle>
+            </DialogHeader>
+            <ul className="flex flex-col gap-1">
+              {SECTIONS.map((s) => (
+                <li key={s.id}>
+                  <button
+                    type="button"
+                    onClick={() => setActive(s.id)}
+                    className={cn(
+                      'w-full rounded-md px-2 py-1.5 text-left text-sm',
+                      active === s.id ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50'
+                    )}
+                  >
+                    {s.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </nav>
+          <div className="flex flex-1 flex-col gap-6 p-6">
+            {ITEMS.filter((i) => i.section === active).map((i) => (
+              <div key={i.id}>{i.render()}</div>
+            ))}
           </div>
         </div>
       </DialogContent>
