@@ -2,6 +2,7 @@ import type { Bar, SymbolResult, Timeframe, DateRange, Workspace, WatchlistColle
 
 export const CH = {
   symbolsSearch: 'symbols:search',
+  symbolsProfile: 'symbols:profile',
   ohlcvGet: 'ohlcv:get',
   ohlcvRefresh: 'ohlcv:refresh',
   apikeySet: 'apikey:set',
@@ -30,7 +31,10 @@ export type SetKeyResult = { ok: boolean; encryptionAvailable: boolean }
 export type CapabilityStatus = 'available' | 'requires-plan' | 'rate-limited' | 'unknown'
 
 export interface Api {
-  symbols: { search(query: string): Promise<SymbolResult[]> }
+  symbols: {
+    search(query: string): Promise<SymbolResult[]>
+    profile(symbol: string): Promise<SymbolResult>
+  }
   ohlcv: {
     get(symbol: string, timeframe: Timeframe, range: DateRange): Promise<Bar[]>
     // Reload: fetch only the new bars (cached newest → now) and return the merged series.

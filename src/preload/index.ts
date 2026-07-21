@@ -3,7 +3,10 @@ import type { Timeframe, DateRange, Workspace, WatchlistCollection } from '@shar
 import { CH, type Api } from '@shared/ipc'
 
 const api: Api = {
-  symbols: { search: (query) => ipcRenderer.invoke(CH.symbolsSearch, query) },
+  symbols: {
+    search: (query) => ipcRenderer.invoke(CH.symbolsSearch, query),
+    profile: (symbol) => ipcRenderer.invoke(CH.symbolsProfile, symbol)
+  },
   ohlcv: {
     get: (symbol, timeframe: Timeframe, range: DateRange) =>
       ipcRenderer.invoke(CH.ohlcvGet, symbol, timeframe, range),
