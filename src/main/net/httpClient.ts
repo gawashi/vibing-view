@@ -19,13 +19,7 @@ export async function configureProxy(sess = session.defaultSession): Promise<voi
   const proxyUrl =
     process.env.HTTPS_PROXY ?? process.env.https_proxy ?? process.env.HTTP_PROXY ?? process.env.http_proxy
   if (proxyUrl) {
-    const noProxy = process.env.NO_PROXY ?? process.env.no_proxy ?? ''
-    const proxyBypassRules =
-      noProxy
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .join(',') || undefined
+    const proxyBypassRules = (process.env.NO_PROXY ?? process.env.no_proxy)?.trim() || undefined
     await sess.setProxy({ proxyRules: proxyUrl, proxyBypassRules })
   } else {
     await sess.setProxy({ mode: 'system' })
