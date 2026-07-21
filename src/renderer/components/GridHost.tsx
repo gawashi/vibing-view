@@ -11,7 +11,7 @@ import { Chart } from './Chart'
 import { TimeframeRow, TF_LABELS } from './TimeframeRow'
 import { cn } from '@/lib/utils'
 import { computeChange } from '@/lib/priceChange'
-import type { Bar, Cell, Timeframe } from '@shared/types'
+import type { Bar, Cell, Timeframe, SymbolResult } from '@shared/types'
 
 // Module-level (shared across every cell, not per-cell state): the rate-limited-tf toast guard.
 // capabilities is a single map keyed by timeframe alone (one entry per API key, D-60 review), and
@@ -115,14 +115,28 @@ function SymbolLabel({ symbol, timeframe }: { symbol: string; timeframe: Timefra
   })
   const change = computeChange(barsQ.data, timeframe, dailyQ.data)
 
+  // 銘柄あたり最大1フェッチ。検索で選んだ銘柄は種まき済みで無通信ヒット。staleTime:Infinity で
+  // 以後は API キー登録時の invalidate(['profile']) のみが再取得契機。
+  const profileQ = useQuery<SymbolResult>({
+    queryKey: qk.profile(symbol),
+    queryFn: () => api.symbols.profile(symbol),
+    staleTime: Infinity
+  })
+  const profile = profileQ.data
+  const exchange = profile?.exchange ? profile.exchange : null
+  // フォールバック（name===symbol）は社名未知なので出さない — ティッカーと重複させない。
+  const name = profile && profile.name !== symbol ? profile.name : null
+
   return (
-    <div className="flex items-baseline gap-2">
-      <span className="text-lg font-semibold">{symbol}</span>
+    <div className="flex min-w-0 items-baseline gap-2">
+      <span className="shrink-0 text-lg font-semibold">{symbol}</span>
+      {exchange && <span className="shrink-0 text-sm text-muted-foreground">· {exchange}</span>}
+      {name && <span className="truncate text-sm text-muted-foreground" title={name}>{name}</span>}
       {change && (
         <>
-          <span className="text-sm text-muted-foreground">{change.price.toFixed(2)}</span>
+          <span className="shrink-0 text-sm text-muted-foreground">{change.price.toFixed(2)}</span>
           {change.pct !== null && (
-            <span className={cn('text-sm', change.pct >= 0 ? 'text-green-500' : 'text-red-500')}>
+            <span className={cn('shrink-0 text-sm', change.pct >= 0 ? 'text-green-500' : 'text-red-500')}>
               {change.pct >= 0 ? '+' : ''}{change.pct.toFixed(2)}%
             </span>
           )}
