@@ -14,6 +14,8 @@ export const CH = {
   settingsSetSidebarOpen: 'settings:setSidebarOpen',
   settingsGetSidebarWidth: 'settings:getSidebarWidth',
   settingsSetSidebarWidth: 'settings:setSidebarWidth',
+  settingsGetTheme: 'settings:getTheme',
+  settingsSetTheme: 'settings:setTheme',
   capabilitiesGet: 'capabilities:get',
   layoutGetCurrent: 'layout:getCurrent',
   layoutSetCurrent: 'layout:setCurrent',
@@ -29,6 +31,7 @@ export const CH = {
 export type KeyStatus = { hasKey: boolean; encryptionAvailable: boolean }
 export type SetKeyResult = { ok: boolean; encryptionAvailable: boolean }
 export type CapabilityStatus = 'available' | 'requires-plan' | 'rate-limited' | 'unknown'
+export type Theme = 'light' | 'dark' | 'system'
 
 export interface Api {
   symbols: {
@@ -54,6 +57,8 @@ export interface Api {
     setSidebarOpen(open: boolean): Promise<void>
     getSidebarWidth(): Promise<number | null>
     setSidebarWidth(width: number): Promise<void>
+    getTheme(): Promise<Theme>
+    setTheme(theme: Theme): Promise<void>
   }
   capabilities: { get(): Promise<Record<Timeframe, CapabilityStatus>> }
   layout: {

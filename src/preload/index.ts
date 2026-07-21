@@ -24,7 +24,9 @@ const api: Api = {
     getSidebarOpen: () => ipcRenderer.invoke(CH.settingsGetSidebarOpen),
     setSidebarOpen: (open) => ipcRenderer.invoke(CH.settingsSetSidebarOpen, open),
     getSidebarWidth: () => ipcRenderer.invoke(CH.settingsGetSidebarWidth),
-    setSidebarWidth: (width) => ipcRenderer.invoke(CH.settingsSetSidebarWidth, width)
+    setSidebarWidth: (width) => ipcRenderer.invoke(CH.settingsSetSidebarWidth, width),
+    getTheme: () => ipcRenderer.invoke(CH.settingsGetTheme),
+    setTheme: (theme) => ipcRenderer.invoke(CH.settingsSetTheme, theme)
   },
   capabilities: { get: () => ipcRenderer.invoke(CH.capabilitiesGet) },
   layout: {

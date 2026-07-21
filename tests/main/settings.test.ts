@@ -35,3 +35,28 @@ describe('settings sidebar width', () => {
     expect(settings.getSidebarWidth()).toBe(360)
   })
 })
+
+describe('settings theme', () => {
+  beforeEach(() => {
+    userDataDir = mkdtempSync(join(tmpdir(), 'settings-test-'))
+  })
+  afterEach(() => {
+    rmSync(userDataDir, { recursive: true, force: true })
+  })
+
+  it("defaults to 'system' before anything is saved", () => {
+    expect(settings.getTheme()).toBe('system')
+  })
+
+  it('round-trips a theme through set → get', () => {
+    settings.setTheme('dark')
+    expect(settings.getTheme()).toBe('dark')
+  })
+
+  it('does not clobber sidebarWidth when writing theme', () => {
+    settings.setSidebarWidth(360)
+    settings.setTheme('light')
+    expect(settings.getSidebarWidth()).toBe(360)
+    expect(settings.getTheme()).toBe('light')
+  })
+})

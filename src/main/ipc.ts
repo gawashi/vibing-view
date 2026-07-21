@@ -6,7 +6,7 @@ import { electronHttpGetJson } from './net/httpClient'
 import { createCacheService } from './cache/CacheService'
 import * as barStore from './db/barStore'
 import { getApiKey, setApiKey, getKeyStatus, clearApiKey } from './keystore'
-import { getLastSymbol, setLastSymbol, getSidebarOpen, setSidebarOpen, getSidebarWidth, setSidebarWidth } from './settings'
+import { getLastSymbol, setLastSymbol, getSidebarOpen, setSidebarOpen, getSidebarWidth, setSidebarWidth, getTheme, setTheme } from './settings'
 import { createSearchCache } from './searchCache'
 import { classify } from './capabilityClassifier'
 import * as capabilityCache from './capabilityCache'
@@ -123,6 +123,8 @@ export function registerIpc(): void {
   ipcMain.handle(CH.settingsSetSidebarOpen, (_e, open: boolean) => setSidebarOpen(open))
   ipcMain.handle(CH.settingsGetSidebarWidth, () => getSidebarWidth())
   ipcMain.handle(CH.settingsSetSidebarWidth, (_e, width: number) => setSidebarWidth(width))
+  ipcMain.handle(CH.settingsGetTheme, () => getTheme())
+  ipcMain.handle(CH.settingsSetTheme, (_e, theme: import('./settings').Theme) => setTheme(theme))
   ipcMain.handle(CH.layoutGetCurrent, () => layoutStore.getCurrent())
   ipcMain.handle(CH.layoutSetCurrent, (_e, ws: Workspace) => layoutStore.setCurrent(ws))
   ipcMain.handle(CH.layoutList, () => layoutStore.listLayouts())
