@@ -1,17 +1,18 @@
 import React, { useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { X } from 'lucide-react'
+import { X, Star } from 'lucide-react'
 import { api, qk } from '@/api'
-import { useAppStore } from '@/store'
+import { useAppStore, selectActiveItems } from '@/store'
 import { VISIBLE_COUNT } from '@/workspace'
 import { AddIndicatorMenu } from './AddIndicatorMenu'
 import { Button } from './ui/button'
 import { Chart } from './Chart'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { TimeframeRow, TF_LABELS } from './TimeframeRow'
 import { cn } from '@/lib/utils'
 import { computeChange } from '@/lib/priceChange'
-import type { Bar, Cell, Timeframe } from '@shared/types'
+import type { Bar, Cell, Timeframe, SymbolResult } from '@shared/types'
 
 // Module-level (shared across every cell, not per-cell state): the rate-limited-tf toast guard.
 // capabilities is a single map keyed by timeframe alone (one entry per API key, D-60 review), and
@@ -97,6 +98,16 @@ function useCellCapabilityGating(cellId: string, symbol: string | null, timefram
   }, [capsQ.data, timeframe])
 }
 
+// SymbolLabel と FavoriteStar が共有するプロファイル取得。key/queryFn/staleTime を一箇所に
+// まとめ、2つの呼び出し元が乖離して TanStack のデデュープを壊すのを防ぐ。
+function useProfile(symbol: string): ReturnType<typeof useQuery<SymbolResult>> {
+  return useQuery<SymbolResult>({
+    queryKey: qk.profile(symbol),
+    queryFn: () => api.symbols.profile(symbol),
+    staleTime: Infinity
+  })
+}
+
 // 各セルの銘柄＋現在値＋騰落率。データは Chart / gating フックが埋めた ohlcv キャッシュを
 // subscribe-only(enabled:false)で読むだけ(追加フェッチ無し)。intraday の前日終値は日足が要るため、
 // intraday セルのみ日足を1回実フェッチ(1銘柄1リクエスト・永続キャッシュ、週足/月足にも再利用)。
@@ -115,20 +126,67 @@ function SymbolLabel({ symbol, timeframe }: { symbol: string; timeframe: Timefra
   })
   const change = computeChange(barsQ.data, timeframe, dailyQ.data)
 
+  // 銘柄あたり最大1フェッチ。検索で選んだ銘柄は種まき済みで無通信ヒット。staleTime:Infinity で
+  // 以後は API キー登録時の invalidate(['profile']) のみが再取得契機。
+  const profileQ = useProfile(symbol)
+  const profile = profileQ.data
+  const exchange = profile?.exchange ? profile.exchange : null
+  // フォールバック（name===symbol）は社名未知なので出さない — ティッカーと重複させない。
+  const name = profile && profile.name !== symbol ? profile.name : null
+
   return (
-    <div className="flex items-baseline gap-2">
-      <span className="text-lg font-semibold">{symbol}</span>
+    <div className="flex min-w-0 items-baseline gap-2">
+      <span className="shrink-0 text-lg font-semibold">{symbol}</span>
+      <FavoriteStar symbol={symbol} />
+      {exchange && <span className="shrink-0 text-sm text-muted-foreground">· {exchange}</span>}
+      {name && <span className="truncate text-sm text-muted-foreground" title={name}>{name}</span>}
       {change && (
         <>
-          <span className="text-sm text-muted-foreground">{change.price.toFixed(2)}</span>
+          <span className="shrink-0 text-sm text-muted-foreground">{change.price.toFixed(2)}</span>
           {change.pct !== null && (
-            <span className={cn('text-sm', change.pct >= 0 ? 'text-green-500' : 'text-red-500')}>
+            <span className={cn('shrink-0 text-sm', change.pct >= 0 ? 'text-green-500' : 'text-red-500')}>
               {change.pct >= 0 ? '+' : ''}{change.pct.toFixed(2)}%
             </span>
           )}
         </>
       )}
     </div>
+  )
+}
+
+// ヘッダーのお気に入り星。SearchResults の星と同一の store アクションを叩くので、サイドバー星と
+// 状態は常に一致。プロファイルは SymbolLabel と同じ qk.profile(symbol) を使うため追加フェッチなし。
+function FavoriteStar({ symbol }: { symbol: string }): React.JSX.Element {
+  const watched = useAppStore((s) => selectActiveItems(s).some((w) => w.symbol === symbol))
+  const addToWatchlist = useAppStore((s) => s.addToWatchlist)
+  const removeFromWatchlist = useAppStore((s) => s.removeFromWatchlist)
+  const profileQ = useProfile(symbol)
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            if (watched) {
+              removeFromWatchlist(symbol)
+            } else {
+              const p = profileQ.data
+              addToWatchlist({ symbol, name: p?.name ?? symbol, exchange: p?.exchange ?? '' })
+            }
+          }}
+          aria-label={watched ? 'Remove from watchlist' : 'Add to watchlist'}
+          className={cn(
+            'shrink-0 cursor-pointer self-center',
+            watched ? 'text-primary hover:text-muted-foreground' : 'text-muted-foreground hover:text-foreground'
+          )}
+        >
+          <Star className={cn('size-4', watched && 'fill-current')} />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{watched ? 'Remove from watchlist' : 'Add to watchlist'}</TooltipContent>
+    </Tooltip>
   )
 }
 

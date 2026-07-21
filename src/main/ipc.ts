@@ -12,6 +12,8 @@ import { classify } from './capabilityClassifier'
 import * as capabilityCache from './capabilityCache'
 import * as layoutStore from './layoutStore'
 import * as watchlistStore from './watchlistStore'
+import { createProfileService } from './profile/ProfileService'
+import * as profileStore from './db/profileStore'
 
 const ALL_TIMEFRAMES: Timeframe[] = ['1m', '5m', '15m', '1h', '1d', '1w', '1M']
 const DERIVED_TIMEFRAMES: Timeframe[] = ['1w', '1M'] // never gated — always 'available' (§8/§9)
@@ -19,6 +21,15 @@ const DAILY_BACKED: Timeframe[] = ['1d', '1w', '1M'] // all served from '1d' bar
 
 export function registerIpc(): void {
   const searchCache = createSearchCache({ ttlMs: 5 * 60 * 1000, now: () => Date.now() })
+
+  const profileService = createProfileService({
+    store: profileStore,
+    search: (query) => {
+      const apiKey = getApiKey()
+      if (!apiKey) throw new Error('NO_API_KEY')
+      return new FmpProvider({ apiKey, httpGetJson: electronHttpGetJson }).searchSymbols(query)
+    }
+  })
 
   // Symbols whose '1d' EOD is not on the current plan (402/403). In-memory, cleared on key change.
   // Once known, D/W/M short-circuit to [] instead of re-hitting FMP for every timeframe switch —
@@ -39,8 +50,17 @@ export function registerIpc(): void {
     if (!apiKey) throw new Error('NO_API_KEY')
     const results = await new FmpProvider({ apiKey, httpGetJson: electronHttpGetJson }).searchSymbols(query)
     searchCache.set(query, results)
+    // Seed the profile cache for free — every result carries name/exchange, so a subsequently
+    // selected symbol resolves its header profile with zero extra API calls.
+    try {
+      for (const r of results) profileStore.upsertProfile(r)
+    } catch {
+      // Seeding the profile cache is best-effort — never fail a search on a cache-warm side effect.
+    }
     return results
   })
+
+  ipcMain.handle(CH.symbolsProfile, (_e, symbol: string) => profileService.getProfile(symbol))
 
   // Shared capability bookkeeping for every real OHLCV fetch (get + refresh): short-circuit known
   // out-of-plan daily-backed symbols, record 'available' on success, and classify FmpHttpErrors.
