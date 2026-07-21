@@ -311,5 +311,46 @@ describe('useAppStore grid shape logic', () => {
       useAppStore.getState().deleteWatchlist('Watchlist')
       expect(useAppStore.getState().watchlists).toHaveLength(1)
     })
+
+    it('reorderWatchlists moves a list DOWN (from < to) without touching active', () => {
+      useAppStore.setState({
+        watchlists: [
+          { name: 'A', items: [] },
+          { name: 'B', items: [] },
+          { name: 'C', items: [] }
+        ],
+        activeWatchlist: 'A'
+      })
+      expect(useAppStore.getState().reorderWatchlists(0, 1)).toEqual({ ok: true })
+      expect(useAppStore.getState().watchlists.map((w) => w.name)).toEqual(['B', 'A', 'C'])
+      expect(useAppStore.getState().activeWatchlist).toBe('A')
+    })
+
+    it('reorderWatchlists moves a list UP (from > to)', () => {
+      useAppStore.setState({
+        watchlists: [
+          { name: 'A', items: [] },
+          { name: 'B', items: [] },
+          { name: 'C', items: [] }
+        ],
+        activeWatchlist: 'A'
+      })
+      expect(useAppStore.getState().reorderWatchlists(2, 1)).toEqual({ ok: true })
+      expect(useAppStore.getState().watchlists.map((w) => w.name)).toEqual(['A', 'C', 'B'])
+    })
+
+    it('reorderWatchlists rejects out-of-range and no-op indices, leaving order unchanged', () => {
+      useAppStore.setState({
+        watchlists: [
+          { name: 'A', items: [] },
+          { name: 'B', items: [] }
+        ],
+        activeWatchlist: 'A'
+      })
+      expect(useAppStore.getState().reorderWatchlists(0, 5).ok).toBe(false)
+      expect(useAppStore.getState().reorderWatchlists(-1, 0).ok).toBe(false)
+      expect(useAppStore.getState().reorderWatchlists(1, 1).ok).toBe(false)
+      expect(useAppStore.getState().watchlists.map((w) => w.name)).toEqual(['A', 'B'])
+    })
   })
 })
