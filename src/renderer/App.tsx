@@ -7,6 +7,7 @@ import { Button } from './components/ui/button'
 import { GridHost } from './components/GridHost'
 import { GridShapeRow } from './components/GridShapeRow'
 import { LayoutMenu } from './components/LayoutMenu'
+import { quoteSymbols } from './lib/quoteTargets'
 import { refreshTargets } from './lib/refreshTargets'
 import { cn } from './lib/utils'
 import { SearchBar } from './components/SearchBar'
@@ -101,6 +102,24 @@ export default function App(): React.JSX.Element {
       )
       // Capability verdicts may have changed (a refresh re-probes the fetched tf); re-gate the row.
       void queryClient.invalidateQueries({ queryKey: qk.capabilities() })
+      // Latest-price: fetch market status once; only when open, one quote per visible/watchlist
+      // symbol. Closed → skip quotes entirely (consumers fall back to daily close). A gated/failed
+      // quote or market-status is swallowed here so it never blocks the OHLCV reload.
+      try {
+        const status = await api.market.status()
+        queryClient.setQueryData(qk.marketStatus(), status)
+        if (status.isOpen) {
+          const syms = quoteSymbols(cells, shape, watchlistSymbols)
+          await Promise.allSettled(
+            syms.map(async (s) => {
+              const quote = await api.quote.get(s)
+              queryClient.setQueryData(qk.quote(s), quote)
+            })
+          )
+        }
+      } catch {
+        // market-status unavailable (e.g. plan-gated) → leave consumers on the daily-close fallback.
+      }
       if (results.some((r) => r.status === 'rejected')) {
         toast('Some charts couldn’t be refreshed. Check your connection or FMP plan.')
       }

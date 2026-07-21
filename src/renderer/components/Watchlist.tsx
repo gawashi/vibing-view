@@ -4,9 +4,9 @@ import { GripVertical, X } from 'lucide-react'
 import { api, qk } from '@/api'
 import { useAppStore, selectActiveItems } from '@/store'
 import { cn } from '@/lib/utils'
-import { computeChange } from '@/lib/priceChange'
+import { latestPriceChange } from '@/lib/priceChange'
 import { WatchlistSwitcher } from './WatchlistSwitcher'
-import type { Bar, WatchlistItem } from '@shared/types'
+import type { Bar, WatchlistItem, Quote, MarketStatus } from '@shared/types'
 
 function Row({
   item,
@@ -30,8 +30,20 @@ function Row({
     queryFn: () => api.ohlcv.get(item.symbol, '1d', undefined),
     staleTime: Infinity
   })
-  // 前日比（日足基準）: price=bars[-1].close, pct= (price - bars[-2].close)/bars[-2].close。
-  const change = computeChange(bars, '1d', undefined)
+  // Quote + market status are populated by the global reload only (enabled:false → never fetch on
+  // mount, just read cache and re-render when reload calls setQueryData). Open → live quote; closed
+  // or not-yet-loaded → daily-close change (computeChange fallback lives inside latestPriceChange).
+  const { data: marketStatus } = useQuery<MarketStatus>({
+    queryKey: qk.marketStatus(),
+    queryFn: () => api.market.status(),
+    enabled: false
+  })
+  const { data: quote } = useQuery<Quote>({
+    queryKey: qk.quote(item.symbol),
+    queryFn: () => api.quote.get(item.symbol),
+    enabled: false
+  })
+  const change = latestPriceChange(bars, quote, marketStatus?.isOpen ?? false)
 
   return (
     <li

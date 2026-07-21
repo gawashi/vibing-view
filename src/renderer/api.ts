@@ -7,5 +7,7 @@ export const qk = {
   ohlcv: (symbol: string, tf: Timeframe) => ['ohlcv', symbol, tf] as const,
   search: (query: string) => ['search', query] as const,
   profile: (symbol: string) => ['profile', symbol] as const,
-  capabilities: () => ['capabilities'] as const
+  capabilities: () => ['capabilities'] as const,
+  quote: (symbol: string) => ['quote', symbol] as const,
+  marketStatus: () => ['market-status'] as const
 }

@@ -3,6 +3,7 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { FmpProvider, FmpHttpError } from '../../../src/main/providers/FmpProvider'
 import { classify } from '../../../src/main/capabilityClassifier'
+import { fmpQuoteResponse, fmpMarketHoursResponse } from '../../../src/main/providers/fmp.schema'
 
 const fx = (name: string) => JSON.parse(readFileSync(join(__dirname, '../../fixtures', name), 'utf8'))
 const provider = (payload: unknown) =>
@@ -113,5 +114,38 @@ describe('FmpProvider.searchSymbols', () => {
   it('throws only when both endpoints fail', async () => {
     const httpGetJson = vi.fn(async (_url: string) => { throw new Error('down') })
     await expect(new FmpProvider({ apiKey: 'k', httpGetJson }).searchSymbols('apple')).rejects.toThrow()
+  })
+})
+
+describe('FmpProvider.getQuote', () => {
+  it('maps the first quote row to a Quote', async () => {
+    const q = await provider(fx('fmp-quote.json')).getQuote('AAPL')
+    expect(q).toEqual({
+      price: 326.59, open: 333.025, dayHigh: 333.71, dayLow: 323.7,
+      previousClose: 333.74, changePercentage: -2.14239, timestamp: 1784577600, exchange: 'NASDAQ'
+    })
+  })
+  it('calls /stable/quote with the symbol', async () => {
+    const httpGetJson = vi.fn(async (_url: string) => fx('fmp-quote.json'))
+    await new FmpProvider({ apiKey: 'k', httpGetJson }).getQuote('AAPL')
+    expect(httpGetJson.mock.calls[0][0]).toContain('/quote?symbol=AAPL')
+  })
+  it('wraps an error-shaped 200 payload as FmpHttpError(200) so it classifies to requires-plan', async () => {
+    let caught: unknown
+    try { await provider(fx('fmp-error.json')).getQuote('AAPL') } catch (e) { caught = e }
+    expect(caught).toBeInstanceOf(FmpHttpError)
+    expect(classify((caught as FmpHttpError).status, (caught as FmpHttpError).body)).toBe('requires-plan')
+  })
+})
+
+describe('FmpProvider.getMarketStatus', () => {
+  it('reads isMarketOpen from the first row', async () => {
+    const s = await provider(fx('fmp-market-hours.json')).getMarketStatus()
+    expect(s).toEqual({ isOpen: false })
+  })
+  it('defaults to the NASDAQ exchange', async () => {
+    const httpGetJson = vi.fn(async (_url: string) => fx('fmp-market-hours.json'))
+    await new FmpProvider({ apiKey: 'k', httpGetJson }).getMarketStatus()
+    expect(httpGetJson.mock.calls[0][0]).toContain('exchange-market-hours?exchange=NASDAQ')
   })
 })

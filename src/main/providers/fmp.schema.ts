@@ -22,3 +22,25 @@ export const fmpSearchRow = z.object({
 })
 
 export const fmpSearchResponse = z.array(fmpSearchRow)
+
+// /stable/quote returns a flat array; we consume element [0]. Fields verified against a live key
+// (2026-07-21). A missing/null field fails the parse → FmpHttpError(200) → silent daily-close fallback.
+export const fmpQuoteRow = z.object({
+  symbol: z.string(),
+  price: z.number(),
+  open: z.number(),
+  dayHigh: z.number(),
+  dayLow: z.number(),
+  previousClose: z.number(),
+  changePercentage: z.number(),
+  timestamp: z.number(),
+  exchange: z.string()
+})
+export const fmpQuoteResponse = z.array(fmpQuoteRow)
+
+// /stable/exchange-market-hours returns a flat array; element [0] carries isMarketOpen.
+export const fmpMarketHoursRow = z.object({
+  exchange: z.string(),
+  isMarketOpen: z.boolean()
+})
+export const fmpMarketHoursResponse = z.array(fmpMarketHoursRow)

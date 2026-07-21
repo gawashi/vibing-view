@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { applyQuote } from '@/lib/applyQuote'
 import {
   createChart,
   CandlestickSeries,
@@ -21,7 +22,7 @@ import { IndicatorLegend } from './IndicatorLegend'
 import { useAppStore } from '@/store'
 import type { CrosshairValues } from '@/store'
 import type { HistPoint, LineData } from '@/indicators/types'
-import type { Bar, Timeframe } from '@shared/types'
+import type { Bar, Timeframe, Quote, MarketStatus } from '@shared/types'
 import { initialLogicalRange } from '@/lib/initialRange'
 
 type PaneLegend = { paneIndex: number; top: number; left: number; instanceIds: string[] }
@@ -98,6 +99,24 @@ export function Chart({ cellId, symbol, timeframe }: { cellId: string; symbol: s
     queryKey: qk.ohlcv(symbol, timeframe),
     queryFn: () => api.ohlcv.get(symbol, timeframe, undefined)
   })
+
+  // Populated by the global reload only (enabled:false → read cache, re-render on setQueryData).
+  const { data: marketStatus } = useQuery<MarketStatus>({
+    queryKey: qk.marketStatus(),
+    queryFn: () => api.market.status(),
+    enabled: false
+  })
+  const { data: quote } = useQuery<Quote>({
+    queryKey: qk.quote(symbol),
+    queryFn: () => api.quote.get(symbol),
+    enabled: false
+  })
+  // Trailing-candle overlay: quote.price replaces the last bar's close (or appends today's forming
+  // daily bar) during market hours. Pure/derived — never written back into the ohlcv query cache.
+  const displayBars = useMemo(
+    () => applyQuote(q.data ?? [], quote, marketStatus?.isOpen ?? false, timeframe),
+    [q.data, quote, marketStatus, timeframe]
+  )
 
   // Create the chart once.
   useEffect(() => {
@@ -258,13 +277,13 @@ export function Chart({ cellId, symbol, timeframe }: { cellId: string; symbol: s
     // On a symbol/timeframe switch the new key's data is undefined until it resolves (and stays
     // undefined if it errors — e.g. an out-of-plan symbol's 402). Clear to [] rather than bailing,
     // so the previous symbol's candles don't linger under the new header while loading/errored.
-    const bars = q.data ?? []
+    const bars = displayBars
     seriesRef.current.setData(
       bars.map((b) => ({ time: b.time as UTCTimestamp, open: b.open, high: b.high, low: b.low, close: b.close }))
     )
     barsRef.current = bars
-    // Only reset the view (D-11) on a genuine symbol/timeframe switch — a gap-fetch merge updates
-    // q.data for the *same* key and must NOT jump the user's pan position (§5).
+    // Only reset the view (D-11) on a genuine symbol/timeframe switch — a gap-fetch merge or a
+    // quote overlay updates displayBars for the *same* key and must NOT jump the user's pan position (§5).
     const key = `${symbol}:${timeframe}`
     if (lastKeyRef.current !== key) {
       lastKeyRef.current = key
@@ -272,7 +291,7 @@ export function Chart({ cellId, symbol, timeframe }: { cellId: string; symbol: s
       if (range) chartRef.current?.timeScale().setVisibleLogicalRange(range)
       else chartRef.current?.timeScale().fitContent() // 本数不足時は全表示
     }
-  }, [q.data, symbol, timeframe])
+  }, [displayBars, symbol, timeframe])
 
   // Reconcile indicator overlay series against `indicators` state. A NEW effect alongside the
   // create-once and data-push effects above (both left untouched) — reads the same barsRef so a
@@ -440,7 +459,7 @@ export function Chart({ cellId, symbol, timeframe }: { cellId: string; symbol: s
     latestValuesRef.current = latest
     // Seed every pane's legend with the latest-bar values so they read correctly before any hover.
     useAppStore.getState().setCrosshair(cellId, latest)
-  }, [indicators, q.data, timeframe, cellId])
+  }, [indicators, displayBars, timeframe, cellId])
 
   // Position one legend per pane at its top-left. No lightweight-charts "pane resized" event exists
   // (Landmine #2), so measure each pane's <tr> via getBoundingClientRect and observe it for drag/
@@ -491,7 +510,7 @@ export function Chart({ cellId, symbol, timeframe }: { cellId: string; symbol: s
     reposition()
 
     return () => { for (const ro of observers) ro.disconnect() }
-  }, [indicators, q.data, timeframe])
+  }, [indicators, displayBars, timeframe])
 
   // A symbol outside the current FMP plan's coverage manifests two ways on this key: a 402/403
   // ("FMP HTTP 40x" survives IPC serialization in the rejected error's message) OR a plain empty

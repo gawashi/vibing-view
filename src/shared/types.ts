@@ -26,6 +26,19 @@ export type WatchlistCollection = {
   lists: NamedWatchlist[]
 }
 
+export type Quote = {
+  price: number
+  open: number
+  dayHigh: number
+  dayLow: number
+  previousClose: number
+  changePercentage: number
+  timestamp: number // epoch seconds
+  exchange: string
+}
+
+export type MarketStatus = { isOpen: boolean }
+
 export type DateRange = { from: number; to: number } | undefined
 
 export type Params = Record<string, number | string>

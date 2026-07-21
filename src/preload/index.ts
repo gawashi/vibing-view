@@ -13,6 +13,8 @@ const api: Api = {
     refresh: (symbol, timeframe: Timeframe) =>
       ipcRenderer.invoke(CH.ohlcvRefresh, symbol, timeframe)
   },
+  quote: { get: (symbol) => ipcRenderer.invoke(CH.quoteGet, symbol) },
+  market: { status: () => ipcRenderer.invoke(CH.marketStatus) },
   apikey: {
     set: (key) => ipcRenderer.invoke(CH.apikeySet, key),
     status: () => ipcRenderer.invoke(CH.apikeyStatus),

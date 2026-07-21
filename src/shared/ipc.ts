@@ -1,10 +1,12 @@
-import type { Bar, SymbolResult, Timeframe, DateRange, Workspace, WatchlistCollection } from './types'
+import type { Bar, SymbolResult, Timeframe, DateRange, Workspace, WatchlistCollection, Quote, MarketStatus } from './types'
 
 export const CH = {
   symbolsSearch: 'symbols:search',
   symbolsProfile: 'symbols:profile',
   ohlcvGet: 'ohlcv:get',
   ohlcvRefresh: 'ohlcv:refresh',
+  quoteGet: 'quote:get',
+  marketStatus: 'market:status',
   apikeySet: 'apikey:set',
   apikeyStatus: 'apikey:status',
   apikeyClear: 'apikey:clear',
@@ -43,6 +45,8 @@ export interface Api {
     // Reload: fetch only the new bars (cached newest → now) and return the merged series.
     refresh(symbol: string, timeframe: Timeframe): Promise<Bar[]>
   }
+  quote: { get(symbol: string): Promise<Quote> }
+  market: { status(): Promise<MarketStatus> }
   apikey: {
     set(key: string): Promise<SetKeyResult>
     status(): Promise<KeyStatus>

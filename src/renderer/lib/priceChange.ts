@@ -1,4 +1,4 @@
-import type { Bar, Timeframe } from '@shared/types'
+import type { Bar, Timeframe, Quote } from '@shared/types'
 
 export type ChangeResult = { price: number; pct: number | null }
 
@@ -35,4 +35,15 @@ export function computeChange(
 
   const pct = prev !== undefined && prev !== 0 ? ((price - prev) / prev) * 100 : null
   return { price, pct }
+}
+
+// Watchlist "latest price": during market hours use the live quote (price + FMP's own
+// changePercentage, which is authoritative vs previousClose); otherwise the daily-close change.
+export function latestPriceChange(
+  daily: Bar[] | undefined,
+  quote: Quote | undefined,
+  isOpen: boolean
+): ChangeResult | null {
+  if (isOpen && quote) return { price: quote.price, pct: quote.changePercentage }
+  return computeChange(daily, '1d', undefined)
 }

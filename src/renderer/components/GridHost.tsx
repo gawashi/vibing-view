@@ -12,7 +12,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { TimeframeRow, TF_LABELS } from './TimeframeRow'
 import { cn } from '@/lib/utils'
 import { computeChange } from '@/lib/priceChange'
-import type { Bar, Cell, Timeframe, SymbolResult } from '@shared/types'
+import type { Bar, Cell, MarketStatus, Quote, Timeframe, SymbolResult } from '@shared/types'
 
 // Module-level (shared across every cell, not per-cell state): the rate-limited-tf toast guard.
 // capabilities is a single map keyed by timeframe alone (one entry per API key, D-60 review), and
@@ -124,7 +124,22 @@ function SymbolLabel({ symbol, timeframe }: { symbol: string; timeframe: Timefra
     enabled: isIntraday, // intraday のみ前日終値のため実フェッチ
     staleTime: Infinity
   })
-  const change = computeChange(barsQ.data, timeframe, dailyQ.data)
+  // Populated by the global reload only (enabled:false → read cache, re-render on setQueryData).
+  // Open → live quote (matches chart legend/candle + watchlist); closed/not-yet-loaded → existing
+  // timeframe-aware daily-close fallback.
+  const { data: marketStatus } = useQuery<MarketStatus>({
+    queryKey: qk.marketStatus(),
+    queryFn: () => api.market.status(),
+    enabled: false
+  })
+  const { data: quote } = useQuery<Quote>({
+    queryKey: qk.quote(symbol),
+    queryFn: () => api.quote.get(symbol),
+    enabled: false
+  })
+  const change = marketStatus?.isOpen && quote
+    ? { price: quote.price, pct: quote.changePercentage }
+    : computeChange(barsQ.data, timeframe, dailyQ.data)
 
   // 銘柄あたり最大1フェッチ。検索で選んだ銘柄は種まき済みで無通信ヒット。staleTime:Infinity で
   // 以後は API キー登録時の invalidate(['profile']) のみが再取得契機。

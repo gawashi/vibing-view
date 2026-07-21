@@ -1,0 +1,13 @@
+[
+  {
+    "symbol": "AAPL",
+    "price": 326.59,
+    "open": 333.025,
+    "dayHigh": 333.71,
+    "dayLow": 323.7,
+    "previousClose": 333.74,
+    "changePercentage": -2.14239,
+    "timestamp": 1784577600,
+    "exchange": "NASDAQ"
+  }
+]

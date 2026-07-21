@@ -43,6 +43,15 @@ export function registerIpc(): void {
     return createCacheService({ provider: new FmpProvider({ apiKey, httpGetJson: electronHttpGetJson }), store: barStore })
   }
 
+  // Quote / market-status are volatile and NOT cached in SQLite (SQLite = OHLCV only). They call
+  // the provider directly; errors reject and the renderer's reload flow swallows them → daily-close
+  // fallback. Not recorded in the per-Timeframe capability cache (they aren't timeframes).
+  const providerFor = () => {
+    const apiKey = getApiKey()
+    if (!apiKey) throw new Error('NO_API_KEY')
+    return new FmpProvider({ apiKey })
+  }
+
   ipcMain.handle(CH.symbolsSearch, async (_e, query: string) => {
     const cached = searchCache.get(query)
     if (cached) return cached
@@ -104,6 +113,9 @@ export function registerIpc(): void {
   ipcMain.handle(CH.ohlcvRefresh, async (_e, symbol: string, timeframe: Timeframe) =>
     withCapabilityTracking(symbol, timeframe, () => cacheFor().refreshOHLCV(symbol, timeframe))
   )
+
+  ipcMain.handle(CH.quoteGet, (_e, symbol: string) => providerFor().getQuote(symbol))
+  ipcMain.handle(CH.marketStatus, () => providerFor().getMarketStatus())
 
   ipcMain.handle(CH.apikeySet, (_e, key: string) => {
     const result = setApiKey(key)

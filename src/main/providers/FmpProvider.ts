@@ -1,7 +1,7 @@
 import { subDays, subMonths, subYears } from 'date-fns'
 import { fromZonedTime } from 'date-fns-tz'
-import type { Bar, SymbolResult, Timeframe, DateRange } from '@shared/types'
-import { fmpHistoricalResponse, fmpSearchResponse } from './fmp.schema'
+import type { Bar, SymbolResult, Timeframe, DateRange, Quote, MarketStatus } from '@shared/types'
+import { fmpHistoricalResponse, fmpSearchResponse, fmpQuoteResponse, fmpMarketHoursResponse } from './fmp.schema'
 
 // FMP migrated off /api/v3 (now returns 403 for current keys) to the /stable surface.
 const BASE = 'https://financialmodelingprep.com/stable'
@@ -146,5 +146,25 @@ export class FmpProvider {
         open: r.open, high: r.high, low: r.low, close: r.close, volume: r.volume
       }))
       .sort((a, b) => a.time - b.time) // FMP returns newest-first; charts need ascending
+  }
+
+  async getQuote(symbol: string): Promise<Quote> {
+    const url = `${BASE}/quote?symbol=${encodeURIComponent(symbol)}&apikey=${this.apiKey}`
+    const rows = this.parseOrThrowHttpError(fmpQuoteResponse, await this.httpGetJson(url))
+    const r = rows[0]
+    if (!r) throw new FmpHttpError(200, rows)
+    return {
+      price: r.price, open: r.open, dayHigh: r.dayHigh, dayLow: r.dayLow,
+      previousClose: r.previousClose, changePercentage: r.changePercentage,
+      timestamp: r.timestamp, exchange: r.exchange
+    }
+  }
+
+  async getMarketStatus(exchange = 'NASDAQ'): Promise<MarketStatus> {
+    const url = `${BASE}/exchange-market-hours?exchange=${encodeURIComponent(exchange)}&apikey=${this.apiKey}`
+    const rows = this.parseOrThrowHttpError(fmpMarketHoursResponse, await this.httpGetJson(url))
+    const r = rows[0]
+    if (!r) throw new FmpHttpError(200, rows)
+    return { isOpen: r.isMarketOpen }
   }
 }
