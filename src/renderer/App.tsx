@@ -153,23 +153,23 @@ export default function App(): React.JSX.Element {
             </TooltipTrigger>
             <TooltipContent>{sidebarOpen ? 'Hide watchlist' : 'Show watchlist'}</TooltipContent>
           </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handleReload}
-                disabled={reloading}
-                aria-label="Reload visible charts"
-              >
-                <RefreshCw className={cn('size-4', reloading && 'animate-spin')} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Reload visible charts</TooltipContent>
-          </Tooltip>
           <GridShapeRow />
           <LayoutMenu />
           <div className="ml-auto flex items-center gap-4">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleReload}
+                  disabled={reloading}
+                  aria-label="Reload visible charts"
+                >
+                  <RefreshCw className={cn('size-4', reloading && 'animate-spin')} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Reload visible charts</TooltipContent>
+            </Tooltip>
             <SearchBar />
             <SettingsDialog />
           </div>
