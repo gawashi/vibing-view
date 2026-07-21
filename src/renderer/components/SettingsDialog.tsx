@@ -21,6 +21,7 @@ export function SettingsDialog(): React.JSX.Element {
     setStatus(await api.apikey.status())
     void queryClient.invalidateQueries({ queryKey: ['ohlcv'] })
     void queryClient.invalidateQueries({ queryKey: ['capabilities'] }) // SC4: paid key re-enables intraday, no code change
+    void queryClient.invalidateQueries({ queryKey: ['profile'] }) // キー登録でヘッダー社名/取引所を再解決
   }
 
   const clear = async (): Promise<void> => {
