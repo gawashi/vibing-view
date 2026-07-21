@@ -1,13 +1,14 @@
 import React, { useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { X } from 'lucide-react'
+import { X, Star } from 'lucide-react'
 import { api, qk } from '@/api'
-import { useAppStore } from '@/store'
+import { useAppStore, selectActiveItems } from '@/store'
 import { VISIBLE_COUNT } from '@/workspace'
 import { AddIndicatorMenu } from './AddIndicatorMenu'
 import { Button } from './ui/button'
 import { Chart } from './Chart'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { TimeframeRow, TF_LABELS } from './TimeframeRow'
 import { cn } from '@/lib/utils'
 import { computeChange } from '@/lib/priceChange'
@@ -146,6 +147,46 @@ function SymbolLabel({ symbol, timeframe }: { symbol: string; timeframe: Timefra
   )
 }
 
+// ヘッダーのお気に入り星。SearchResults の星と同一の store アクションを叩くので、サイドバー星と
+// 状態は常に一致。プロファイルは SymbolLabel と同じ qk.profile(symbol) を使うため追加フェッチなし。
+function FavoriteStar({ symbol }: { symbol: string }): React.JSX.Element {
+  const watched = useAppStore((s) => selectActiveItems(s).some((w) => w.symbol === symbol))
+  const addToWatchlist = useAppStore((s) => s.addToWatchlist)
+  const removeFromWatchlist = useAppStore((s) => s.removeFromWatchlist)
+  const profileQ = useQuery<SymbolResult>({
+    queryKey: qk.profile(symbol),
+    queryFn: () => api.symbols.profile(symbol),
+    staleTime: Infinity
+  })
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            if (watched) {
+              removeFromWatchlist(symbol)
+            } else {
+              const p = profileQ.data
+              addToWatchlist({ symbol, name: p?.name ?? symbol, exchange: p?.exchange ?? '' })
+            }
+          }}
+          aria-label={watched ? 'Remove from watchlist' : 'Add to watchlist'}
+          className={cn(
+            'shrink-0 cursor-pointer',
+            watched ? 'text-primary hover:text-muted-foreground' : 'text-muted-foreground hover:text-foreground'
+          )}
+        >
+          <Star className={cn('size-4', watched && 'fill-current')} />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{watched ? 'Remove from watchlist' : 'Add to watchlist'}</TooltipContent>
+    </Tooltip>
+  )
+}
+
 function GridCell({ cell, active }: { cell: Cell; active: boolean }): React.JSX.Element {
   const setActiveCell = useAppStore((s) => s.setActiveCell)
   const setCellTimeframe = useAppStore((s) => s.setCellTimeframe)
@@ -176,15 +217,18 @@ function GridCell({ cell, active }: { cell: Cell; active: boolean }): React.JSX.
                 onChange={(tf) => setCellTimeframe(cell.id, tf)}
               />
               <AddIndicatorMenu cellId={cell.id} />
-              <Button
-                variant="ghost"
-                size="icon"
-                className="ml-auto h-6 w-6 [&_svg]:size-3.5"
-                aria-label={`Remove ${cell.symbol} chart`}
-                onClick={(e) => { e.stopPropagation(); clearCell(cell.id) }}
-              >
-                <X />
-              </Button>
+              <div className="ml-auto flex items-center gap-1">
+                <FavoriteStar symbol={cell.symbol} />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 [&_svg]:size-3.5"
+                  aria-label={`Remove ${cell.symbol} chart`}
+                  onClick={(e) => { e.stopPropagation(); clearCell(cell.id) }}
+                >
+                  <X />
+                </Button>
+              </div>
             </div>
             <div className="min-h-0 flex-1">
               <Chart cellId={cell.id} symbol={cell.symbol} timeframe={cell.timeframe} />
