@@ -6,5 +6,6 @@ export const api = window.api
 export const qk = {
   ohlcv: (symbol: string, tf: Timeframe) => ['ohlcv', symbol, tf] as const,
   search: (query: string) => ['search', query] as const,
+  profile: (symbol: string) => ['profile', symbol] as const,
   capabilities: () => ['capabilities'] as const
 }
