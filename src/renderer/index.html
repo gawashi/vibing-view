@@ -1,9 +1,10 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-UJlA6JOXGSsDoQd2EhCcNK7M9mnUnwkLVgqaWzfDuSs='; style-src 'self' 'unsafe-inline'" />
     <title>Vibing View</title>
+    <script>try{var t=localStorage.getItem('vv-theme');var d=t==='dark'||((!t||t==='system')&&matchMedia('(prefers-color-scheme: dark)').matches);if(d)document.documentElement.classList.add('dark')}catch(e){}</script>
   </head>
   <body>
     <div id="root"></div>
