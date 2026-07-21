@@ -132,7 +132,16 @@ export function WatchlistSwitcher(): React.JSX.Element {
               id="watchlist-name"
               value={nameDialog?.value ?? ''}
               placeholder="e.g. Tech"
+              autoFocus
               onChange={(e) => setNameDialog((prev) => (prev ? { ...prev, value: e.target.value, error: null } : prev))}
+              // Enter confirms (create/rename) when the name is non-empty — same guard as the button's
+              // disabled state — so users don't have to reach for the Create/Rename button.
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (nameDialog?.value ?? '').trim().length > 0) {
+                  e.preventDefault()
+                  confirmNameDialog()
+                }
+              }}
             />
             {nameDialog?.error && <p className="text-sm text-destructive">{nameDialog.error}</p>}
           </div>
