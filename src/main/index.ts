@@ -1,6 +1,7 @@
 import { app, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { registerIpc } from './ipc'
+import { configureProxy } from './net/httpClient'
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -24,7 +25,10 @@ function createWindow(): void {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // Route provider HTTP through the OS/system proxy (or HTTP(S)_PROXY) before any fetch runs —
+  // corporate networks block direct egress, so an unconfigured client times out (see net/httpClient).
+  await configureProxy()
   registerIpc()
   createWindow()
   app.on('activate', () => {

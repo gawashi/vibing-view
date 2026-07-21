@@ -10,7 +10,7 @@ const INTRADAY_PATH: Record<'1m' | '5m' | '15m' | '1h', string> = {
   '1m': '1min', '5m': '5min', '15m': '15min', '1h': '1hour'
 }
 
-type HttpGetJson = (url: string) => Promise<unknown>
+export type HttpGetJson = (url: string) => Promise<unknown>
 
 // Carries the HTTP status + response body of a non-2xx FMP response so the capability
 // classifier can tell 403 (requires-plan) from 429 (rate-limited) instead of a discarded message.

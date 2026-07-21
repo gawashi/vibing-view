@@ -2,6 +2,7 @@ import { ipcMain } from 'electron'
 import type { Bar, Timeframe, DateRange, Workspace, WatchlistCollection } from '@shared/types'
 import { CH, type CapabilityStatus } from '@shared/ipc'
 import { FmpProvider, FmpHttpError } from './providers/FmpProvider'
+import { electronHttpGetJson } from './net/httpClient'
 import { createCacheService } from './cache/CacheService'
 import * as barStore from './db/barStore'
 import { getApiKey, setApiKey, getKeyStatus, clearApiKey } from './keystore'
@@ -28,7 +29,7 @@ export function registerIpc(): void {
   const cacheFor = () => {
     const apiKey = getApiKey()
     if (!apiKey) throw new Error('NO_API_KEY')
-    return createCacheService({ provider: new FmpProvider({ apiKey }), store: barStore })
+    return createCacheService({ provider: new FmpProvider({ apiKey, httpGetJson: electronHttpGetJson }), store: barStore })
   }
 
   ipcMain.handle(CH.symbolsSearch, async (_e, query: string) => {
@@ -36,7 +37,7 @@ export function registerIpc(): void {
     if (cached) return cached
     const apiKey = getApiKey()
     if (!apiKey) throw new Error('NO_API_KEY')
-    const results = await new FmpProvider({ apiKey }).searchSymbols(query)
+    const results = await new FmpProvider({ apiKey, httpGetJson: electronHttpGetJson }).searchSymbols(query)
     searchCache.set(query, results)
     return results
   })
