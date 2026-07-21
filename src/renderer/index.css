@@ -2,10 +2,32 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Dark-only. Values mapped to 01-UI-SPEC.md palette.
-   #0B0E11 background, #151920 secondary/card/popover, #2E7DE1 accent(primary),
-   #E5484D destructive, #E4E7EB text, #8B92A0 muted text. */
-:root, .dark {
+/* Light palette (:root, default) and dark palette (.dark). Accent #2E7DE1 is shared.
+   Dark values map to 01-UI-SPEC.md: #0B0E11 bg, #151920 card, #E4E7EB text, #8B92A0 muted, #E5484D destructive. */
+:root {
+  --background: 0 0% 100%;           /* white */
+  --foreground: 210 24% 12%;         /* near-black slate text */
+  --card: 210 20% 98%;               /* off-white card */
+  --card-foreground: 210 24% 12%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 210 24% 12%;
+  --primary: 212 74% 53%;            /* #2E7DE1 accent = primary CTA (shared) */
+  --primary-foreground: 0 0% 100%;
+  --secondary: 210 20% 96%;
+  --secondary-foreground: 210 24% 12%;
+  --muted: 210 20% 94%;
+  --muted-foreground: 216 11% 40%;
+  --accent: 212 74% 53%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 358 76% 59%;        /* #E5484D (shared) */
+  --destructive-foreground: 0 0% 100%;
+  --border: 214 20% 85%;
+  --input: 214 20% 85%;
+  --ring: 212 74% 53%;               /* focus ring = accent */
+  --radius: 0.5rem;
+}
+
+.dark {
   --background: 210 24% 6%;          /* #0B0E11 */
   --foreground: 213 15% 90%;         /* #E4E7EB */
   --card: 213 21% 10%;               /* #151920 */

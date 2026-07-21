@@ -1,5 +1,5 @@
-import React from 'react'
-import { Star } from 'lucide-react'
+import React, { useEffect, useRef, useState } from 'react'
+import { ChevronDown, Star } from 'lucide-react'
 import type { SymbolResult } from '@shared/types'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { cn } from '@/lib/utils'
@@ -15,6 +15,40 @@ type Props = {
 }
 
 export function SearchResults({ loading, error, results, onSelect, watchlistSymbols, onAddToWatchlist, onRemoveFromWatchlist }: Props): React.JSX.Element | null {
+  const INITIAL = 15
+  const STEP = 15
+  const PULL_THRESHOLD = 150 // extra wheel overscroll (px) past the bottom needed to load more
+  const [visibleCount, setVisibleCount] = useState(INITIAL)
+  const listRef = useRef<HTMLUListElement>(null)
+  const pull = useRef(0) // accumulated overscroll since last reaching the bottom
+
+  // Reset the reveal window whenever a new result set arrives (new search).
+  useEffect(() => {
+    setVisibleCount(INITIAL)
+    pull.current = 0
+    if (listRef.current) listRef.current.scrollTop = 0
+  }, [results])
+
+  const total = results?.length ?? 0
+  const hasMore = visibleCount < total
+
+  // Pull-to-load: don't reveal automatically on reaching the bottom — only once the user keeps
+  // scrolling PAST it (accumulated wheel overscroll beyond PULL_THRESHOLD). Rows are already fetched,
+  // so reveal synchronously. Scrolling up or away from the bottom resets the accumulator.
+  const onWheel = (e: React.WheelEvent<HTMLUListElement>): void => {
+    const el = e.currentTarget
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 4
+    if (e.deltaY > 0 && atBottom && hasMore) {
+      pull.current += e.deltaY
+      if (pull.current >= PULL_THRESHOLD) {
+        pull.current = 0
+        setVisibleCount((c) => Math.min(c + STEP, total))
+      }
+    } else if (e.deltaY < 0 || !atBottom) {
+      pull.current = 0
+    }
+  }
+
   if (loading) return <div className="p-2 text-sm text-muted-foreground">Searching…</div>
   if (error)
     return (
@@ -32,9 +66,10 @@ export function SearchResults({ loading, error, results, onSelect, watchlistSymb
         </div>
       </div>
     )
+
   return (
-    <ul className="max-h-[280px] overflow-y-auto rounded-md border border-border bg-card">
-      {results.slice(0, 8).map((r) => {
+    <ul ref={listRef} onWheel={onWheel} className="max-h-[280px] overflow-y-auto rounded-md border border-border bg-card">
+      {results.slice(0, visibleCount).map((r) => {
         const watched = watchlistSymbols.includes(r.symbol)
         return (
           <li
@@ -68,6 +103,12 @@ export function SearchResults({ loading, error, results, onSelect, watchlistSymb
           </li>
         )
       })}
+      {hasMore && (
+        <li className="flex items-center justify-center gap-1 px-2 py-2 text-xs text-muted-foreground">
+          <ChevronDown className="size-3" />
+          Pull to load more
+        </li>
+      )}
     </ul>
   )
 }

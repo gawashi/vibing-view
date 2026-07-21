@@ -26,6 +26,35 @@ import { initialLogicalRange } from '@/lib/initialRange'
 
 type PaneLegend = { paneIndex: number; top: number; left: number; instanceIds: string[] }
 
+// Read a theme CSS var (e.g. "210 24% 6%") and return a usable CSS color string. Lets the chart
+// track the light/dark palette instead of the old hardcoded dark hexes (#0B0E11 / #151920).
+function cssHsl(name: string, alpha?: number): string {
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  if (!v) return ''
+  return alpha === undefined ? `hsl(${v})` : `hsl(${v} / ${alpha})`
+}
+
+// Chart layout/grid/border colors derived from the current theme. Re-read on theme change so a
+// Light/Dark toggle recolors the canvas. Candle up/down colors stay fixed (readable on both).
+function chartThemeOptions(): {
+  layout: { background: { color: string }; textColor: string; panes: { separatorColor: string; separatorHoverColor: string } }
+  grid: { vertLines: { color: string }; horzLines: { color: string } }
+  timeScale: { borderColor: string }
+  rightPriceScale: { borderColor: string }
+} {
+  const grid = cssHsl('--border')
+  return {
+    layout: {
+      background: { color: cssHsl('--background') },
+      textColor: cssHsl('--muted-foreground'),
+      panes: { separatorColor: cssHsl('--muted-foreground', 0.25), separatorHoverColor: cssHsl('--muted-foreground', 0.2) }
+    },
+    grid: { vertLines: { color: grid }, horzLines: { color: grid } },
+    timeScale: { borderColor: grid },
+    rightPriceScale: { borderColor: grid }
+  }
+}
+
 export function Chart({ cellId, symbol, timeframe }: { cellId: string; symbol: string; timeframe: Timeframe }): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
@@ -73,22 +102,24 @@ export function Chart({ cellId, symbol, timeframe }: { cellId: string; symbol: s
   // Create the chart once.
   useEffect(() => {
     if (!containerRef.current) return
+    const themeOpts = chartThemeOptions()
     const chart = createChart(containerRef.current, {
       layout: {
-        background: { color: '#0B0E11' },
-        textColor: '#8B92A0',
+        ...themeOpts.layout,
         // Hide the on-canvas TradingView logo — it would repeat in every grid cell (up to 4 in 2x2).
         // Optional mark; Apache-2.0 attribution is satisfied by the repo NOTICE, not this overlay.
-        attributionLogo: false,
-        // D-32/RESEARCH Q6: pane separator — グリッド色(#151920)だと境目が見えないため、
-        // グリッドとテキスト色の中間(#2A2F3A)にしてペイン境界をはっきり見せる。
-        panes: { separatorColor: '#2A2F3A', separatorHoverColor: 'rgba(139, 146, 160, 0.2)' }
+        attributionLogo: false
       },
-      grid: { vertLines: { color: '#151920' }, horzLines: { color: '#151920' } },
+      grid: themeOpts.grid,
       autoSize: true,
-      timeScale: { borderColor: '#151920' },
-      rightPriceScale: { borderColor: '#151920' }
+      timeScale: themeOpts.timeScale,
+      rightPriceScale: themeOpts.rightPriceScale
     })
+
+    // Recolor the canvas when the theme toggles (.dark class flips on <html>).
+    const applyChartTheme = (): void => chart.applyOptions(chartThemeOptions())
+    const themeObserver = new MutationObserver(applyChartTheme)
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
     // ponytail: assign directly from addSeries's return value — avoids the fragile
     // panes()[0].getSeries()[0] lookup; typechecks cleanly against installed 5.2 typings.
     const series = chart.addSeries(CandlestickSeries, {
@@ -205,6 +236,7 @@ export function Chart({ cellId, symbol, timeframe }: { cellId: string; symbol: s
     chart.subscribeCrosshairMove(onCrosshairMove)
 
     return () => {
+      themeObserver.disconnect()
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(onVisibleLogicalRangeChange)
       if (debounceRef.current) clearTimeout(debounceRef.current)
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)

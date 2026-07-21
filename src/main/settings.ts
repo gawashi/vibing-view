@@ -36,3 +36,15 @@ export function getSidebarWidth(): number | null {
 export function setSidebarWidth(width: number): void {
   writeJsonFile(settingsPath(), { ...read(), sidebarWidth: width })
 }
+
+// Theme is a user preference (JSON, not SQLite). 'system' follows OS at startup (resolved in renderer).
+export type Theme = 'light' | 'dark' | 'system'
+
+export function getTheme(): Theme {
+  const v = read().theme
+  return v === 'light' || v === 'dark' || v === 'system' ? v : 'system'
+}
+
+export function setTheme(theme: Theme): void {
+  writeJsonFile(settingsPath(), { ...read(), theme })
+}
