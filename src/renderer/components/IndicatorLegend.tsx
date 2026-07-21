@@ -50,7 +50,7 @@ export function IndicatorLegend({
       <div className="absolute z-10 max-h-[50%] overflow-y-auto rounded bg-card/80 p-2 text-xs" style={style}>
         {showPrice && (
           // D-39/DD-3: OHLC four values only, no percent-change.
-          <div className="flex items-center gap-2 whitespace-nowrap py-0.5 text-[#E4E7EB]">
+          <div className="flex items-center gap-2 whitespace-nowrap py-0.5 text-foreground">
             <span>O {price.open.toFixed(2)}</span>
             <span>H {price.high.toFixed(2)}</span>
             <span>L {price.low.toFixed(2)}</span>
@@ -73,7 +73,7 @@ export function IndicatorLegend({
                 className="inline-block h-2 w-2 shrink-0 rounded-full"
                 style={{ backgroundColor: color }}
               />
-              <span className={inst.visible ? 'text-[#E4E7EB]' : 'text-muted-foreground'}>
+              <span className={inst.visible ? 'text-foreground' : 'text-muted-foreground'}>
                 {module.label(inst.params)}
               </span>
               {text && <span className="text-muted-foreground">{text}</span>}
