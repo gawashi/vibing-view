@@ -22,6 +22,7 @@ import { useAppStore } from '@/store'
 import type { CrosshairValues } from '@/store'
 import type { HistPoint, LineData } from '@/indicators/types'
 import type { Bar, Timeframe } from '@shared/types'
+import { initialLogicalRange } from '@/lib/initialRange'
 
 type PaneLegend = { paneIndex: number; top: number; left: number; instanceIds: string[] }
 
@@ -235,7 +236,9 @@ export function Chart({ cellId, symbol, timeframe }: { cellId: string; symbol: s
     const key = `${symbol}:${timeframe}`
     if (lastKeyRef.current !== key) {
       lastKeyRef.current = key
-      chartRef.current?.timeScale().fitContent()
+      const range = initialLogicalRange(timeframe, bars.length)
+      if (range) chartRef.current?.timeScale().setVisibleLogicalRange(range)
+      else chartRef.current?.timeScale().fitContent() // 本数不足時は全表示
     }
   }, [q.data, symbol, timeframe])
 
