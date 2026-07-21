@@ -239,7 +239,7 @@ to:
 import React, { useEffect, useRef, useState } from 'react'
 ```
 
-Then, inside the `SearchResults` function, immediately after the guard clauses (after the `if (results.length === 0)` block, before `return (`), add:
+Then, inside the `SearchResults` function, at the TOP of the function body — BEFORE the guard clauses (`if (loading)` etc.) — add the hooks. Hooks must run unconditionally on every render (React Rules of Hooks); placing them after the early `return`s would change the hook count between the loading and results renders and crash. Because `results` may be `undefined` at this point, the scroll cap uses `results?.length ?? c`:
 
 ```tsx
   const INITIAL = 15
@@ -253,17 +253,18 @@ Then, inside the `SearchResults` function, immediately after the guard clauses (
     if (listRef.current) listRef.current.scrollTop = 0
   }, [results])
 
-  // Reveal +15 more when scrolled near the bottom. Capped at results.length in the render slice —
-  // no additional network (all rows already fetched into `results`).
+  // Reveal +15 more when scrolled near the bottom. Capped at the fetched count — no extra network
+  // (all rows already fetched into `results`). onScroll only fires from the rendered <ul>, where
+  // results is defined, but `?? c` keeps the cap safe for the union type.
   const onScroll = (e: React.UIEvent<HTMLUListElement>): void => {
     const el = e.currentTarget
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 48) {
-      setVisibleCount((c) => Math.min(c + STEP, results.length))
+      setVisibleCount((c) => Math.min(c + STEP, results?.length ?? c))
     }
   }
 ```
 
-Note: the `results` guard clauses above guarantee `results` is a non-`undefined`, non-empty array by this point, so `results.length` is safe.
+Note: these hooks sit ABOVE the guard clauses so they run on every render regardless of loading/error/empty state.
 
 - [ ] **Step 2: Wire the ref/handler onto the `<ul>` and use `visibleCount` in the slice**
 
