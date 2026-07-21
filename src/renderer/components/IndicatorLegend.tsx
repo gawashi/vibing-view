@@ -50,7 +50,7 @@ export function IndicatorLegend({
       <div className="absolute z-10 max-h-[50%] overflow-y-auto rounded bg-card/80 p-2 text-xs" style={style}>
         {showPrice && (
           // D-39/DD-3: OHLC four values only, no percent-change.
-          <div className="flex items-center gap-2 whitespace-nowrap py-0.5 text-foreground">
+          <div className="flex items-center gap-2 whitespace-nowrap py-0.5 text-muted-foreground">
             <span>O {price.open.toFixed(2)}</span>
             <span>H {price.high.toFixed(2)}</span>
             <span>L {price.low.toFixed(2)}</span>
