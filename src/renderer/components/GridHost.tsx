@@ -137,6 +137,7 @@ function SymbolLabel({ symbol, timeframe }: { symbol: string; timeframe: Timefra
   return (
     <div className="flex min-w-0 items-baseline gap-2">
       <span className="shrink-0 text-lg font-semibold">{symbol}</span>
+      <FavoriteStar symbol={symbol} />
       {exchange && <span className="shrink-0 text-sm text-muted-foreground">· {exchange}</span>}
       {name && <span className="truncate text-sm text-muted-foreground" title={name}>{name}</span>}
       {change && (
@@ -177,7 +178,7 @@ function FavoriteStar({ symbol }: { symbol: string }): React.JSX.Element {
           }}
           aria-label={watched ? 'Remove from watchlist' : 'Add to watchlist'}
           className={cn(
-            'shrink-0 cursor-pointer',
+            'shrink-0 cursor-pointer self-center',
             watched ? 'text-primary hover:text-muted-foreground' : 'text-muted-foreground hover:text-foreground'
           )}
         >
@@ -219,18 +220,15 @@ function GridCell({ cell, active }: { cell: Cell; active: boolean }): React.JSX.
                 onChange={(tf) => setCellTimeframe(cell.id, tf)}
               />
               <AddIndicatorMenu cellId={cell.id} />
-              <div className="ml-auto flex items-center gap-1">
-                <FavoriteStar symbol={cell.symbol} />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6 [&_svg]:size-3.5"
-                  aria-label={`Remove ${cell.symbol} chart`}
-                  onClick={(e) => { e.stopPropagation(); clearCell(cell.id) }}
-                >
-                  <X />
-                </Button>
-              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="ml-auto h-6 w-6 [&_svg]:size-3.5"
+                aria-label={`Remove ${cell.symbol} chart`}
+                onClick={(e) => { e.stopPropagation(); clearCell(cell.id) }}
+              >
+                <X />
+              </Button>
             </div>
             <div className="min-h-0 flex-1">
               <Chart cellId={cell.id} symbol={cell.symbol} timeframe={cell.timeframe} />
