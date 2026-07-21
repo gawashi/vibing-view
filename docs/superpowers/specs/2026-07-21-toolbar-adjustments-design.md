@@ -26,14 +26,17 @@
 - 検索は `searchCache`(クエリ単位のメモリキャッシュ, TTL付き)を通るため、追加のAPI消費は一意クエリごとに一度だけ。
 - 片方が失敗(rate-limit等)しても、もう片方の結果は返す(`Promise.allSettled` で fulfilled のみ採用)。両方失敗時のみ throw。
 
-## 3. 候補件数を増やす
+## 3. 候補件数を増やす(スクロールで段階表示)
 
 **現状**: API `limit=8`、かつ `SearchResults` で `results.slice(0, 8)`。二重に8件で絞られている。
 
-**変更**:
-- 両エンドポイントの `limit=8` → `limit=50`。
-- `SearchResults.tsx` の `slice(0, 8)` → `slice(0, 20)`。
-- 結果リストは既に `max-h-[280px] overflow-y-auto` でスクロール可能なので、レイアウト変更は不要。
+**変更**: 一度に多めに取得し、クライアント側で段階的に開示する(スクロールでのAPI追加取得はしない — API消費を増やさないため)。
+
+- 両エンドポイントの `limit=8` → `limit=50`(併用マージで最大~100件を1クエリで取得, `searchCache` にキャッシュ)。
+- `SearchResults` に `visibleCount` state(初期15)を持たせる。`slice(0, 8)` → `slice(0, visibleCount)`。
+- リスト(`max-h-[280px] overflow-y-auto`)の `onScroll` で末尾付近(残り数十px)まで来たら `visibleCount += 15`。上限は `results.length`(取得済み件数)。
+- `results` が変わったら(新しい検索)`useEffect` で `visibleCount` を15にリセット。
+- 取得済み件数を超えるスクロールでは何もしない(追加ネットワーク無し)。
 
 ## 4. テーマ切替(Settings機能強化)
 
@@ -52,6 +55,9 @@
 ### 適用(renderer)
 - 起動時に `api.settings.getTheme()` を読み、`'system'` なら `window.matchMedia('(prefers-color-scheme: dark)')` で解決して `<html>` に `.dark` クラスを付け外し。IPC 越しのネイティブ判定は不要。
 - `SettingsDialog` に Light / Dark / System の3択トグルを追加。選択で即座に `<html>` のクラスを更新し、`setTheme` で永続化。
+
+### トリガーを歯車アイコンに
+- `SettingsDialog` の `DialogTrigger` を `<Button variant="secondary">Settings</Button>` から歯車アイコンボタンに変更(`lucide-react` の `Settings` アイコン、更新ボタンと揃えて `variant="ghost" size="icon"` + `aria-label="Settings"` + tooltip "Settings")。
 
 ## スコープ外(YAGNI)
 
