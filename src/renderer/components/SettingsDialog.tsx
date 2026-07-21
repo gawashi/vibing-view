@@ -23,16 +23,19 @@ export function SettingsDialog(): React.JSX.Element {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Tooltip>
-          <TooltipTrigger asChild>
+      {/* Both triggers wrap the Button directly (Slot merges onto it). DialogTrigger's child must be
+          the Button, NOT the Tooltip root — a Tooltip root renders no DOM, so the open-onClick would
+          never reach the button and the dialog wouldn't open. */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DialogTrigger asChild>
             <Button variant="ghost" size="icon" aria-label="Settings">
               <SettingsIcon className="size-4" />
             </Button>
-          </TooltipTrigger>
-          <TooltipContent>Settings</TooltipContent>
-        </Tooltip>
-      </DialogTrigger>
+          </DialogTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Settings</TooltipContent>
+      </Tooltip>
       <DialogContent className="max-w-2xl p-0">
         <div className="flex min-h-[360px]">
           <nav className="w-40 shrink-0 border-r border-border p-3">
