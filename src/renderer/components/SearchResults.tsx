@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { Loader2, Star } from 'lucide-react'
+import { ChevronDown, Loader2, Star } from 'lucide-react'
 import type { SymbolResult } from '@shared/types'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { cn } from '@/lib/utils'
@@ -18,16 +18,19 @@ export function SearchResults({ loading, error, results, onSelect, watchlistSymb
   const INITIAL = 15
   const STEP = 15
   const LOAD_DELAY_MS = 600
+  const PULL_THRESHOLD = 150 // extra wheel overscroll (px) past the bottom needed to load more
   const [visibleCount, setVisibleCount] = useState(INITIAL)
   const [loadingMore, setLoadingMore] = useState(false)
   const listRef = useRef<HTMLUListElement>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pull = useRef(0) // accumulated overscroll since last reaching the bottom
 
   // Reset the reveal window whenever a new result set arrives (new search). Also cancel any in-flight
   // "load more" so a pending reveal from the previous query can't fire against the new results.
   useEffect(() => {
     setVisibleCount(INITIAL)
     setLoadingMore(false)
+    pull.current = 0
     if (timer.current) clearTimeout(timer.current)
     if (listRef.current) listRef.current.scrollTop = 0
   }, [results])
@@ -38,17 +41,31 @@ export function SearchResults({ loading, error, results, onSelect, watchlistSymb
   const total = results?.length ?? 0
   const hasMore = visibleCount < total
 
-  // Twitter-style reveal: on reaching the bottom, show a brief spinner, then append the next batch.
-  // The delay is purely cosmetic — every row is already fetched, so there is no network here.
-  // ponytail: fixed 600ms feel-delay; tune the constant if it drags.
-  const onScroll = (e: React.UIEvent<HTMLUListElement>): void => {
+  // Append the next batch after a brief spinner. The delay is purely cosmetic — every row is already
+  // fetched, so there is no network here. ponytail: fixed 600ms feel-delay; tune the constant if it drags.
+  const revealMore = (): void => {
+    if (!hasMore || loadingMore) return
+    setLoadingMore(true)
+    timer.current = setTimeout(() => {
+      setVisibleCount((c) => Math.min(c + STEP, total))
+      setLoadingMore(false)
+    }, LOAD_DELAY_MS)
+  }
+
+  // Pull-to-load: don't reveal automatically on reaching the bottom — only once the user keeps
+  // scrolling PAST it (accumulated wheel overscroll beyond PULL_THRESHOLD). Scrolling up or away
+  // from the bottom resets the accumulator.
+  const onWheel = (e: React.WheelEvent<HTMLUListElement>): void => {
     const el = e.currentTarget
-    if (el.scrollHeight - el.scrollTop - el.clientHeight < 48 && hasMore && !loadingMore) {
-      setLoadingMore(true)
-      timer.current = setTimeout(() => {
-        setVisibleCount((c) => Math.min(c + STEP, total))
-        setLoadingMore(false)
-      }, LOAD_DELAY_MS)
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 4
+    if (e.deltaY > 0 && atBottom && hasMore && !loadingMore) {
+      pull.current += e.deltaY
+      if (pull.current >= PULL_THRESHOLD) {
+        pull.current = 0
+        revealMore()
+      }
+    } else if (e.deltaY < 0 || !atBottom) {
+      pull.current = 0
     }
   }
 
@@ -71,7 +88,7 @@ export function SearchResults({ loading, error, results, onSelect, watchlistSymb
     )
 
   return (
-    <ul ref={listRef} onScroll={onScroll} className="max-h-[280px] overflow-y-auto rounded-md border border-border bg-card">
+    <ul ref={listRef} onWheel={onWheel} className="max-h-[280px] overflow-y-auto rounded-md border border-border bg-card">
       {results.slice(0, visibleCount).map((r) => {
         const watched = watchlistSymbols.includes(r.symbol)
         return (
@@ -106,12 +123,17 @@ export function SearchResults({ loading, error, results, onSelect, watchlistSymb
           </li>
         )
       })}
-      {loadingMore && (
+      {loadingMore ? (
         <li className="flex items-center justify-center gap-2 px-2 py-3 text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin" />
           Loading…
         </li>
-      )}
+      ) : hasMore ? (
+        <li className="flex items-center justify-center gap-1 px-2 py-2 text-xs text-muted-foreground">
+          <ChevronDown className="size-3" />
+          Pull to load more
+        </li>
+      ) : null}
     </ul>
   )
 }
