@@ -52,7 +52,11 @@ export function registerIpc(): void {
     searchCache.set(query, results)
     // Seed the profile cache for free — every result carries name/exchange, so a subsequently
     // selected symbol resolves its header profile with zero extra API calls.
-    for (const r of results) profileStore.upsertProfile(r)
+    try {
+      for (const r of results) profileStore.upsertProfile(r)
+    } catch {
+      // Seeding the profile cache is best-effort — never fail a search on a cache-warm side effect.
+    }
     return results
   })
 

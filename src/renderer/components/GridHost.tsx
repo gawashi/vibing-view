@@ -98,6 +98,16 @@ function useCellCapabilityGating(cellId: string, symbol: string | null, timefram
   }, [capsQ.data, timeframe])
 }
 
+// SymbolLabel と FavoriteStar が共有するプロファイル取得。key/queryFn/staleTime を一箇所に
+// まとめ、2つの呼び出し元が乖離して TanStack のデデュープを壊すのを防ぐ。
+function useProfile(symbol: string): ReturnType<typeof useQuery<SymbolResult>> {
+  return useQuery<SymbolResult>({
+    queryKey: qk.profile(symbol),
+    queryFn: () => api.symbols.profile(symbol),
+    staleTime: Infinity
+  })
+}
+
 // 各セルの銘柄＋現在値＋騰落率。データは Chart / gating フックが埋めた ohlcv キャッシュを
 // subscribe-only(enabled:false)で読むだけ(追加フェッチ無し)。intraday の前日終値は日足が要るため、
 // intraday セルのみ日足を1回実フェッチ(1銘柄1リクエスト・永続キャッシュ、週足/月足にも再利用)。
@@ -118,11 +128,7 @@ function SymbolLabel({ symbol, timeframe }: { symbol: string; timeframe: Timefra
 
   // 銘柄あたり最大1フェッチ。検索で選んだ銘柄は種まき済みで無通信ヒット。staleTime:Infinity で
   // 以後は API キー登録時の invalidate(['profile']) のみが再取得契機。
-  const profileQ = useQuery<SymbolResult>({
-    queryKey: qk.profile(symbol),
-    queryFn: () => api.symbols.profile(symbol),
-    staleTime: Infinity
-  })
+  const profileQ = useProfile(symbol)
   const profile = profileQ.data
   const exchange = profile?.exchange ? profile.exchange : null
   // フォールバック（name===symbol）は社名未知なので出さない — ティッカーと重複させない。
@@ -153,11 +159,7 @@ function FavoriteStar({ symbol }: { symbol: string }): React.JSX.Element {
   const watched = useAppStore((s) => selectActiveItems(s).some((w) => w.symbol === symbol))
   const addToWatchlist = useAppStore((s) => s.addToWatchlist)
   const removeFromWatchlist = useAppStore((s) => s.removeFromWatchlist)
-  const profileQ = useQuery<SymbolResult>({
-    queryKey: qk.profile(symbol),
-    queryFn: () => api.symbols.profile(symbol),
-    staleTime: Infinity
-  })
+  const profileQ = useProfile(symbol)
 
   return (
     <Tooltip>
