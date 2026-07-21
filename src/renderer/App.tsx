@@ -16,6 +16,7 @@ import { Toaster } from './components/ui/sonner'
 import { Watchlist } from './components/Watchlist'
 import { useAppStore, selectActiveItems } from './store'
 import { parseWorkspace } from './workspace'
+import { applyTheme } from './lib/theme'
 import type { CapabilityStatus } from '@shared/ipc'
 import type { Timeframe } from '@shared/types'
 
@@ -29,6 +30,7 @@ export default function App(): React.JSX.Element {
   // dumb persister — parseWorkspace owns the trust boundary and never throws (T-05-01). A null
   // result (first-ever launch or corrupt file) leaves the store's own default (1x1 + AAPL).
   useEffect(() => {
+    void api.settings.getTheme().then(applyTheme)
     void api.layout.getCurrent().then((raw) => {
       const ws = parseWorkspace(raw)
       if (ws) useAppStore.getState().hydrate(ws)
