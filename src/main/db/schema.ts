@@ -25,3 +25,9 @@ export const coverage = sqliteTable(
   },
   (t) => ({ pk: primaryKey({ columns: [t.symbol, t.timeframe] }) })
 )
+
+export const symbolProfiles = sqliteTable('symbol_profiles', {
+  symbol: text('symbol').primaryKey(),
+  name: text('name').notNull(),
+  exchange: text('exchange').notNull()
+})
