@@ -44,10 +44,21 @@ const ITEMS = [
 現在 `SettingsDialog` に直書きされているUIを、項目ごとの自己完結コンポーネントに切り出す。
 
 - `ThemeSetting` — Light/Dark/System トグル。選択で `<html>` の `.dark` を更新し `api.settings.setTheme` で永続化(ツールバースペック参照)。
-- `ApiKeySetting` — APIキーの入力/保存/削除、暗号化非対応の警告 alert、保存時の関連クエリ invalidate(現行 `SettingsDialog` のロジックをそのまま移設)。
+- `ApiKeySetting` — APIキーの入力/保存/削除、暗号化非対応の警告 alert、保存時の関連クエリ invalidate(現行 `SettingsDialog` のロジックをそのまま移設)。加えて**保存済みキーのマスク表示**(下記)。
 - `SettingsDialog` — 器に専念: Dialog + 歯車トリガー + 左ナビ + レジストリ描画。個々の設定ロジックは持たない。
 
 各項目コンポーネントは自身の state / IPC 呼び出しを内部で完結させ、`SettingsDialog` から props は受け取らない(またはダイアログ open 状態のみ)。これにより項目の追加・移動が他項目に影響しない。
+
+### 保存済みAPIキーのマスク表示
+
+保存後、入力ボックスの上に「どのキーを設定したか」が分かるマスク済みプレビューを薄字で表示する(例: `保存済み: ••••••AAAA`)。
+
+- **末尾4文字のみ実文字**、前はドットでマスク。ドット数は実キー長に合わせる(全体の文字数がAPIキーと同じ)。
+- 実装は `keystore.getKeyStatus()` を拡張し、戻り値に `maskedKey?: string` を追加:
+  - キーが復号取得できる(`getApiKey()` が非 null)とき: `key.length > 4 ? '•'.repeat(key.length - 4) + key.slice(-4) : '•'.repeat(key.length)`(4文字以下は全長ぶんマスク)。
+  - 暗号化非対応でファイルが読めない等、実キーを取得できない場合は `maskedKey` を返さない(`hasKey: true` のみ)。UI は「保存済み(内容表示不可)」の従来挙動。
+- IPC / preload / `api.apikey.status` の戻り型に `maskedKey?: string` を追加。`CapabilityStatus` 等とは別の apikey status 型。
+- `ApiKeySetting` は open 時に `api.apikey.status()` を読み、`maskedKey` があれば入力ボックス上に表示。保存・削除後は再取得して更新。
 
 ## スコープ外(YAGNI)
 
@@ -59,6 +70,8 @@ const ITEMS = [
 
 - `src/renderer/components/SettingsDialog.tsx` — 器化(Dialog + 左ナビ + レジストリ描画)
 - `src/renderer/components/settings/ThemeSetting.tsx`(新規) — テーマ項目
-- `src/renderer/components/settings/ApiKeySetting.tsx`(新規) — APIキー項目
+- `src/renderer/components/settings/ApiKeySetting.tsx`(新規) — APIキー項目 + マスク表示
+- `src/main/keystore.ts` — `getKeyStatus` に `maskedKey?` 追加
+- `src/main/ipc.ts` / `src/preload/index.ts` / `src/renderer/api.ts` — `apikey.status` 戻り型に `maskedKey?` 追加
 
 テーマ永続化(`settings.ts` / preload / ipc の `theme`)と CSS の light/dark 分離はツールバースペックの担当。
