@@ -28,7 +28,7 @@ export const CH = {
   watchlistSet: 'watchlist:set'
 } as const
 
-export type KeyStatus = { hasKey: boolean; encryptionAvailable: boolean }
+export type KeyStatus = { hasKey: boolean; encryptionAvailable: boolean; maskedKey?: string }
 export type SetKeyResult = { ok: boolean; encryptionAvailable: boolean }
 export type CapabilityStatus = 'available' | 'requires-plan' | 'rate-limited' | 'unknown'
 export type Theme = 'light' | 'dark' | 'system'
