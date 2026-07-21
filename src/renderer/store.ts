@@ -71,6 +71,7 @@ type AppState = {
   addToWatchlist: (item: WatchlistItem) => void
   removeFromWatchlist: (symbol: string) => void
   reorderWatchlist: (from: number, to: number) => void
+  reorderWatchlists: (from: number, to: number) => WatchlistActionResult
   createWatchlist: (name: string) => WatchlistActionResult
   renameWatchlist: (from: string, to: string) => WatchlistActionResult
   deleteWatchlist: (name: string) => void
@@ -319,6 +320,19 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
       return { ...w, items }
     })
   })),
+  reorderWatchlists: (from, to) => {
+    const n = get().watchlists.length
+    if (from < 0 || from >= n || to < 0 || to >= n || from === to) {
+      return { ok: false, error: 'Invalid index.' }
+    }
+    set((state) => {
+      const lists = [...state.watchlists]
+      const [moved] = lists.splice(from, 1)
+      lists.splice(to, 0, moved)
+      return { watchlists: lists }
+    })
+    return { ok: true }
+  },
   createWatchlist: (name) => {
     const trimmed = name.trim()
     if (trimmed.length === 0) return { ok: false, error: 'Name cannot be empty.' }

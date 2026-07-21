@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, ChevronUp, Pencil, Trash2 } from 'lucide-react'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog'
@@ -12,10 +12,11 @@ import {
 } from './ui/dropdown-menu'
 import { useAppStore } from '../store'
 
-type NameDialogState = { mode: 'create' | 'rename'; value: string; error: string | null }
+type NameDialogState = { mode: 'create' | 'rename'; value: string; error: string | null; target: string }
 
-// サイドバー上部のウォッチリスト切替。LayoutMenu と同じ shadcn DropdownMenu パターン
-// (キーボードナビ / セパレータ / 破壊的項目 / max-height スクロール)。
+// サイドバー上部のウォッチリスト切替＋管理。各行にホバー/フォーカスで現れる ↑↓✎🗑 を持たせ、
+// アクティブに切り替えずに任意のリストを並び替え/rename/delete できる。
+// リスト部分は Radix DropdownMenuItem ではなく素の行（行内ボタンとの捕捉競合を避けるため）。
 export function WatchlistSwitcher(): React.JSX.Element {
   const watchlists = useAppStore((s) => s.watchlists)
   const activeWatchlist = useAppStore((s) => s.activeWatchlist)
@@ -23,7 +24,9 @@ export function WatchlistSwitcher(): React.JSX.Element {
   const renameWatchlist = useAppStore((s) => s.renameWatchlist)
   const deleteWatchlist = useAppStore((s) => s.deleteWatchlist)
   const switchWatchlist = useAppStore((s) => s.switchWatchlist)
+  const reorderWatchlists = useAppStore((s) => s.reorderWatchlists)
 
+  const [menuOpen, setMenuOpen] = useState(false)
   const [nameDialog, setNameDialog] = useState<NameDialogState | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
 
@@ -32,7 +35,7 @@ export function WatchlistSwitcher(): React.JSX.Element {
     const result =
       nameDialog.mode === 'create'
         ? createWatchlist(nameDialog.value)
-        : renameWatchlist(activeWatchlist, nameDialog.value)
+        : renameWatchlist(nameDialog.target, nameDialog.value)
     if (!result.ok) {
       setNameDialog({ ...nameDialog, error: result.error })
       return
@@ -42,8 +45,8 @@ export function WatchlistSwitcher(): React.JSX.Element {
 
   return (
     <>
-      {/* modal={false}: メニュー項目から Dialog を開くときの body ロック競合を避ける (LayoutMenu と同じ)。 */}
-      <DropdownMenu modal={false}>
+      {/* modal={false}: メニュー項目/行から Dialog を開くときの body ロック競合を避ける (LayoutMenu と同じ)。 */}
+      <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen} modal={false}>
         <DropdownMenuTrigger asChild>
           <Button variant="secondary" className="w-full justify-between">
             <span className="truncate" title={activeWatchlist}>{activeWatchlist}</span>
@@ -51,29 +54,69 @@ export function WatchlistSwitcher(): React.JSX.Element {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="max-h-[60vh] overflow-y-auto">
-          {watchlists.map((w) => (
-            <DropdownMenuItem
+          {watchlists.map((w, i) => (
+            <div
               key={w.name}
-              title={w.name}
-              className="max-w-[240px] truncate"
-              onClick={() => switchWatchlist(w.name)}
+              className={`group flex items-center gap-1 rounded-sm px-2 py-1.5 text-sm ${
+                w.name === activeWatchlist ? 'bg-accent text-accent-foreground' : ''
+              }`}
             >
-              {w.name}
-            </DropdownMenuItem>
+              <button
+                type="button"
+                title={w.name}
+                className="min-w-0 flex-1 truncate text-left"
+                onClick={() => { switchWatchlist(w.name); setMenuOpen(false) }}
+              >
+                {w.name}
+              </button>
+              <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                <button
+                  type="button"
+                  aria-label="Move up"
+                  disabled={i === 0}
+                  className="rounded p-0.5 hover:bg-muted disabled:opacity-30"
+                  onClick={(e) => { e.stopPropagation(); reorderWatchlists(i, i - 1) }}
+                >
+                  <ChevronUp className="size-4" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Move down"
+                  disabled={i === watchlists.length - 1}
+                  className="rounded p-0.5 hover:bg-muted disabled:opacity-30"
+                  onClick={(e) => { e.stopPropagation(); reorderWatchlists(i, i + 1) }}
+                >
+                  <ChevronDown className="size-4" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Rename"
+                  className="rounded p-0.5 hover:bg-muted"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setMenuOpen(false)
+                    setNameDialog({ mode: 'rename', value: w.name, error: null, target: w.name })
+                  }}
+                >
+                  <Pencil className="size-4" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Delete"
+                  disabled={watchlists.length <= 1}
+                  className="rounded p-0.5 text-destructive hover:bg-muted disabled:opacity-30"
+                  onClick={(e) => { e.stopPropagation(); setMenuOpen(false); setDeleteTarget(w.name) }}
+                >
+                  <Trash2 className="size-4" />
+                </button>
+              </div>
+            </div>
           ))}
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => setNameDialog({ mode: 'create', value: '', error: null })}>
-            New list…
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setNameDialog({ mode: 'rename', value: activeWatchlist, error: null })}>
-            Rename…
-          </DropdownMenuItem>
           <DropdownMenuItem
-            disabled={watchlists.length <= 1}
-            className="text-destructive focus:text-destructive"
-            onClick={() => setDeleteTarget(activeWatchlist)}
+            onClick={() => setNameDialog({ mode: 'create', value: '', error: null, target: '' })}
           >
-            Delete…
+            New list…
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -89,7 +132,16 @@ export function WatchlistSwitcher(): React.JSX.Element {
               id="watchlist-name"
               value={nameDialog?.value ?? ''}
               placeholder="e.g. Tech"
+              autoFocus
               onChange={(e) => setNameDialog((prev) => (prev ? { ...prev, value: e.target.value, error: null } : prev))}
+              // Enter confirms (create/rename) when the name is non-empty — same guard as the button's
+              // disabled state — so users don't have to reach for the Create/Rename button.
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (nameDialog?.value ?? '').trim().length > 0) {
+                  e.preventDefault()
+                  confirmNameDialog()
+                }
+              }}
             />
             {nameDialog?.error && <p className="text-sm text-destructive">{nameDialog.error}</p>}
           </div>
