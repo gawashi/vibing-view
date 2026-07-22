@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import { api, qk } from './api'
 import { Button } from './components/ui/button'
 import { GridHost } from './components/GridHost'
-import { GridShapeRow } from './components/GridShapeRow'
+import { GridShapePicker } from './components/GridShapePicker'
 import { WorkspaceSwitcher } from './components/WorkspaceSwitcher'
 import { quoteSymbols } from './lib/quoteTargets'
 import { refreshTargets } from './lib/refreshTargets'
@@ -152,7 +152,7 @@ export default function App(): React.JSX.Element {
             </TooltipTrigger>
             <TooltipContent>{sidebarOpen ? 'Hide watchlist' : 'Show watchlist'}</TooltipContent>
           </Tooltip>
-          <GridShapeRow />
+          <GridShapePicker />
           <WorkspaceSwitcher />
           <div className="ml-auto flex items-center gap-4">
             <Tooltip>
