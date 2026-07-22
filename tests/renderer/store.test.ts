@@ -15,7 +15,7 @@ describe('useAppStore grid shape logic', () => {
     })
   })
 
-  it('expand duplicates the active cell into new slots with fresh instance ids', () => {
+  it('expand adds empty (null-symbol) cells — no copy of the active cell (copy is a separate feature)', () => {
     useAppStore.getState().setActiveSymbol('AAPL')
     useAppStore.getState().addIndicator('ma')
     const before = useAppStore.getState()
@@ -25,20 +25,16 @@ describe('useAppStore grid shape logic', () => {
 
     const state = useAppStore.getState()
     expect(state.cells).toHaveLength(4)
-    const duplicates = state.cells.slice(1)
-    for (const dup of duplicates) {
-      expect(dup.id).not.toBe(activeCell.id)
-      expect(dup.symbol).toBe(activeCell.symbol)
-      expect(dup.timeframe).toBe(activeCell.timeframe)
-      expect(dup.indicators.map((i) => i.type)).toEqual(activeCell.indicators.map((i) => i.type))
-      // fresh instance ids — no id shared with the source cell or with each other
-      const dupIds = dup.indicators.map((i) => i.id)
-      const srcIds = activeCell.indicators.map((i) => i.id)
-      for (const id of dupIds) expect(srcIds).not.toContain(id)
+    const added = state.cells.slice(1)
+    for (const cell of added) {
+      expect(cell.id).not.toBe(activeCell.id)
+      expect(cell.symbol).toBeNull()
+      // only the fixed Volume seed, nothing copied from the active cell
+      expect(cell.indicators.map((i) => i.type)).toEqual(['volume'])
     }
-    // duplicate cells' indicator ids are also distinct from one another
-    const allDupIndicatorIds = duplicates.flatMap((d) => d.indicators.map((i) => i.id))
-    expect(new Set(allDupIndicatorIds).size).toBe(allDupIndicatorIds.length)
+    // all ids (cells + indicators) are distinct
+    const allIds = state.cells.flatMap((c) => [c.id, ...c.indicators.map((i) => i.id)])
+    expect(new Set(allIds).size).toBe(allIds.length)
   })
 
   it('shrink retains hidden cell configs so re-expand restores them (no re-duplication)', () => {

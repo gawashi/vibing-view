@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
 import { registry } from './indicators/registry'
-import { defaultLayout, duplicateCell, SCHEMA_VERSION, VISIBLE_COUNT } from './workspace'
+import { defaultLayout, newCellSeed, SCHEMA_VERSION, VISIBLE_COUNT } from './workspace'
 import type { Cell, GridShape, IndicatorInstance, Params, Timeframe, Layout, WatchlistItem, Workspace, WorkspaceCollection } from '@shared/types'
 
 // Crosshair readout injected into each pane's legend (D-38/39/40). Keyed by instance id for
@@ -100,11 +100,9 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
     const target = VISIBLE_COUNT[shape]
     let cells = state.cells
     if (target > cells.length) {
-      const activeCell = cells.find((c) => c.id === state.activeCellId) ?? cells[0]
       const added: Cell[] = []
       for (let i = cells.length; i < target; i++) {
-        const newIndicatorIds = activeCell.indicators.map(() => String(nextId++))
-        added.push(duplicateCell(activeCell, String(nextId++), newIndicatorIds))
+        added.push(newCellSeed(String(nextId++), String(nextId++)))
       }
       cells = [...cells, ...added]
     }
@@ -199,7 +197,7 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
   })),
   hydrate: (ws) => {
     // Reseed the module-level id counter past every id in the loaded workspace — otherwise ids
-    // minted post-hydrate (addIndicator/setShape/duplicateCell) can collide with restored ids
+    // minted post-hydrate (addIndicator/setShape) can collide with restored ids
     // from a prior session's counter (see Phase 5 review: nextId collision bug).
     for (const cell of ws.cells) {
       nextId = Math.max(nextId, bumpId(cell.id))

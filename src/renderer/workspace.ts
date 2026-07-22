@@ -38,22 +38,6 @@ export function newCellSeed(id: string, volId: string): Cell {
   }
 }
 
-// Deep copy of src with a fresh cell id and freshly-minted indicator instance ids (duplicated
-// indicators must not share ids across cells, D-55). Caller (store) mints newId/newIndicatorIds
-// so this stays pure/id-gen-free. newIndicatorIds must be parallel to src.indicators.
-export function duplicateCell(src: Cell, newId: string, newIndicatorIds: string[]): Cell {
-  return {
-    ...src,
-    id: newId,
-    indicators: src.indicators.map((ind, i) => ({
-      ...ind,
-      id: newIndicatorIds[i],
-      params: { ...ind.params },
-      colors: { ...ind.colors }
-    }))
-  }
-}
-
 // First-ever-launch default: 1x1 grid, one empty cell (D-59).
 export function defaultLayout(cellId: string, volId: string): Layout {
   const cell = newCellSeed(cellId, volId)
@@ -116,19 +100,7 @@ export function parseLayout(raw: unknown): Layout | null {
 // 永続化シード用の静的id空レイアウト。store は hydrate 時に nextId を再シードし id を癒すので、
 // 固定 id '1'/'2' が実行時に衝突することはない。
 export function emptyLayout(): Layout {
-  return {
-    schemaVersion: SCHEMA_VERSION,
-    cells: [
-      {
-        id: '1',
-        symbol: null,
-        timeframe: '1d',
-        indicators: [{ id: '2', type: 'volume', params: {}, colors: {}, visible: true, fixed: true }]
-      }
-    ],
-    shape: '1x1',
-    activeCellId: '1'
-  }
+  return defaultLayout('1', '2')
 }
 
 const isWatchlistItem = (v: unknown): v is WatchlistItem =>
