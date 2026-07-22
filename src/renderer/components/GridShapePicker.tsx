@@ -6,8 +6,7 @@ import { Button } from '@/components/ui/button'
 import { useAppStore } from '@/store'
 import { cn } from '@/lib/utils'
 
-const MAX = 3
-const DIMS = [1, 2, 3] // 1..MAX
+const DIMS = [1, 2, 3] // グリッド上限 3x3
 
 export function GridShapePicker(): React.JSX.Element {
   const shape = useAppStore((s) => s.shape)
