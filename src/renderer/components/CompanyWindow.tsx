@@ -3,12 +3,13 @@ import { useQuery } from '@tanstack/react-query'
 import { api, qk } from '@/api'
 import type { CompanyInfo } from '@shared/types'
 
-const fmtCompact = (n: number): string =>
-  new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 }).format(n)
+const fmtCompact = (n: number | null): string | null =>
+  n == null ? null : new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 }).format(n)
+const fmt2 = (n: number | null): string | null => (n == null ? null : n.toFixed(2))
 
 // 値が null/空なら行ごと出さない（未取得フィールドで空ラベルが並ぶのを防ぐ）。
 function Attr({ label, value }: { label: string; value: React.ReactNode }): React.JSX.Element | null {
-  if (value === null || value === undefined || value === '') return null
+  if (value == null || value === '') return null
   return (
     <div className="flex flex-col gap-0.5">
       <span className="text-xs text-muted-foreground">{label}</span>
@@ -57,15 +58,15 @@ function CompanyInfoBody({ symbol }: { symbol: string }): React.JSX.Element {
         <Attr label="Sector" value={c.sector} />
         <Attr label="Industry" value={c.industry} />
         <Attr label="Country" value={c.country} />
-        <Attr label="Market cap" value={c.marketCap === null ? null : fmtCompact(c.marketCap)} />
+        <Attr label="Market cap" value={fmtCompact(c.marketCap)} />
         <Attr label="CEO" value={c.ceo} />
-        <Attr label="Employees" value={c.fullTimeEmployees === null ? null : fmtCompact(c.fullTimeEmployees)} />
+        <Attr label="Employees" value={fmtCompact(c.fullTimeEmployees)} />
         <Attr label="IPO date" value={c.ipoDate} />
-        <Attr label="Beta" value={c.beta === null ? null : c.beta.toFixed(2)} />
+        <Attr label="Beta" value={fmt2(c.beta)} />
         <Attr label="52-week range" value={c.range} />
-        <Attr label="Volume" value={c.volume === null ? null : fmtCompact(c.volume)} />
-        <Attr label="Avg volume" value={c.averageVolume === null ? null : fmtCompact(c.averageVolume)} />
-        <Attr label="Last dividend" value={c.lastDividend === null ? null : c.lastDividend.toFixed(2)} />
+        <Attr label="Volume" value={fmtCompact(c.volume)} />
+        <Attr label="Avg volume" value={fmtCompact(c.averageVolume)} />
+        <Attr label="Last dividend" value={fmt2(c.lastDividend)} />
       </div>
 
       {c.description && (

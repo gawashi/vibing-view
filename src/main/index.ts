@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import { join } from 'path'
 import { registerIpc } from './ipc'
 import { configureProxy } from './net/httpClient'
@@ -19,6 +19,16 @@ function loadRenderer(win: BrowserWindow, hash?: string): void {
   }
 }
 
+// Never let the renderer spawn a BrowserWindow (e.g. an <a target="_blank"> to an FMP company site):
+// those would be untracked, load remote content inside Electron, and survive the main-window close.
+// Deny the window, route validated http(s) to the system browser instead.
+function hardenWindow(win: BrowserWindow): void {
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
+    return { action: 'deny' }
+  })
+}
+
 function createWindow(): void {
   const win = new BrowserWindow({
     width: 1280,
@@ -32,6 +42,7 @@ function createWindow(): void {
       nodeIntegration: false
     }
   })
+  hardenWindow(win)
   win.on('ready-to-show', () => win.show())
   // Closing the main window tears down company windows so window-all-closed fires → app quits.
   win.on('closed', () => {
@@ -58,6 +69,7 @@ function openCompanyWindow(symbol: string): void {
       nodeIntegration: false
     }
   })
+  hardenWindow(win)
   companyWindows.set(symbol, win)
   win.on('ready-to-show', () => win.show())
   win.on('closed', () => companyWindows.delete(symbol))

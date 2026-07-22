@@ -59,15 +59,9 @@
   "build": {
     "appId": "com.gawashi.vibingview",
     "productName": "Vibing View",
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "out/**/*"
-    ],
-    "win": {
-      "target": "nsis"
-    },
+    "directories": { "output": "release" },
+    "files": ["out/**/*"],
+    "win": { "target": "nsis" },
     "nsis": {
       "artifactName": "${name}-setup-${version}.${ext}",
       "oneClick": false,
