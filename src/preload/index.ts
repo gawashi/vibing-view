@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { Timeframe, DateRange, Layout, WatchlistCollection } from '@shared/types'
+import type { Timeframe, DateRange, Layout, WatchlistCollection, WorkspaceCollection } from '@shared/types'
 import { CH, type Api } from '@shared/ipc'
 
 const api: Api = {
@@ -43,6 +43,10 @@ const api: Api = {
   watchlist: {
     get: () => ipcRenderer.invoke(CH.watchlistGet),
     set: (c: WatchlistCollection) => ipcRenderer.invoke(CH.watchlistSet, c)
+  },
+  workspaces: {
+    get: () => ipcRenderer.invoke(CH.workspacesGet),
+    set: (c: WorkspaceCollection) => ipcRenderer.invoke(CH.workspacesSet, c)
   }
 }
 

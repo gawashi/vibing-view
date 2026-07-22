@@ -1,4 +1,4 @@
-import type { Bar, SymbolResult, Timeframe, DateRange, Layout, WatchlistCollection, Quote, MarketStatus } from './types'
+import type { Bar, SymbolResult, Timeframe, DateRange, Layout, WatchlistCollection, WorkspaceCollection, Quote, MarketStatus } from './types'
 
 export const CH = {
   symbolsSearch: 'symbols:search',
@@ -27,7 +27,9 @@ export const CH = {
   layoutDelete: 'layout:delete',
   layoutRename: 'layout:rename',
   watchlistGet: 'watchlist:get',
-  watchlistSet: 'watchlist:set'
+  watchlistSet: 'watchlist:set',
+  workspacesGet: 'workspaces:get',
+  workspacesSet: 'workspaces:set'
 } as const
 
 export type KeyStatus = { hasKey: boolean; encryptionAvailable: boolean; maskedKey?: string }
@@ -77,6 +79,10 @@ export interface Api {
   watchlist: {
     get(): Promise<WatchlistCollection>
     set(c: WatchlistCollection): Promise<void>
+  }
+  workspaces: {
+    get(): Promise<WorkspaceCollection>
+    set(c: WorkspaceCollection): Promise<void>
   }
 }
 

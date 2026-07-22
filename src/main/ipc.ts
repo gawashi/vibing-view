@@ -1,5 +1,5 @@
 import { ipcMain } from 'electron'
-import type { Bar, Timeframe, DateRange, Layout, WatchlistCollection } from '@shared/types'
+import type { Bar, Timeframe, DateRange, Layout, WatchlistCollection, WorkspaceCollection } from '@shared/types'
 import { CH, type CapabilityStatus } from '@shared/ipc'
 import { FmpProvider, FmpHttpError } from './providers/FmpProvider'
 import { electronHttpGetJson } from './net/httpClient'
@@ -12,6 +12,7 @@ import { classify } from './capabilityClassifier'
 import * as capabilityCache from './capabilityCache'
 import * as layoutStore from './layoutStore'
 import * as watchlistStore from './watchlistStore'
+import * as workspaceStore from './workspaceStore'
 import { createProfileService } from './profile/ProfileService'
 import * as profileStore from './db/profileStore'
 
@@ -146,6 +147,8 @@ export function registerIpc(): void {
   ipcMain.handle(CH.layoutRename, (_e, from: string, to: string) => layoutStore.renameLayout(from, to))
   ipcMain.handle(CH.watchlistGet, () => watchlistStore.getWatchlists())
   ipcMain.handle(CH.watchlistSet, (_e, c: WatchlistCollection) => watchlistStore.setWatchlists(c))
+  ipcMain.handle(CH.workspacesGet, () => workspaceStore.getWorkspaces())
+  ipcMain.handle(CH.workspacesSet, (_e, c: WorkspaceCollection) => workspaceStore.setWorkspaces(c))
 
   ipcMain.handle(CH.capabilitiesGet, () => {
     const apiKey = getApiKey()
