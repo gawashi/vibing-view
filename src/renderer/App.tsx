@@ -32,9 +32,7 @@ export default function App(): React.JSX.Element {
   // into a valid collection (≥1 workspace, active resolved to a real name).
   useEffect(() => {
     void api.settings.getTheme().then(applyTheme)
-    void api.workspaces.get().then((raw) => {
-      useAppStore.getState().hydrateWorkspaces(parseWorkspaceCollection(raw))
-    })
+    void api.workspaces.get().then((p) => useAppStore.getState().hydrateWorkspaces(parseWorkspaceCollection((p as unknown as { collection: unknown }).collection)))
     void api.settings.getSidebarOpen().then((open) => {
       if (open !== null) setSidebarOpen(open)
     })

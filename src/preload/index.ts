@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { Timeframe, DateRange, WorkspaceCollection } from '@shared/types'
-import { CH, type Api } from '@shared/ipc'
+import { CH, type Api, type WorkspacesPayload } from '@shared/ipc'
 
 const api: Api = {
   symbols: {
@@ -33,11 +33,19 @@ const api: Api = {
   capabilities: { get: () => ipcRenderer.invoke(CH.capabilitiesGet) },
   workspaces: {
     get: () => ipcRenderer.invoke(CH.workspacesGet),
-    set: (c: WorkspaceCollection) => ipcRenderer.invoke(CH.workspacesSet, c)
+    set: (c: WorkspaceCollection) => ipcRenderer.invoke(CH.workspacesSet, c),
+    onChanged: (cb) => {
+      const listener = (_e: unknown, payload: WorkspacesPayload): void => cb(payload)
+      ipcRenderer.on(CH.workspacesChanged, listener)
+      return () => ipcRenderer.removeListener(CH.workspacesChanged, listener)
+    }
   },
   company: {
     info: (symbol) => ipcRenderer.invoke(CH.companyInfo, symbol),
     openWindow: (symbol) => ipcRenderer.invoke(CH.companyOpenWindow, symbol)
+  },
+  chart: {
+    openWindow: (cellId) => ipcRenderer.invoke(CH.chartOpenWindow, cellId)
   }
 }
 
