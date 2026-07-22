@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron'
+import { ipcMain, BrowserWindow } from 'electron'
 import type { Bar, Timeframe, DateRange, WorkspaceCollection } from '@shared/types'
 import { CH, type CapabilityStatus } from '@shared/ipc'
 import { FmpProvider, FmpHttpError } from './providers/FmpProvider'
@@ -150,8 +150,23 @@ export function registerIpc(): void {
   ipcMain.handle(CH.settingsSetSidebarWidth, (_e, width: number) => setSidebarWidth(width))
   ipcMain.handle(CH.settingsGetTheme, () => getTheme())
   ipcMain.handle(CH.settingsSetTheme, (_e, theme: import('./settings').Theme) => setTheme(theme))
-  ipcMain.handle(CH.workspacesGet, () => workspaceStore.getWorkspaces())
-  ipcMain.handle(CH.workspacesSet, (_e, c: WorkspaceCollection) => workspaceStore.setWorkspaces(c))
+
+  // Monotonic version stamped on each persisted workspace write. Renderers ignore stale (<= lastRev)
+  // get/broadcast payloads — see the sync guard in useWorkspaceSync (ordering + startup race).
+  let workspacesRev = 0
+
+  ipcMain.handle(CH.workspacesGet, () => ({ collection: workspaceStore.getWorkspaces(), rev: workspacesRev }))
+  ipcMain.handle(CH.workspacesSet, (e, c: WorkspaceCollection) => {
+    workspaceStore.setWorkspaces(c)
+    workspacesRev += 1
+    // Forward the new collection to every OTHER window so it re-hydrates. The sender skips itself —
+    // its own store is already current and re-applying would fight its debounce.
+    for (const w of BrowserWindow.getAllWindows()) {
+      if (w.webContents.id !== e.sender.id) {
+        w.webContents.send(CH.workspacesChanged, { collection: c, rev: workspacesRev })
+      }
+    }
+  })
 
   ipcMain.handle(CH.capabilitiesGet, () => {
     const apiKey = getApiKey()

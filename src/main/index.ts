@@ -4,10 +4,15 @@ import { registerIpc } from './ipc'
 import { configureProxy } from './net/httpClient'
 import { CH } from '@shared/ipc'
 import { buildCompanyHash } from '@shared/companyWindow'
+import { buildChartHash } from '@shared/chartWindow'
 
 // One company-info window per symbol (spec: side-by-side compare). Reopening a live symbol focuses
 // its window; a new symbol spawns another. Cleared on 'closed'.
 const companyWindows = new Map<string, BrowserWindow>()
+
+// One enlarge-chart window per cellId (spec: cellId keying; the same cell re-focuses, a different
+// cell spawns another). Cleared on 'closed'. Twin of companyWindows.
+const chartWindows = new Map<string, BrowserWindow>()
 
 // Load the shared renderer bundle, optionally with a hash (e.g. company=AAPL) that main.tsx reads
 // to mount CompanyWindow instead of App. Dev serves from ELECTRON_RENDERER_URL; prod loads the file.
@@ -47,6 +52,7 @@ function createWindow(): void {
   // Closing the main window tears down company windows so window-all-closed fires → app quits.
   win.on('closed', () => {
     for (const w of companyWindows.values()) w.close()
+    for (const w of chartWindows.values()) w.close()
   })
   loadRenderer(win)
 }
@@ -76,12 +82,38 @@ function openCompanyWindow(symbol: string): void {
   loadRenderer(win, buildCompanyHash(symbol))
 }
 
+function openChartWindow(cellId: string): void {
+  const existing = chartWindows.get(cellId)
+  if (existing) {
+    existing.focus()
+    return
+  }
+  const win = new BrowserWindow({
+    width: 1100,
+    height: 760,
+    backgroundColor: '#0B0E11',
+    show: false,
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false,
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  })
+  hardenWindow(win)
+  chartWindows.set(cellId, win)
+  win.on('ready-to-show', () => win.show())
+  win.on('closed', () => chartWindows.delete(cellId))
+  loadRenderer(win, buildChartHash(cellId))
+}
+
 app.whenReady().then(async () => {
   // Route provider HTTP through the OS/system proxy (or HTTP(S)_PROXY) before any fetch runs —
   // corporate networks block direct egress, so an unconfigured client times out (see net/httpClient).
   await configureProxy()
   registerIpc()
   ipcMain.handle(CH.companyOpenWindow, (_e, symbol: string) => openCompanyWindow(symbol))
+  ipcMain.handle(CH.chartOpenWindow, (_e, cellId: string) => openChartWindow(cellId))
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
