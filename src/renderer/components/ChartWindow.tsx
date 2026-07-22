@@ -4,6 +4,8 @@ import { useAppStore } from '@/store'
 import { applyTheme } from '@/lib/theme'
 import { useWorkspaceSync } from '@/hooks/useWorkspaceSync'
 import { ChartPanel } from './GridHost'
+import { TooltipProvider } from './ui/tooltip'
+import { Toaster } from './ui/sonner'
 
 // Standalone enlarge-chart window. Shares the workspace collection with every other window via
 // useWorkspaceSync, so edits here (timeframe / indicators) sync to the source grid cell and back.
@@ -18,21 +20,30 @@ export function ChartWindow({ cellId }: { cellId: string }): React.JSX.Element {
 
   if (!cell) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background p-8 text-center text-muted-foreground">
-        このチャートは現在のワークスペースにありません。元のワークスペースに戻すと再表示されます。
-      </div>
+      <TooltipProvider>
+        <div className="flex h-screen items-center justify-center bg-background p-8 text-center text-muted-foreground">
+          このチャートは現在のワークスペースにありません。元のワークスペースに戻すと再表示されます。
+        </div>
+        <Toaster />
+      </TooltipProvider>
     )
   }
   if (!cell.symbol) {
     return (
-      <div className="flex h-screen items-center justify-center bg-background p-8 text-center text-muted-foreground">
-        このチャートには銘柄が設定されていません。
-      </div>
+      <TooltipProvider>
+        <div className="flex h-screen items-center justify-center bg-background p-8 text-center text-muted-foreground">
+          このチャートには銘柄が設定されていません。
+        </div>
+        <Toaster />
+      </TooltipProvider>
     )
   }
   return (
-    <div className="flex h-screen min-h-0 min-w-0 flex-col gap-4 bg-background p-4 text-foreground">
-      <ChartPanel cell={cell} />
-    </div>
+    <TooltipProvider>
+      <div className="flex h-screen min-h-0 min-w-0 flex-col gap-4 bg-background p-4 text-foreground">
+        <ChartPanel cell={cell} />
+      </div>
+      <Toaster />
+    </TooltipProvider>
   )
 }

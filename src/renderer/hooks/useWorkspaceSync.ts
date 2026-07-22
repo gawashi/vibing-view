@@ -22,8 +22,11 @@ export function useWorkspaceSync(): void {
       lastRev = rev
       if (timer) { clearTimeout(timer); timer = null } // a pending local save is now stale — cancel it
       applyingRemote = true
-      useAppStore.getState().hydrateWorkspaces(collection)
-      applyingRemote = false
+      try {
+        useAppStore.getState().hydrateWorkspaces(collection)
+      } finally {
+        applyingRemote = false
+      }
     }
 
     void api.workspaces.get().then((p) => {
