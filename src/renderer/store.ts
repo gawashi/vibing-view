@@ -1,9 +1,8 @@
 import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
-import { toast } from 'sonner'
 import { registry } from './indicators/registry'
-import { defaultWorkspace, duplicateCell, parseWorkspace, SCHEMA_VERSION, VISIBLE_COUNT } from './workspace'
-import type { Cell, GridShape, IndicatorInstance, Params, Timeframe, Workspace, WatchlistItem, NamedWatchlist, WatchlistCollection } from '@shared/types'
+import { defaultLayout, newCellSeed, SCHEMA_VERSION, VISIBLE_COUNT } from '@shared/workspace'
+import type { Cell, GridShape, IndicatorInstance, Params, Timeframe, Layout, WatchlistItem, Workspace, WorkspaceCollection } from '@shared/types'
 
 // Crosshair readout injected into each pane's legend (D-38/39/40). Keyed by instance id for
 // per-output indicator values (keyed by draw-output key), plus a reserved `price` key holding the
@@ -48,47 +47,60 @@ type AppState = {
   toggleVisible: (id: string) => void
   updateParams: (id: string, patch: Params) => void
   setColor: (id: string, outputKey: string, color: string) => void
-  hydrate: (ws: Workspace) => void
+  hydrate: (ws: Layout) => void
   // Keyed by cellId so each grid cell's crosshair readout is isolated (05-02 grid).
   crosshairByCell: Record<string, CrosshairValues>
   setCrosshair: (cellId: string, values: CrosshairValues) => void
 
-  // Named-layout orchestration (05-03/D-56/D-58). `activeLayoutName` is null when the current
-  // workspace has never been saved under a name (or was switched away from one) — Rename/overwrite
-  // Save both key off this.
-  activeLayoutName: string | null
-  currentWorkspace: () => Workspace
-  saveLayoutAs: (name: string) => Promise<{ ok: true } | { ok: false; error: string }>
-  saveActiveLayout: () => Promise<void>
-  renameActiveLayout: (to: string) => Promise<{ ok: true } | { ok: false; error: string }>
-  deleteLayout: (name: string) => Promise<void>
-  switchToLayout: (name: string) => Promise<void>
-
-  // Persistent multi-watchlist (D-62). All actions act on the ACTIVE list; App wires
-  // load-on-startup and persist-on-change. Pure state mutations (no IPC) so they're unit-testable.
-  watchlists: NamedWatchlist[]
-  activeWatchlist: string
+  // Unified Workspace model (= watchlist items + grid layout under one name). All actions act on
+  // the ACTIVE workspace; App wires load-on-startup and persist-on-change. Pure state mutations
+  // (no IPC) so they're unit-testable. Switch/create/duplicate/delete snapshot the hot grid into
+  // the active workspace first so in-flight edits aren't lost.
+  currentLayout: () => Layout
+  // Whole persisted collection with the hot grid folded into the active workspace's layout. App's
+  // debounced auto-save serializes this verbatim — the fold lives here, not in the effect.
+  collectionSnapshot: () => WorkspaceCollection
+  workspaces: Workspace[]
+  activeWorkspace: string
   addToWatchlist: (item: WatchlistItem) => void
   removeFromWatchlist: (symbol: string) => void
   reorderWatchlist: (from: number, to: number) => void
-  reorderWatchlists: (from: number, to: number) => WatchlistActionResult
-  createWatchlist: (name: string) => WatchlistActionResult
-  renameWatchlist: (from: string, to: string) => WatchlistActionResult
-  deleteWatchlist: (name: string) => void
-  switchWatchlist: (name: string) => void
-  hydrateWatchlists: (collection: WatchlistCollection) => void
+  reorderWorkspaces: (from: number, to: number) => WatchlistActionResult
+  createWorkspace: (name: string) => WatchlistActionResult
+  duplicateWorkspace: (name: string) => WatchlistActionResult
+  renameWorkspace: (from: string, to: string) => WatchlistActionResult
+  deleteWorkspace: (name: string) => void
+  switchWorkspace: (name: string) => void
+  hydrateWorkspaces: (collection: WorkspaceCollection) => void
 }
 
-// アクティブリストの items。見つからなければ空配列。found 時は items 参照が安定（再描画churn防止）。
+// アクティブ Workspace の items。見つからなければ空配列。found 時は items 参照が安定（再描画churn防止）。
 export const selectActiveItems = (s: AppState): WatchlistItem[] =>
-  s.watchlists.find((w) => w.name === s.activeWatchlist)?.items ?? []
+  s.workspaces.find((w) => w.name === s.activeWorkspace)?.items ?? []
 
-const initialWorkspace = defaultWorkspace(String(nextId++), String(nextId++))
+const initialLayout = defaultLayout(String(nextId++), String(nextId++))
 
-export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) => ({
-  cells: initialWorkspace.cells,
-  activeCellId: initialWorkspace.activeCellId,
-  shape: initialWorkspace.shape,
+export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) => {
+  // アクティブ Workspace の layout を現在のホットなグリッドで差し替えた配列を返す（純粋）。
+  // 切替/作成/削除の直前に呼び、編集中のグリッドを取りこぼさない。
+  const snapshotActive = (): Workspace[] => {
+    const { workspaces, activeWorkspace } = get()
+    const layout = get().currentLayout()
+    return workspaces.map((w) => (w.name === activeWorkspace ? { ...w, layout } : w))
+  }
+  // Make `name` the active workspace and hydrate its layout into the hot grid. Callers pass the
+  // already-snapshotted array so the outgoing grid isn't lost. Single owner of the set-active +
+  // hydrate pairing — create/duplicate/delete/switch all end here (keeps the nextId reseed in hydrate
+  // on every activation path, see the collision note in hydrate below).
+  const activate = (workspaces: Workspace[], name: string): void => {
+    const layout = (workspaces.find((w) => w.name === name) ?? workspaces[0]).layout
+    set({ workspaces, activeWorkspace: name })
+    get().hydrate(layout)
+  }
+  return {
+  cells: initialLayout.cells,
+  activeCellId: initialLayout.activeCellId,
+  shape: initialLayout.shape,
 
   crosshairByCell: {},
   setCrosshair: (cellId, values) => set((state) => ({
@@ -100,11 +112,9 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
     const target = VISIBLE_COUNT[shape]
     let cells = state.cells
     if (target > cells.length) {
-      const activeCell = cells.find((c) => c.id === state.activeCellId) ?? cells[0]
       const added: Cell[] = []
       for (let i = cells.length; i < target; i++) {
-        const newIndicatorIds = activeCell.indicators.map(() => String(nextId++))
-        added.push(duplicateCell(activeCell, String(nextId++), newIndicatorIds))
+        added.push(newCellSeed(String(nextId++), String(nextId++)))
       }
       cells = [...cells, ...added]
     }
@@ -199,7 +209,7 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
   })),
   hydrate: (ws) => {
     // Reseed the module-level id counter past every id in the loaded workspace — otherwise ids
-    // minted post-hydrate (addIndicator/setShape/duplicateCell) can collide with restored ids
+    // minted post-hydrate (addIndicator/setShape) can collide with restored ids
     // from a prior session's counter (see Phase 5 review: nextId collision bug).
     for (const cell of ws.cells) {
       nextId = Math.max(nextId, bumpId(cell.id))
@@ -222,149 +232,101 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
     set({ cells, shape: ws.shape, activeCellId: ws.activeCellId })
   },
 
-  // Named-layout actions call `window.api.*` directly (NOT the `./api` wrapper) on purpose:
-  // importing `./api` touches `window` at module-load time, which breaks the node-env vitest
-  // run (store.test.ts imports store.ts with no DOM) and `tsc -p tsconfig.node.json` (api.ts
-  // isn't in that project's include). Do not "clean this up" to use `./api`.
-  activeLayoutName: null,
-  currentWorkspace: () => {
+  currentLayout: () => {
     const { cells, shape, activeCellId } = get()
     return { schemaVersion: SCHEMA_VERSION, cells, shape, activeCellId }
   },
-  saveLayoutAs: async (name) => {
-    const existing = await window.api.layout.list()
-    if (existing.includes(name)) {
-      return { ok: false, error: `A layout named "${name}" already exists.` }
-    }
-    try {
-      await window.api.layout.save(name, get().currentWorkspace())
-      set({ activeLayoutName: name })
-      return { ok: true }
-    } catch {
-      toast("Couldn't save layout. Try again.")
-      return { ok: false, error: "Couldn't save layout. Try again." }
-    }
-  },
-  saveActiveLayout: async () => {
-    const name = get().activeLayoutName
-    if (!name) return
-    try {
-      await window.api.layout.save(name, get().currentWorkspace())
-    } catch {
-      toast("Couldn't save layout. Try again.")
-    }
-  },
-  renameActiveLayout: async (to) => {
-    const from = get().activeLayoutName
-    if (!from) return { ok: false, error: "No active layout to rename." }
-    if (to !== from) {
-      const existing = await window.api.layout.list()
-      if (existing.includes(to)) {
-        return { ok: false, error: `A layout named "${to}" already exists.` }
-      }
-    }
-    try {
-      await window.api.layout.rename(from, to)
-      set({ activeLayoutName: to })
-      return { ok: true }
-    } catch {
-      toast("Couldn't save layout. Try again.")
-      return { ok: false, error: "Couldn't save layout. Try again." }
-    }
-  },
-  deleteLayout: async (name) => {
-    try {
-      await window.api.layout.delete(name)
-      if (get().activeLayoutName === name) set({ activeLayoutName: null })
-    } catch {
-      toast("Couldn't save layout. Try again.")
-    }
-  },
-  switchToLayout: async (name) => {
-    try {
-      // D-58: auto-save current state before switching away, no confirmation.
-      await window.api.layout.setCurrent(get().currentWorkspace())
-      const raw = await window.api.layout.get(name)
-      const ws = parseWorkspace(raw)
-      // Corrupt/unparseable stored layout — abort the switch, keep current state (never wipe it).
-      if (!ws) return
-      get().hydrate(ws)
-      set({ activeLayoutName: name })
-    } catch {
-      toast("Couldn't save layout. Try again.")
-    }
-  },
+  collectionSnapshot: () => ({ version: 3, active: get().activeWorkspace, workspaces: snapshotActive() }),
 
-  watchlists: [{ name: 'Watchlist', items: [] }],
-  activeWatchlist: 'Watchlist',
+  workspaces: [{ name: 'Workspace 1', items: [], layout: initialLayout }],
+  activeWorkspace: 'Workspace 1',
+
   addToWatchlist: (item) => set((state) => ({
-    watchlists: state.watchlists.map((w) =>
-      w.name === state.activeWatchlist
+    workspaces: state.workspaces.map((w) =>
+      w.name === state.activeWorkspace
         ? (w.items.some((i) => i.symbol === item.symbol) ? w : { ...w, items: [...w.items, item] })
         : w
     )
   })),
   removeFromWatchlist: (symbol) => set((state) => ({
-    watchlists: state.watchlists.map((w) =>
-      w.name === state.activeWatchlist ? { ...w, items: w.items.filter((i) => i.symbol !== symbol) } : w
+    workspaces: state.workspaces.map((w) =>
+      w.name === state.activeWorkspace ? { ...w, items: w.items.filter((i) => i.symbol !== symbol) } : w
     )
   })),
   // ずれ修正: from を抜いた後の座標系に合わせ、下方向(from<to)は挿入位置を1つ詰める。
   // これでマーカー(行上端=その行の前)と実挿入位置が上下両方向で一致する。
   reorderWatchlist: (from, to) => set((state) => ({
-    watchlists: state.watchlists.map((w) => {
-      if (w.name !== state.activeWatchlist) return w
+    workspaces: state.workspaces.map((w) => {
+      if (w.name !== state.activeWorkspace) return w
       const items = [...w.items]
       const [moved] = items.splice(from, 1)
       items.splice(from < to ? to - 1 : to, 0, moved)
       return { ...w, items }
     })
   })),
-  reorderWatchlists: (from, to) => {
-    const n = get().watchlists.length
-    if (from < 0 || from >= n || to < 0 || to >= n || from === to) {
-      return { ok: false, error: 'Invalid index.' }
-    }
+  reorderWorkspaces: (from, to) => {
+    const n = get().workspaces.length
+    if (from < 0 || from >= n || to < 0 || to >= n || from === to) return { ok: false, error: 'Invalid index.' }
     set((state) => {
-      const lists = [...state.watchlists]
-      const [moved] = lists.splice(from, 1)
-      lists.splice(to, 0, moved)
-      return { watchlists: lists }
+      const list = [...state.workspaces]
+      const [moved] = list.splice(from, 1)
+      list.splice(to, 0, moved)
+      return { workspaces: list }
     })
     return { ok: true }
   },
-  createWatchlist: (name) => {
+  createWorkspace: (name) => {
     const trimmed = name.trim()
     if (trimmed.length === 0) return { ok: false, error: 'Name cannot be empty.' }
-    if (get().watchlists.some((w) => w.name === trimmed)) {
-      return { ok: false, error: `A watchlist named "${trimmed}" already exists.` }
+    if (get().workspaces.some((w) => w.name === trimmed)) {
+      return { ok: false, error: `A workspace named "${trimmed}" already exists.` }
     }
-    set((state) => ({ watchlists: [...state.watchlists, { name: trimmed, items: [] }], activeWatchlist: trimmed }))
+    const layout = defaultLayout(String(nextId++), String(nextId++))
+    activate([...snapshotActive(), { name: trimmed, items: [], layout }], trimmed)
     return { ok: true }
   },
-  renameWatchlist: (from, to) => {
+  duplicateWorkspace: (name) => {
+    const trimmed = name.trim()
+    if (trimmed.length === 0) return { ok: false, error: 'Name cannot be empty.' }
+    if (get().workspaces.some((w) => w.name === trimmed)) {
+      return { ok: false, error: `A workspace named "${trimmed}" already exists.` }
+    }
+    const layout = get().currentLayout()
+    const items = selectActiveItems(get()).map((i) => ({ ...i }))
+    activate([...snapshotActive(), { name: trimmed, items, layout }], trimmed)
+    return { ok: true }
+  },
+  renameWorkspace: (from, to) => {
     const trimmed = to.trim()
     if (trimmed.length === 0) return { ok: false, error: 'Name cannot be empty.' }
-    if (trimmed !== from && get().watchlists.some((w) => w.name === trimmed)) {
-      return { ok: false, error: `A watchlist named "${trimmed}" already exists.` }
+    if (trimmed !== from && get().workspaces.some((w) => w.name === trimmed)) {
+      return { ok: false, error: `A workspace named "${trimmed}" already exists.` }
     }
     set((state) => ({
-      watchlists: state.watchlists.map((w) => (w.name === from ? { ...w, name: trimmed } : w)),
-      activeWatchlist: state.activeWatchlist === from ? trimmed : state.activeWatchlist
+      workspaces: state.workspaces.map((w) => (w.name === from ? { ...w, name: trimmed } : w)),
+      activeWorkspace: state.activeWorkspace === from ? trimmed : state.activeWorkspace
     }))
     return { ok: true }
   },
-  deleteWatchlist: (name) => set((state) => {
-    if (state.watchlists.length <= 1) return state // 最後の1リストは削除不可
-    const watchlists = state.watchlists.filter((w) => w.name !== name)
-    const activeWatchlist = state.activeWatchlist === name ? watchlists[0].name : state.activeWatchlist
-    return { watchlists, activeWatchlist }
-  }),
-  switchWatchlist: (name) => set((state) =>
-    state.watchlists.some((w) => w.name === name) ? { activeWatchlist: name } : state
-  ),
-  hydrateWatchlists: (collection) => set({
-    watchlists: collection.lists,
-    activeWatchlist: collection.active
-  })
-})))
+  deleteWorkspace: (name) => {
+    const state = get()
+    if (state.workspaces.length <= 1) return
+    const remaining = snapshotActive().filter((w) => w.name !== name)
+    if (state.activeWorkspace === name) {
+      activate(remaining, remaining[0].name)
+    } else {
+      set({ workspaces: remaining })
+    }
+  },
+  switchWorkspace: (name) => {
+    const state = get()
+    if (name === state.activeWorkspace) return
+    const target = state.workspaces.find((w) => w.name === name)
+    if (!target) return
+    activate(snapshotActive(), name)
+  },
+  hydrateWorkspaces: (collection) => {
+    activate(collection.workspaces, collection.active)
+  }
+  }
+}))

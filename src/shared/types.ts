@@ -63,9 +63,22 @@ export type Cell = {
   indicators: IndicatorInstance[]
 }
 
-export type Workspace = {
+export type Layout = {
   schemaVersion: number
   cells: Cell[]
   shape: GridShape
   activeCellId: string
+}
+
+// 名前付き作業コンテキスト = ウォッチリスト + グリッドレイアウト
+export type Workspace = {
+  name: string
+  items: WatchlistItem[]
+  layout: Layout
+}
+
+export type WorkspaceCollection = {
+  version: 3
+  active: string
+  workspaces: Workspace[]
 }

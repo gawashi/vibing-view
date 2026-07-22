@@ -6,7 +6,7 @@ import { api, qk } from './api'
 import { Button } from './components/ui/button'
 import { GridHost } from './components/GridHost'
 import { GridShapeRow } from './components/GridShapeRow'
-import { LayoutMenu } from './components/LayoutMenu'
+import { WorkspaceSwitcher } from './components/WorkspaceSwitcher'
 import { quoteSymbols } from './lib/quoteTargets'
 import { refreshTargets } from './lib/refreshTargets'
 import { cn } from './lib/utils'
@@ -16,7 +16,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './comp
 import { Toaster } from './components/ui/sonner'
 import { Watchlist } from './components/Watchlist'
 import { useAppStore, selectActiveItems } from './store'
-import { parseWorkspace } from './workspace'
+import { parseWorkspaceCollection } from '@shared/workspace'
 import { applyTheme } from './lib/theme'
 import type { CapabilityStatus } from '@shared/ipc'
 import type { Timeframe } from '@shared/types'
@@ -27,16 +27,14 @@ export default function App(): React.JSX.Element {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [sidebarWidth, setSidebarWidth] = useState(240)
 
-  // One-time startup restore (D-59/LAYOUT-04): replaces the old getLastSymbol restore. main is a
-  // dumb persister — parseWorkspace owns the trust boundary and never throws (T-05-01). A null
-  // result (first-ever launch or corrupt file) leaves the store's own default (1x1 + AAPL).
+  // One-time startup restore (D-59/LAYOUT-04). main is a dumb persister — parseWorkspaceCollection
+  // owns the trust boundary and never throws (T-05-01), normalizing malformed/first-launch input
+  // into a valid collection (≥1 workspace, active resolved to a real name).
   useEffect(() => {
     void api.settings.getTheme().then(applyTheme)
-    void api.layout.getCurrent().then((raw) => {
-      const ws = parseWorkspace(raw)
-      if (ws) useAppStore.getState().hydrate(ws)
+    void api.workspaces.get().then((raw) => {
+      useAppStore.getState().hydrateWorkspaces(parseWorkspaceCollection(raw))
     })
-    void api.watchlist.get().then((c) => useAppStore.getState().hydrateWatchlists(c))
     void api.settings.getSidebarOpen().then((open) => {
       if (open !== null) setSidebarOpen(open)
     })
@@ -51,25 +49,6 @@ export default function App(): React.JSX.Element {
     const t = setTimeout(() => { void api.settings.setSidebarWidth(sidebarWidth) }, 500)
     return () => clearTimeout(t)
   }, [sidebarWidth])
-
-  // Persist-on-change for watchlists (debounced). Serializes the whole collection into watchlist.json.
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | null = null
-    const unsubscribe = useAppStore.subscribe(
-      (s) => [s.watchlists, s.activeWatchlist] as const,
-      ([watchlists, activeWatchlist]) => {
-        if (timer) clearTimeout(timer)
-        timer = setTimeout(() => {
-          void api.watchlist.set({ version: 2, active: activeWatchlist, lists: watchlists })
-        }, 500)
-      },
-      { equalityFn: (a, b) => a[0] === b[0] && a[1] === b[1] }
-    )
-    return () => {
-      if (timer) clearTimeout(timer)
-      unsubscribe()
-    }
-  }, [])
 
   const toggleSidebar = (): void => {
     setSidebarOpen((prev) => {
@@ -128,24 +107,23 @@ export default function App(): React.JSX.Element {
     }
   }
 
-  // Debounced auto-save (~500ms, ponytail: avoids write-thrash on rapid param edits) — persists
-  // only the serializable workspace fields, NEVER crosshair (that stays session-only, D-60).
+  // Debounced auto-save (~500ms, ponytail: avoids write-thrash on rapid param edits) — persists the
+  // whole workspace collection (items + serialized layouts), NEVER crosshair (session-only, D-60).
+  // Folds the hot grid into the active workspace's layout so the on-disk copy is never stale.
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null
     const unsubscribe = useAppStore.subscribe(
-      (s) => [s.cells, s.shape, s.activeCellId] as const, // never crosshairByCell (D-60)
+      (s) => [s.cells, s.shape, s.activeCellId, s.workspaces, s.activeWorkspace] as const,
       () => {
         if (timer) clearTimeout(timer)
         timer = setTimeout(() => {
-          // Single source of truth for workspace serialization (store.currentWorkspace) — reused
-          // by switchToLayout/saveLayoutAs so there is never a second, divergent serialization.
-          void api.layout.setCurrent(useAppStore.getState().currentWorkspace())
+          void api.workspaces.set(useAppStore.getState().collectionSnapshot())
         }, 500)
       },
       // Default equalityFn is Object.is on the whole tuple, which is a fresh array every call —
       // without this, a crosshair-only update (rAF-throttled mousemove) would still reset the
-      // debounce timer on every hover tick. Compare the three fields by reference instead.
-      { equalityFn: (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2] }
+      // debounce timer on every hover tick. Compare the fields by reference instead.
+      { equalityFn: (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3] && a[4] === b[4] }
     )
     return () => {
       if (timer) clearTimeout(timer)
@@ -175,7 +153,7 @@ export default function App(): React.JSX.Element {
             <TooltipContent>{sidebarOpen ? 'Hide watchlist' : 'Show watchlist'}</TooltipContent>
           </Tooltip>
           <GridShapeRow />
-          <LayoutMenu />
+          <WorkspaceSwitcher />
           <div className="ml-auto flex items-center gap-4">
             <Tooltip>
               <TooltipTrigger asChild>

@@ -1,6 +1,15 @@
-import type { Cell, GridShape, IndicatorInstance, Timeframe, Workspace } from '@shared/types'
+import type {
+  Cell,
+  GridShape,
+  IndicatorInstance,
+  Timeframe,
+  Layout,
+  Workspace,
+  WorkspaceCollection,
+  WatchlistItem
+} from '@shared/types'
 
-// Bump when Workspace's shape changes incompatibly. parseWorkspace stays forward-compatible
+// Bump when Layout's shape changes incompatibly. parseLayout stays forward-compatible
 // (fills missing fields with defaults) so old-schema saved files still restore.
 export const SCHEMA_VERSION = 1
 
@@ -23,30 +32,14 @@ function isTimeframe(v: unknown): v is Timeframe {
 export function newCellSeed(id: string, volId: string): Cell {
   return {
     id,
-    symbol: 'AAPL',
+    symbol: null,
     timeframe: '1d',
     indicators: [{ id: volId, type: 'volume', params: {}, colors: {}, visible: true, fixed: true }]
   }
 }
 
-// Deep copy of src with a fresh cell id and freshly-minted indicator instance ids (duplicated
-// indicators must not share ids across cells, D-55). Caller (store) mints newId/newIndicatorIds
-// so this stays pure/id-gen-free. newIndicatorIds must be parallel to src.indicators.
-export function duplicateCell(src: Cell, newId: string, newIndicatorIds: string[]): Cell {
-  return {
-    ...src,
-    id: newId,
-    indicators: src.indicators.map((ind, i) => ({
-      ...ind,
-      id: newIndicatorIds[i],
-      params: { ...ind.params },
-      colors: { ...ind.colors }
-    }))
-  }
-}
-
-// First-ever-launch default: 1x1 grid, one AAPL cell (D-59).
-export function defaultWorkspace(cellId: string, volId: string): Workspace {
+// First-ever-launch default: 1x1 grid, one empty cell (D-59).
+export function defaultLayout(cellId: string, volId: string): Layout {
   const cell = newCellSeed(cellId, volId)
   return { schemaVersion: SCHEMA_VERSION, cells: [cell], shape: '1x1', activeCellId: cell.id }
 }
@@ -82,10 +75,10 @@ function parseCell(raw: unknown): Cell | null {
   return { id, symbol, timeframe, indicators }
 }
 
-// Validates/coerces arbitrary persisted or malformed JSON into a Workspace. Never throws —
+// Validates/coerces arbitrary persisted or malformed JSON into a Layout. Never throws —
 // unresolvable input (not an object at all) returns null; everything else is coerced/defaulted
 // (forward-compatible partial-state restore, T-05-01).
-export function parseWorkspace(raw: unknown): Workspace | null {
+export function parseLayout(raw: unknown): Layout | null {
   try {
     if (!isRecord(raw)) return null
     const shape = isGridShape(raw.shape) ? raw.shape : '1x1'
@@ -102,4 +95,41 @@ export function parseWorkspace(raw: unknown): Workspace | null {
   } catch {
     return null
   }
+}
+
+// 永続化シード用の静的id空レイアウト。store は hydrate 時に nextId を再シードし id を癒すので、
+// 固定 id '1'/'2' が実行時に衝突することはない。
+export function emptyLayout(): Layout {
+  return defaultLayout('1', '2')
+}
+
+export const isWatchlistItem = (v: unknown): v is WatchlistItem =>
+  isRecord(v) &&
+  typeof v.symbol === 'string' &&
+  typeof v.name === 'string' &&
+  typeof v.exchange === 'string'
+
+function parseWorkspaceEntry(raw: unknown): Workspace | null {
+  if (!isRecord(raw) || typeof raw.name !== 'string') return null
+  const items = Array.isArray(raw.items) ? raw.items.filter(isWatchlistItem) : []
+  const layout = parseLayout(raw.layout) ?? emptyLayout()
+  return { name: raw.name, items, layout }
+}
+
+export function defaultWorkspaceCollection(): WorkspaceCollection {
+  return { version: 3, active: 'Workspace 1', workspaces: [{ name: 'Workspace 1', items: [], layout: emptyLayout() }] }
+}
+
+// never throws。workspaces は最低1件、active は必ず実在名に正規化。
+export function parseWorkspaceCollection(raw: unknown): WorkspaceCollection {
+  if (!isRecord(raw)) return defaultWorkspaceCollection()
+  const workspaces = Array.isArray(raw.workspaces)
+    ? raw.workspaces.map(parseWorkspaceEntry).filter((w): w is Workspace => w !== null)
+    : []
+  if (workspaces.length === 0) return defaultWorkspaceCollection()
+  const active =
+    typeof raw.active === 'string' && workspaces.some((w) => w.name === raw.active)
+      ? raw.active
+      : workspaces[0].name
+  return { version: 3, active, workspaces }
 }

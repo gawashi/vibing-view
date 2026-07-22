@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { useAppStore, selectActiveItems } from '../../src/renderer/store'
-import type { Workspace } from '../../src/shared/types'
+import type { Layout } from '../../src/shared/types'
 
 describe('useAppStore grid shape logic', () => {
   beforeEach(() => {
@@ -15,7 +15,7 @@ describe('useAppStore grid shape logic', () => {
     })
   })
 
-  it('expand duplicates the active cell into new slots with fresh instance ids', () => {
+  it('expand adds empty (null-symbol) cells — no copy of the active cell (copy is a separate feature)', () => {
     useAppStore.getState().setActiveSymbol('AAPL')
     useAppStore.getState().addIndicator('ma')
     const before = useAppStore.getState()
@@ -25,20 +25,16 @@ describe('useAppStore grid shape logic', () => {
 
     const state = useAppStore.getState()
     expect(state.cells).toHaveLength(4)
-    const duplicates = state.cells.slice(1)
-    for (const dup of duplicates) {
-      expect(dup.id).not.toBe(activeCell.id)
-      expect(dup.symbol).toBe(activeCell.symbol)
-      expect(dup.timeframe).toBe(activeCell.timeframe)
-      expect(dup.indicators.map((i) => i.type)).toEqual(activeCell.indicators.map((i) => i.type))
-      // fresh instance ids — no id shared with the source cell or with each other
-      const dupIds = dup.indicators.map((i) => i.id)
-      const srcIds = activeCell.indicators.map((i) => i.id)
-      for (const id of dupIds) expect(srcIds).not.toContain(id)
+    const added = state.cells.slice(1)
+    for (const cell of added) {
+      expect(cell.id).not.toBe(activeCell.id)
+      expect(cell.symbol).toBeNull()
+      // only the fixed Volume seed, nothing copied from the active cell
+      expect(cell.indicators.map((i) => i.type)).toEqual(['volume'])
     }
-    // duplicate cells' indicator ids are also distinct from one another
-    const allDupIndicatorIds = duplicates.flatMap((d) => d.indicators.map((i) => i.id))
-    expect(new Set(allDupIndicatorIds).size).toBe(allDupIndicatorIds.length)
+    // all ids (cells + indicators) are distinct
+    const allIds = state.cells.flatMap((c) => [c.id, ...c.indicators.map((i) => i.id)])
+    expect(new Set(allIds).size).toBe(allIds.length)
   })
 
   it('shrink retains hidden cell configs so re-expand restores them (no re-duplication)', () => {
@@ -81,7 +77,7 @@ describe('useAppStore grid shape logic', () => {
 
   describe('hydrate reseeds nextId past restored ids (Phase 5 review: nextId collision bug)', () => {
     it('addIndicator after hydrate mints an id greater than every restored id, never colliding', () => {
-      const ws: Workspace = {
+      const ws: Layout = {
         schemaVersion: 1,
         shape: '1x1',
         activeCellId: 'c1',
@@ -112,7 +108,7 @@ describe('useAppStore grid shape logic', () => {
     })
 
     it('setShape expand after hydrate mints a fresh cell id that does not collide with a restored high cell id', () => {
-      const ws: Workspace = {
+      const ws: Layout = {
         schemaVersion: 1,
         shape: '1x1',
         activeCellId: '900',
@@ -134,7 +130,7 @@ describe('useAppStore grid shape logic', () => {
     })
 
     it('hydrate re-seeds the always-on fixed Volume for a cell restored without it', () => {
-      const ws: Workspace = {
+      const ws: Layout = {
         schemaVersion: 1,
         shape: '1x1',
         activeCellId: '900',
@@ -152,7 +148,7 @@ describe('useAppStore grid shape logic', () => {
     })
 
     it('hydrate leaves an existing Volume untouched (no duplicate)', () => {
-      const ws: Workspace = {
+      const ws: Layout = {
         schemaVersion: 1,
         shape: '1x1',
         activeCellId: 'c9',
@@ -215,142 +211,159 @@ describe('useAppStore grid shape logic', () => {
     })
   })
 
-  describe('watchlists (multi-list)', () => {
+  describe('workspaces (unified list + layout)', () => {
+    const L = (symbol: string | null, id = 'x1') => ({
+      schemaVersion: 1,
+      cells: [{ id, symbol, timeframe: '1d' as const, indicators: [] }],
+      shape: '1x1' as const,
+      activeCellId: id
+    })
+
     beforeEach(() => {
       useAppStore.setState({
-        watchlists: [{ name: 'Watchlist', items: [] }],
-        activeWatchlist: 'Watchlist'
+        cells: L('AAPL', 'c1').cells,
+        shape: '1x1',
+        activeCellId: 'c1',
+        workspaces: [{ name: 'Workspace 1', items: [], layout: L('AAPL', 'c1') }],
+        activeWorkspace: 'Workspace 1'
       })
     })
 
     const items = () => selectActiveItems(useAppStore.getState())
 
-    it('addToWatchlist twice with the same symbol yields one entry (dedupe, active list)', () => {
-      const item = { symbol: 'AAPL', name: 'Apple Inc.', exchange: 'NASDAQ' }
-      useAppStore.getState().addToWatchlist(item)
-      useAppStore.getState().addToWatchlist(item)
-      expect(items()).toEqual([item])
+    it('addToWatchlist dedupes and scopes to the active workspace', () => {
+      const a = { symbol: 'AAPL', name: 'Apple Inc.', exchange: 'NASDAQ' }
+      useAppStore.getState().addToWatchlist(a)
+      useAppStore.getState().addToWatchlist(a)
+      expect(items()).toEqual([a])
     })
 
-    it('removeFromWatchlist removes only the matching symbol in the active list', () => {
-      const a = { symbol: 'AAPL', name: 'Apple Inc.', exchange: 'NASDAQ' }
-      const m = { symbol: 'MSFT', name: 'Microsoft Corp.', exchange: 'NASDAQ' }
+    it('removeFromWatchlist removes only the matching symbol in the active workspace', () => {
+      const a = { symbol: 'AAPL', name: 'Apple', exchange: 'NASDAQ' }
+      const m = { symbol: 'MSFT', name: 'Microsoft', exchange: 'NASDAQ' }
       useAppStore.getState().addToWatchlist(a)
       useAppStore.getState().addToWatchlist(m)
       useAppStore.getState().removeFromWatchlist('AAPL')
       expect(items()).toEqual([m])
     })
 
-    // マーカー(行上端 = その行の前に挿入)と実挿入位置を一致させる:
-    it('reorder DOWN inserts before the target row (marker == actual)', () => {
+    it('reorderWatchlist DOWN inserts before the target row', () => {
       const [a, b, c] = [
         { symbol: 'A', name: 'A', exchange: 'NYSE' },
         { symbol: 'B', name: 'B', exchange: 'NYSE' },
         { symbol: 'C', name: 'C', exchange: 'NYSE' }
       ]
-      useAppStore.setState({ watchlists: [{ name: 'Watchlist', items: [a, b, c] }], activeWatchlist: 'Watchlist' })
-      // A(0) を C(index2) の上（=Cの前）にドロップ → [B, A, C]
+      useAppStore.setState({ workspaces: [{ name: 'Workspace 1', items: [a, b, c], layout: L('AAPL') }], activeWorkspace: 'Workspace 1' })
       useAppStore.getState().reorderWatchlist(0, 2)
       expect(items()).toEqual([b, a, c])
     })
 
-    it('reorder UP inserts before the target row', () => {
+    it('reorderWatchlist to length moves the item to the last slot', () => {
       const [a, b, c] = [
         { symbol: 'A', name: 'A', exchange: 'NYSE' },
         { symbol: 'B', name: 'B', exchange: 'NYSE' },
         { symbol: 'C', name: 'C', exchange: 'NYSE' }
       ]
-      useAppStore.setState({ watchlists: [{ name: 'Watchlist', items: [a, b, c] }], activeWatchlist: 'Watchlist' })
-      // C(2) を A(index0) の上にドロップ → [C, A, B]
-      useAppStore.getState().reorderWatchlist(2, 0)
-      expect(items()).toEqual([c, a, b])
-    })
-
-    it('reorder to length moves the item to the last slot (末尾ドロップゾーン)', () => {
-      const [a, b, c] = [
-        { symbol: 'A', name: 'A', exchange: 'NYSE' },
-        { symbol: 'B', name: 'B', exchange: 'NYSE' },
-        { symbol: 'C', name: 'C', exchange: 'NYSE' }
-      ]
-      useAppStore.setState({ watchlists: [{ name: 'Watchlist', items: [a, b, c] }], activeWatchlist: 'Watchlist' })
-      // A(0) を末尾ゾーン(index=length=3)へドロップ → [B, C, A]
+      useAppStore.setState({ workspaces: [{ name: 'Workspace 1', items: [a, b, c], layout: L('AAPL') }], activeWorkspace: 'Workspace 1' })
       useAppStore.getState().reorderWatchlist(0, 3)
       expect(items()).toEqual([b, c, a])
     })
 
-    it('createWatchlist adds a list and switches to it; rejects duplicate/empty names', () => {
-      expect(useAppStore.getState().createWatchlist('Tech')).toEqual({ ok: true })
-      expect(useAppStore.getState().activeWatchlist).toBe('Tech')
-      expect(useAppStore.getState().createWatchlist('Tech').ok).toBe(false)
-      expect(useAppStore.getState().createWatchlist('   ').ok).toBe(false)
+    it('switchWorkspace snapshots the current grid into the old workspace and loads the target layout', () => {
+      useAppStore.setState({
+        cells: L('MSFT', 'c1').cells, shape: '1x1', activeCellId: 'c1',
+        workspaces: [
+          { name: 'Workspace 1', items: [], layout: L('MSFT', 'c1') },
+          { name: 'Scan', items: [], layout: { schemaVersion: 1, cells: [{ id: 'd1', symbol: 'GOOG', timeframe: '1h', indicators: [] }], shape: '1x1', activeCellId: 'd1' } }
+        ],
+        activeWorkspace: 'Workspace 1'
+      })
+      useAppStore.getState().setActiveSymbol('TSLA')
+      useAppStore.getState().switchWorkspace('Scan')
+
+      const s = useAppStore.getState()
+      expect(s.activeWorkspace).toBe('Scan')
+      expect(s.cells[0].symbol).toBe('GOOG')
+      expect(s.cells[0].timeframe).toBe('1h')
+      expect(s.workspaces.find((w) => w.name === 'Workspace 1')!.layout.cells[0].symbol).toBe('TSLA')
     })
 
-    it('switchWatchlist scopes add/remove to the active list', () => {
+    it('createWorkspace adds an empty workspace, switches to it, and loads an empty grid', () => {
+      useAppStore.getState().setActiveSymbol('AAPL')
+      expect(useAppStore.getState().createWorkspace('B')).toEqual({ ok: true })
+      const s = useAppStore.getState()
+      expect(s.activeWorkspace).toBe('B')
+      expect(s.cells[0].symbol).toBeNull()
+      expect(s.workspaces.find((w) => w.name === 'Workspace 1')!.layout.cells[0].symbol).toBe('AAPL')
+      expect(useAppStore.getState().createWorkspace('B').ok).toBe(false)
+      expect(useAppStore.getState().createWorkspace('   ').ok).toBe(false)
+    })
+
+    it('duplicateWorkspace copies the current grid and active items into a new active workspace', () => {
       const a = { symbol: 'AAPL', name: 'Apple', exchange: 'NASDAQ' }
-      useAppStore.getState().createWatchlist('Tech')
-      useAppStore.getState().addToWatchlist(a)
-      useAppStore.getState().switchWatchlist('Watchlist')
-      expect(items()).toEqual([])
-      useAppStore.getState().switchWatchlist('Tech')
-      expect(items()).toEqual([a])
-    })
-
-    it('renameWatchlist renames and moves active pointer; rejects duplicates', () => {
-      useAppStore.getState().createWatchlist('Tech') // active = Tech
-      expect(useAppStore.getState().renameWatchlist('Tech', 'Growth')).toEqual({ ok: true })
-      expect(useAppStore.getState().activeWatchlist).toBe('Growth')
-      expect(useAppStore.getState().renameWatchlist('Growth', 'Watchlist').ok).toBe(false)
-    })
-
-    it('deleteWatchlist protects the last list and re-points active to the first', () => {
-      useAppStore.getState().createWatchlist('Tech') // lists: [Watchlist, Tech], active Tech
-      useAppStore.getState().deleteWatchlist('Tech')
-      expect(useAppStore.getState().watchlists.map((w) => w.name)).toEqual(['Watchlist'])
-      expect(useAppStore.getState().activeWatchlist).toBe('Watchlist')
-      // last list is protected — no-op
-      useAppStore.getState().deleteWatchlist('Watchlist')
-      expect(useAppStore.getState().watchlists).toHaveLength(1)
-    })
-
-    it('reorderWatchlists moves a list DOWN (from < to) without touching active', () => {
       useAppStore.setState({
-        watchlists: [
-          { name: 'A', items: [] },
-          { name: 'B', items: [] },
-          { name: 'C', items: [] }
-        ],
-        activeWatchlist: 'A'
+        cells: L('AAPL', 'c1').cells, shape: '1x1', activeCellId: 'c1',
+        workspaces: [{ name: 'A', items: [a], layout: L('AAPL', 'c1') }],
+        activeWorkspace: 'A'
       })
-      expect(useAppStore.getState().reorderWatchlists(0, 1)).toEqual({ ok: true })
-      expect(useAppStore.getState().watchlists.map((w) => w.name)).toEqual(['B', 'A', 'C'])
-      expect(useAppStore.getState().activeWatchlist).toBe('A')
+      expect(useAppStore.getState().duplicateWorkspace('A copy')).toEqual({ ok: true })
+      const copy = useAppStore.getState().workspaces.find((w) => w.name === 'A copy')!
+      expect(useAppStore.getState().activeWorkspace).toBe('A copy')
+      expect(copy.items).toEqual([a])
+      expect(copy.layout.cells[0].symbol).toBe('AAPL')
     })
 
-    it('reorderWatchlists moves a list UP (from > to)', () => {
-      useAppStore.setState({
-        watchlists: [
-          { name: 'A', items: [] },
-          { name: 'B', items: [] },
-          { name: 'C', items: [] }
-        ],
-        activeWatchlist: 'A'
-      })
-      expect(useAppStore.getState().reorderWatchlists(2, 1)).toEqual({ ok: true })
-      expect(useAppStore.getState().watchlists.map((w) => w.name)).toEqual(['A', 'C', 'B'])
+    it('renameWorkspace renames and moves the active pointer; rejects duplicates', () => {
+      useAppStore.getState().createWorkspace('Tech')
+      expect(useAppStore.getState().renameWorkspace('Tech', 'Growth')).toEqual({ ok: true })
+      expect(useAppStore.getState().activeWorkspace).toBe('Growth')
+      expect(useAppStore.getState().renameWorkspace('Growth', 'Workspace 1').ok).toBe(false)
     })
 
-    it('reorderWatchlists rejects out-of-range and no-op indices, leaving order unchanged', () => {
+    it('deleteWorkspace protects the last workspace and re-points active to the first survivor', () => {
       useAppStore.setState({
-        watchlists: [
-          { name: 'A', items: [] },
-          { name: 'B', items: [] }
+        cells: L('AAPL', 'c1').cells, shape: '1x1', activeCellId: 'c1',
+        workspaces: [
+          { name: 'A', items: [], layout: L('AAPL', 'a1') },
+          { name: 'B', items: [], layout: L('MSFT', 'b1') }
         ],
-        activeWatchlist: 'A'
+        activeWorkspace: 'A'
       })
-      expect(useAppStore.getState().reorderWatchlists(0, 5).ok).toBe(false)
-      expect(useAppStore.getState().reorderWatchlists(-1, 0).ok).toBe(false)
-      expect(useAppStore.getState().reorderWatchlists(1, 1).ok).toBe(false)
-      expect(useAppStore.getState().watchlists.map((w) => w.name)).toEqual(['A', 'B'])
+      useAppStore.getState().deleteWorkspace('A')
+      expect(useAppStore.getState().workspaces.map((w) => w.name)).toEqual(['B'])
+      expect(useAppStore.getState().activeWorkspace).toBe('B')
+      expect(useAppStore.getState().cells[0].symbol).toBe('MSFT')
+      useAppStore.getState().deleteWorkspace('B')
+      expect(useAppStore.getState().workspaces).toHaveLength(1)
+    })
+
+    it('reorderWorkspaces moves a workspace without touching the active pointer; rejects bad indices', () => {
+      useAppStore.setState({
+        workspaces: [
+          { name: 'A', items: [], layout: L(null) },
+          { name: 'B', items: [], layout: L(null) },
+          { name: 'C', items: [], layout: L(null) }
+        ],
+        activeWorkspace: 'A'
+      })
+      expect(useAppStore.getState().reorderWorkspaces(0, 1)).toEqual({ ok: true })
+      expect(useAppStore.getState().workspaces.map((w) => w.name)).toEqual(['B', 'A', 'C'])
+      expect(useAppStore.getState().activeWorkspace).toBe('A')
+      expect(useAppStore.getState().reorderWorkspaces(0, 5).ok).toBe(false)
+      expect(useAppStore.getState().reorderWorkspaces(1, 1).ok).toBe(false)
+    })
+
+    it('hydrateWorkspaces loads the collection and the active workspace layout', () => {
+      useAppStore.getState().hydrateWorkspaces({
+        version: 3,
+        active: 'Two',
+        workspaces: [
+          { name: 'One', items: [], layout: L('AAPL', 'o1') },
+          { name: 'Two', items: [], layout: L('NVDA', 't1') }
+        ]
+      })
+      expect(useAppStore.getState().activeWorkspace).toBe('Two')
+      expect(useAppStore.getState().cells[0].symbol).toBe('NVDA')
     })
   })
 })

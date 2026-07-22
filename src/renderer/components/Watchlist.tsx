@@ -5,7 +5,6 @@ import { api, qk } from '@/api'
 import { useAppStore, selectActiveItems } from '@/store'
 import { cn } from '@/lib/utils'
 import { latestPriceChange } from '@/lib/priceChange'
-import { WatchlistSwitcher } from './WatchlistSwitcher'
 import type { Bar, WatchlistItem, Quote, MarketStatus } from '@shared/types'
 
 function Row({
@@ -127,9 +126,6 @@ export function Watchlist({
       )}
     >
       <div className="h-full overflow-y-auto" style={{ width }}>
-        <div className="border-b border-border p-2">
-          <WatchlistSwitcher />
-        </div>
         {watchlist.length === 0
           ? (
             <div className="p-2 text-sm text-muted-foreground">

@@ -1,5 +1,5 @@
 import type { Cell, GridShape } from '@shared/types'
-import { VISIBLE_COUNT } from '../workspace'
+import { VISIBLE_COUNT } from '@shared/workspace'
 
 // Symbols that get a quote on reload: visible cells' symbols ∪ watchlist symbols, de-duped.
 // Mirrors refreshTargets' visible-slice + watchlist union, but keyed by symbol only (quote is
