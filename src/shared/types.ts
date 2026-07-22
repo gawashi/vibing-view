@@ -82,3 +82,29 @@ export type WorkspaceCollection = {
   active: string
   workspaces: Workspace[]
 }
+
+// 会社情報ダイアログ用（既存 SymbolResult/profile とは別物 — company 名前空間）。
+// nullable なのは FMP profile が欠損しうるため。数値は string 混在を coerce 済み。
+export type CompanyProfileData = {
+  symbol: string
+  companyName: string
+  image: string | null
+  exchange: string | null
+  sector: string | null
+  industry: string | null
+  country: string | null
+  marketCap: number | null
+  ceo: string | null
+  fullTimeEmployees: number | null
+  ipoDate: string | null
+  website: string | null
+  description: string | null
+  beta: number | null
+  range: string | null
+  volume: number | null
+  averageVolume: number | null
+  lastDividend: number | null
+}
+
+// fetchedAt は列で持ちダイアログの「as of YYYY-MM-DD」表記に使う（blob には含めない）。
+export type CompanyInfo = CompanyProfileData & { fetchedAt: number }

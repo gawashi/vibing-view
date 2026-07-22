@@ -1,4 +1,4 @@
-import type { Bar, SymbolResult, Timeframe, DateRange, WorkspaceCollection, Quote, MarketStatus } from './types'
+import type { Bar, SymbolResult, Timeframe, DateRange, WorkspaceCollection, Quote, MarketStatus, CompanyInfo } from './types'
 
 export const CH = {
   symbolsSearch: 'symbols:search',
@@ -20,7 +20,8 @@ export const CH = {
   settingsSetTheme: 'settings:setTheme',
   capabilitiesGet: 'capabilities:get',
   workspacesGet: 'workspaces:get',
-  workspacesSet: 'workspaces:set'
+  workspacesSet: 'workspaces:set',
+  companyInfo: 'company:info'
 } as const
 
 export type KeyStatus = { hasKey: boolean; encryptionAvailable: boolean; maskedKey?: string }
@@ -61,6 +62,9 @@ export interface Api {
   workspaces: {
     get(): Promise<WorkspaceCollection>
     set(c: WorkspaceCollection): Promise<void>
+  }
+  company: {
+    info(symbol: string): Promise<CompanyInfo>
   }
 }
 
