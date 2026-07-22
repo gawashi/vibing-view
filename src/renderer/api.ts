@@ -9,5 +9,6 @@ export const qk = {
   profile: (symbol: string) => ['profile', symbol] as const,
   capabilities: () => ['capabilities'] as const,
   quote: (symbol: string) => ['quote', symbol] as const,
-  marketStatus: () => ['market-status'] as const
+  marketStatus: () => ['market-status'] as const,
+  companyInfo: (symbol: string) => ['company-info', symbol] as const
 }

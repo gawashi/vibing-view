@@ -51,6 +51,10 @@ type AppState = {
   // Keyed by cellId so each grid cell's crosshair readout is isolated (05-02 grid).
   crosshairByCell: Record<string, CrosshairValues>
   setCrosshair: (cellId: string, values: CrosshairValues) => void
+  // 会社情報ダイアログの対象銘柄。null = 閉。App 常設の CompanyInfoDialog が subscribe する。
+  companyInfoSymbol: string | null
+  openCompanyInfo: (symbol: string) => void
+  closeCompanyInfo: () => void
 
   // Unified Workspace model (= watchlist items + grid layout under one name). All actions act on
   // the ACTIVE workspace; App wires load-on-startup and persist-on-change. Pure state mutations
@@ -106,6 +110,10 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
   setCrosshair: (cellId, values) => set((state) => ({
     crosshairByCell: { ...state.crosshairByCell, [cellId]: values }
   })),
+
+  companyInfoSymbol: null,
+  openCompanyInfo: (symbol) => set({ companyInfoSymbol: symbol }),
+  closeCompanyInfo: () => set({ companyInfoSymbol: null }),
 
   setActiveCell: (id) => set({ activeCellId: id }),
   setShape: (shape) => set((state) => {
