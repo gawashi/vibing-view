@@ -1,8 +1,6 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api, qk } from '@/api'
-import { useAppStore } from '@/store'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog'
 import type { CompanyInfo } from '@shared/types'
 
 const fmtCompact = (n: number): string =>
@@ -84,17 +82,12 @@ function CompanyInfoBody({ symbol }: { symbol: string }): React.JSX.Element {
   )
 }
 
-export function CompanyInfoDialog(): React.JSX.Element {
-  const symbol = useAppStore((s) => s.companyInfoSymbol)
-  const closeCompanyInfo = useAppStore((s) => s.closeCompanyInfo)
+export function CompanyWindow({ symbol }: { symbol: string }): React.JSX.Element {
+  useEffect(() => { document.title = symbol }, [symbol])
   return (
-    <Dialog open={!!symbol} onOpenChange={(open) => { if (!open) closeCompanyInfo() }}>
-      <DialogContent className="max-w-xl">
-        <DialogHeader className="mb-1">
-          <DialogTitle>Company info</DialogTitle>
-        </DialogHeader>
-        {symbol && <CompanyInfoBody symbol={symbol} />}
-      </DialogContent>
-    </Dialog>
+    <div className="h-screen overflow-auto bg-background p-6 text-foreground">
+      <h1 className="mb-4 text-sm font-semibold text-muted-foreground">Company info</h1>
+      <CompanyInfoBody symbol={symbol} />
+    </div>
   )
 }

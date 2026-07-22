@@ -21,7 +21,6 @@ function Row({
 }): React.JSX.Element {
   const setActiveSymbol = useAppStore((s) => s.setActiveSymbol)
   const removeFromWatchlist = useAppStore((s) => s.removeFromWatchlist)
-  const openCompanyInfo = useAppStore((s) => s.openCompanyInfo)
 
   // 起動時から価格を表示する（ユーザー要望 #5）。queryFn は CacheService 経由のキャッシュ読み抜き
   // なので、キャッシュ済み銘柄は無通信、未取得の日足だけ1回フェッチ。staleTime:Infinity で以後は
@@ -106,9 +105,7 @@ function Row({
     </li>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        {/* Same next-tick defer as the chart menu: opening the Radix Dialog synchronously from
-            onSelect leaves `pointer-events: none` stuck on <body> after close → frozen screen. */}
-        <ContextMenuItem onSelect={() => setTimeout(() => openCompanyInfo(item.symbol), 0)}>
+        <ContextMenuItem onSelect={() => void api.company.openWindow(item.symbol)}>
           Show company info
         </ContextMenuItem>
       </ContextMenuContent>

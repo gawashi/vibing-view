@@ -210,7 +210,6 @@ function GridCell({ cell, active }: { cell: Cell; active: boolean }): React.JSX.
   const setActiveCell = useAppStore((s) => s.setActiveCell)
   const setCellTimeframe = useAppStore((s) => s.setCellTimeframe)
   const clearCell = useAppStore((s) => s.clearCell)
-  const openCompanyInfo = useAppStore((s) => s.openCompanyInfo)
   useCellCapabilityGating(cell.id, cell.symbol, cell.timeframe)
 
   return (
@@ -255,10 +254,7 @@ function GridCell({ cell, active }: { cell: Cell; active: boolean }): React.JSX.
               </div>
             </ContextMenuTrigger>
             <ContextMenuContent>
-              {/* Defer to next tick: opening a Radix Dialog synchronously from a ContextMenuItem's
-                  onSelect interleaves the menu's body pointer-events cleanup with the dialog's, so
-                  `pointer-events: none` gets stuck on <body> after the dialog closes → frozen screen. */}
-              <ContextMenuItem onSelect={() => setTimeout(() => openCompanyInfo(cell.symbol!), 0)}>
+              <ContextMenuItem onSelect={() => void api.company.openWindow(cell.symbol!)}>
                 Show company info
               </ContextMenuItem>
             </ContextMenuContent>

@@ -15,7 +15,6 @@ import { SettingsDialog } from './components/SettingsDialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './components/ui/tooltip'
 import { Toaster } from './components/ui/sonner'
 import { Watchlist } from './components/Watchlist'
-import { CompanyInfoDialog } from './components/CompanyInfoDialog'
 import { useAppStore, selectActiveItems } from './store'
 import { parseWorkspaceCollection } from '@shared/workspace'
 import { applyTheme } from './lib/theme'
@@ -182,7 +181,6 @@ export default function App(): React.JSX.Element {
         </div>
       </div>
       <Toaster />
-      <CompanyInfoDialog />
     </TooltipProvider>
   )
 }
