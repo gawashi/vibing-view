@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { GripVertical, X } from 'lucide-react'
 import { api, qk } from '@/api'
 import { useAppStore, selectActiveItems } from '@/store'
+import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } from './ui/context-menu'
 import { cn } from '@/lib/utils'
 import { latestPriceChange } from '@/lib/priceChange'
 import type { Bar, WatchlistItem, Quote, MarketStatus } from '@shared/types'
@@ -45,6 +46,8 @@ function Row({
   const change = latestPriceChange(bars, quote, marketStatus?.isOpen ?? false)
 
   return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
     <li
       role="button"
       tabIndex={0}
@@ -100,6 +103,13 @@ function Row({
         <X className="size-4" />
       </button>
     </li>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onSelect={() => void api.company.openWindow(item.symbol)}>
+          Show company info
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   )
 }
 

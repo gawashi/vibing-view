@@ -10,6 +10,7 @@ import { Button } from './ui/button'
 import { Chart } from './Chart'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { TimeframeRow, TF_LABELS } from './TimeframeRow'
+import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } from './ui/context-menu'
 import { cn } from '@/lib/utils'
 import { computeChange } from '@/lib/priceChange'
 import type { Bar, Cell, MarketStatus, Quote, Timeframe, SymbolResult } from '@shared/types'
@@ -224,31 +225,40 @@ function GridCell({ cell, active }: { cell: Cell; active: boolean }): React.JSX.
     >
       {cell.symbol
         ? (
-          <>
-            {/* min-w-0 + flex-wrap: in a narrow 2x2 cell the toolbar's intrinsic width (label +
-                7 tf buttons + Indicator + X) exceeds the track; without these it overflows into
-                the neighbouring cell. Let it wrap to a second line instead. */}
-            <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
-              <SymbolLabel symbol={cell.symbol} timeframe={cell.timeframe} />
-              <TimeframeRow
-                value={cell.timeframe}
-                onChange={(tf) => setCellTimeframe(cell.id, tf)}
-              />
-              <AddIndicatorMenu cellId={cell.id} />
-              <Button
-                variant="ghost"
-                size="icon"
-                className="ml-auto h-6 w-6 [&_svg]:size-3.5"
-                aria-label={`Remove ${cell.symbol} chart`}
-                onClick={(e) => { e.stopPropagation(); clearCell(cell.id) }}
-              >
-                <X />
-              </Button>
-            </div>
-            <div className="min-h-0 flex-1">
-              <Chart cellId={cell.id} symbol={cell.symbol} timeframe={cell.timeframe} />
-            </div>
-          </>
+          <ContextMenu>
+            <ContextMenuTrigger asChild>
+              <div className="flex h-full min-h-0 min-w-0 flex-col gap-4">
+                {/* min-w-0 + flex-wrap: in a narrow 2x2 cell the toolbar's intrinsic width (label +
+                    7 tf buttons + Indicator + X) exceeds the track; without these it overflows into
+                    the neighbouring cell. Let it wrap to a second line instead. */}
+                <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
+                  <SymbolLabel symbol={cell.symbol} timeframe={cell.timeframe} />
+                  <TimeframeRow
+                    value={cell.timeframe}
+                    onChange={(tf) => setCellTimeframe(cell.id, tf)}
+                  />
+                  <AddIndicatorMenu cellId={cell.id} />
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="ml-auto h-6 w-6 [&_svg]:size-3.5"
+                    aria-label={`Remove ${cell.symbol} chart`}
+                    onClick={(e) => { e.stopPropagation(); clearCell(cell.id) }}
+                  >
+                    <X />
+                  </Button>
+                </div>
+                <div className="min-h-0 flex-1">
+                  <Chart cellId={cell.id} symbol={cell.symbol} timeframe={cell.timeframe} />
+                </div>
+              </div>
+            </ContextMenuTrigger>
+            <ContextMenuContent>
+              <ContextMenuItem onSelect={() => void api.company.openWindow(cell.symbol!)}>
+                Show company info
+              </ContextMenuItem>
+            </ContextMenuContent>
+          </ContextMenu>
           )
         : <div className="p-6 text-muted-foreground">Search a symbol to begin.</div>}
     </div>

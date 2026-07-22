@@ -1,7 +1,7 @@
 import { subDays, subMonths, subYears } from 'date-fns'
 import { fromZonedTime } from 'date-fns-tz'
-import type { Bar, SymbolResult, Timeframe, DateRange, Quote, MarketStatus } from '@shared/types'
-import { fmpHistoricalResponse, fmpSearchResponse, fmpQuoteResponse, fmpMarketHoursResponse } from './fmp.schema'
+import type { Bar, SymbolResult, Timeframe, DateRange, Quote, MarketStatus, CompanyProfileData } from '@shared/types'
+import { fmpHistoricalResponse, fmpSearchResponse, fmpQuoteResponse, fmpMarketHoursResponse, fmpProfileResponse } from './fmp.schema'
 
 // FMP migrated off /api/v3 (now returns 403 for current keys) to the /stable surface.
 const BASE = 'https://financialmodelingprep.com/stable'
@@ -166,5 +166,32 @@ export class FmpProvider {
     const r = rows[0]
     if (!r) throw new FmpHttpError(200, rows)
     return { isOpen: r.isMarketOpen }
+  }
+
+  async getCompanyProfile(symbol: string): Promise<CompanyProfileData> {
+    const url = `${BASE}/profile?symbol=${encodeURIComponent(symbol)}&apikey=${this.apiKey}`
+    const rows = this.parseOrThrowHttpError(fmpProfileResponse, await this.httpGetJson(url))
+    const r = rows[0]
+    if (!r) throw new FmpHttpError(200, rows) // empty array = not covered → classifiable
+    return {
+      symbol: r.symbol,
+      companyName: r.companyName,
+      image: r.image ?? null,
+      exchange: r.exchange ?? null,
+      sector: r.sector ?? null,
+      industry: r.industry ?? null,
+      country: r.country ?? null,
+      marketCap: r.marketCap ?? null,
+      ceo: r.ceo ?? null,
+      fullTimeEmployees: r.fullTimeEmployees ?? null,
+      ipoDate: r.ipoDate ?? null,
+      website: r.website ?? null,
+      description: r.description ?? null,
+      beta: r.beta ?? null,
+      range: r.range ?? null,
+      volume: r.volume ?? null,
+      averageVolume: r.averageVolume ?? null,
+      lastDividend: r.lastDividend ?? null
+    }
   }
 }

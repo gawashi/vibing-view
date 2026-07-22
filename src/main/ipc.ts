@@ -13,6 +13,8 @@ import * as capabilityCache from './capabilityCache'
 import * as workspaceStore from './workspaceStore'
 import { createProfileService } from './profile/ProfileService'
 import * as profileStore from './db/profileStore'
+import { createCompanyInfoService } from './profile/CompanyInfoService'
+import * as companyProfileStore from './db/companyProfileStore'
 
 const ALL_TIMEFRAMES: Timeframe[] = ['1m', '5m', '15m', '1h', '1d', '1w', '1M']
 const DERIVED_TIMEFRAMES: Timeframe[] = ['1w', '1M'] // never gated — always 'available' (§8/§9)
@@ -27,6 +29,17 @@ export function registerIpc(): void {
       const apiKey = getApiKey()
       if (!apiKey) throw new Error('NO_API_KEY')
       return new FmpProvider({ apiKey, httpGetJson: electronHttpGetJson }).searchSymbols(query)
+    }
+  })
+
+  // Company info (company namespace — distinct from ProfileService/symbol resolution). TTL cache in
+  // SQLite; fetch goes through the same electron net client as search/OHLCV.
+  const companyInfoService = createCompanyInfoService({
+    store: companyProfileStore,
+    fetch: (symbol) => {
+      const apiKey = getApiKey()
+      if (!apiKey) throw new Error('NO_API_KEY')
+      return new FmpProvider({ apiKey, httpGetJson: electronHttpGetJson }).getCompanyProfile(symbol)
     }
   })
 
@@ -69,6 +82,7 @@ export function registerIpc(): void {
   })
 
   ipcMain.handle(CH.symbolsProfile, (_e, symbol: string) => profileService.getProfile(symbol))
+  ipcMain.handle(CH.companyInfo, (_e, symbol: string) => companyInfoService.getInfo(symbol))
 
   // Shared capability bookkeeping for every real OHLCV fetch (get + refresh): short-circuit known
   // out-of-plan daily-backed symbols, record 'available' on success, and classify FmpHttpErrors.

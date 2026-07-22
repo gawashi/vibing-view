@@ -28,6 +28,9 @@ export function getDb(): BetterSQLite3Database {
     CREATE TABLE IF NOT EXISTS symbol_profiles (
       symbol TEXT PRIMARY KEY, name TEXT NOT NULL, exchange TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS company_profiles (
+      symbol TEXT PRIMARY KEY, data TEXT NOT NULL, fetched_at INTEGER NOT NULL
+    );
   `)
   _db = drizzle(sqlite) as BetterSQLite3Database
   return _db

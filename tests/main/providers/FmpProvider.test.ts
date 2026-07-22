@@ -149,3 +149,33 @@ describe('FmpProvider.getMarketStatus', () => {
     expect(httpGetJson.mock.calls[0][0]).toContain('exchange-market-hours?exchange=NASDAQ')
   })
 })
+
+describe('FmpProvider.getCompanyProfile', () => {
+  it('maps the first row to CompanyProfileData, coercing string numbers', async () => {
+    const c = await provider(fx('fmp-profile.json')).getCompanyProfile('AAPL')
+    expect(c.symbol).toBe('AAPL')
+    expect(c.companyName).toBe('Apple Inc.')
+    expect(c.exchange).toBe('NASDAQ')
+    expect(c.marketCap).toBe(3400000000000)
+    expect(c.fullTimeEmployees).toBe(164000) // "164000" string coerced to number
+    expect(c.beta).toBe(1.24)
+    expect(c.image).toBe('https://images.financialmodelingprep.com/symbol/AAPL.png')
+  })
+
+  it('calls /stable/profile with the symbol', async () => {
+    const httpGetJson = vi.fn(async (_url: string) => fx('fmp-profile.json'))
+    await new FmpProvider({ apiKey: 'k', httpGetJson }).getCompanyProfile('AAPL')
+    expect(httpGetJson.mock.calls[0][0]).toContain('/profile?symbol=AAPL')
+  })
+
+  it('throws FmpHttpError(200) on an empty array', async () => {
+    let caught: unknown
+    try { await provider([]).getCompanyProfile('AAPL') } catch (e) { caught = e }
+    expect(caught).toBeInstanceOf(FmpHttpError)
+    expect((caught as FmpHttpError).status).toBe(200)
+  })
+
+  it('wraps an error-shaped 200 payload as FmpHttpError(200)', async () => {
+    await expect(provider(fx('fmp-error.json')).getCompanyProfile('AAPL')).rejects.toThrow()
+  })
+})

@@ -44,3 +44,29 @@ export const fmpMarketHoursRow = z.object({
   isMarketOpen: z.boolean()
 })
 export const fmpMarketHoursResponse = z.array(fmpMarketHoursRow)
+
+// /stable/profile returns a flat array; we consume element [0]. Only the fields the dialog shows
+// are typed — everything else is passthrough (CUSIP/ISIN/address/phone etc. are out of scope).
+// Numeric fields are z.coerce.number() because FMP mixes string/number (e.g. fullTimeEmployees).
+// .nullable() short-circuits null BEFORE coercion, so a real null stays null (not coerced to 0).
+export const fmpProfileRow = z.object({
+  symbol: z.string(),
+  companyName: z.string(),
+  image: z.string().nullable().optional(),
+  exchange: z.string().nullable().optional(),
+  sector: z.string().nullable().optional(),
+  industry: z.string().nullable().optional(),
+  country: z.string().nullable().optional(),
+  marketCap: z.coerce.number().nullable().optional(),
+  ceo: z.string().nullable().optional(),
+  fullTimeEmployees: z.coerce.number().nullable().optional(),
+  ipoDate: z.string().nullable().optional(),
+  website: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  beta: z.coerce.number().nullable().optional(),
+  range: z.string().nullable().optional(),
+  volume: z.coerce.number().nullable().optional(),
+  averageVolume: z.coerce.number().nullable().optional(),
+  lastDividend: z.coerce.number().nullable().optional()
+}).passthrough()
+export const fmpProfileResponse = z.array(fmpProfileRow)
