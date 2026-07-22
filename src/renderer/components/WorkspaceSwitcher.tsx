@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { ChevronDown, ChevronUp, Pencil, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronUp, Copy, Pencil, Plus, Trash2 } from 'lucide-react'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog'
@@ -12,19 +12,19 @@ import {
 } from './ui/dropdown-menu'
 import { useAppStore } from '../store'
 
-type NameDialogState = { mode: 'create' | 'rename'; value: string; error: string | null; target: string }
+type NameDialogState = { mode: 'create' | 'rename' | 'duplicate'; value: string; error: string | null; target: string }
 
-// サイドバー上部のウォッチリスト切替＋管理。各行にホバー/フォーカスで現れる ↑↓✎🗑 を持たせ、
-// アクティブに切り替えずに任意のリストを並び替え/rename/delete できる。
-// リスト部分は Radix DropdownMenuItem ではなく素の行（行内ボタンとの捕捉競合を避けるため）。
-export function WatchlistSwitcher(): React.JSX.Element {
-  const watchlists = useAppStore((s) => s.watchlists)
-  const activeWatchlist = useAppStore((s) => s.activeWatchlist)
-  const createWatchlist = useAppStore((s) => s.createWatchlist)
-  const renameWatchlist = useAppStore((s) => s.renameWatchlist)
-  const deleteWatchlist = useAppStore((s) => s.deleteWatchlist)
-  const switchWatchlist = useAppStore((s) => s.switchWatchlist)
-  const reorderWatchlists = useAppStore((s) => s.reorderWatchlists)
+// ヘッダーの統合切替器。ワークスペース（= リスト + グリッド）の切替・並べ替え・rename・delete と、
+// 新規作成／現在の複製。切り替えるとサイドバーの銘柄リストとグリッドが一緒に変わる。
+export function WorkspaceSwitcher(): React.JSX.Element {
+  const workspaces = useAppStore((s) => s.workspaces)
+  const activeWorkspace = useAppStore((s) => s.activeWorkspace)
+  const createWorkspace = useAppStore((s) => s.createWorkspace)
+  const duplicateWorkspace = useAppStore((s) => s.duplicateWorkspace)
+  const renameWorkspace = useAppStore((s) => s.renameWorkspace)
+  const deleteWorkspace = useAppStore((s) => s.deleteWorkspace)
+  const switchWorkspace = useAppStore((s) => s.switchWorkspace)
+  const reorderWorkspaces = useAppStore((s) => s.reorderWorkspaces)
 
   const [menuOpen, setMenuOpen] = useState(false)
   const [nameDialog, setNameDialog] = useState<NameDialogState | null>(null)
@@ -34,8 +34,10 @@ export function WatchlistSwitcher(): React.JSX.Element {
     if (!nameDialog) return
     const result =
       nameDialog.mode === 'create'
-        ? createWatchlist(nameDialog.value)
-        : renameWatchlist(nameDialog.target, nameDialog.value)
+        ? createWorkspace(nameDialog.value)
+        : nameDialog.mode === 'duplicate'
+          ? duplicateWorkspace(nameDialog.value)
+          : renameWorkspace(nameDialog.target, nameDialog.value)
     if (!result.ok) {
       setNameDialog({ ...nameDialog, error: result.error })
       return
@@ -43,29 +45,32 @@ export function WatchlistSwitcher(): React.JSX.Element {
     setNameDialog(null)
   }
 
+  const dialogTitle =
+    nameDialog?.mode === 'rename' ? 'Rename workspace' : nameDialog?.mode === 'duplicate' ? 'Duplicate workspace' : 'New workspace'
+
   return (
     <>
-      {/* modal={false}: メニュー項目/行から Dialog を開くときの body ロック競合を避ける (LayoutMenu と同じ)。 */}
+      {/* modal={false}: メニュー項目から Dialog を開くときの body ロック競合を避ける（旧 LayoutMenu と同じ）。 */}
       <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen} modal={false}>
         <DropdownMenuTrigger asChild>
-          <Button variant="secondary" className="w-full justify-between">
-            <span className="truncate" title={activeWatchlist}>{activeWatchlist}</span>
+          <Button variant="secondary" className="max-w-[220px]">
+            <span className="truncate" title={activeWorkspace}>{activeWorkspace}</span>
             <ChevronDown className="shrink-0" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="max-h-[60vh] overflow-y-auto">
-          {watchlists.map((w, i) => (
+          {workspaces.map((w, i) => (
             <div
               key={w.name}
               className={`group flex items-center gap-1 rounded-sm px-2 py-1.5 text-sm ${
-                w.name === activeWatchlist ? 'bg-accent text-accent-foreground' : ''
+                w.name === activeWorkspace ? 'bg-accent text-accent-foreground' : ''
               }`}
             >
               <button
                 type="button"
                 title={w.name}
                 className="min-w-0 flex-1 truncate text-left"
-                onClick={() => { switchWatchlist(w.name); setMenuOpen(false) }}
+                onClick={() => { switchWorkspace(w.name); setMenuOpen(false) }}
               >
                 {w.name}
               </button>
@@ -75,16 +80,16 @@ export function WatchlistSwitcher(): React.JSX.Element {
                   aria-label="Move up"
                   disabled={i === 0}
                   className="rounded p-0.5 hover:bg-muted disabled:opacity-30"
-                  onClick={(e) => { e.stopPropagation(); reorderWatchlists(i, i - 1) }}
+                  onClick={(e) => { e.stopPropagation(); reorderWorkspaces(i, i - 1) }}
                 >
                   <ChevronUp className="size-4" />
                 </button>
                 <button
                   type="button"
                   aria-label="Move down"
-                  disabled={i === watchlists.length - 1}
+                  disabled={i === workspaces.length - 1}
                   className="rounded p-0.5 hover:bg-muted disabled:opacity-30"
-                  onClick={(e) => { e.stopPropagation(); reorderWatchlists(i, i + 1) }}
+                  onClick={(e) => { e.stopPropagation(); reorderWorkspaces(i, i + 1) }}
                 >
                   <ChevronDown className="size-4" />
                 </button>
@@ -103,7 +108,7 @@ export function WatchlistSwitcher(): React.JSX.Element {
                 <button
                   type="button"
                   aria-label="Delete"
-                  disabled={watchlists.length <= 1}
+                  disabled={workspaces.length <= 1}
                   className="rounded p-0.5 text-destructive hover:bg-muted disabled:opacity-30"
                   onClick={(e) => { e.stopPropagation(); setMenuOpen(false); setDeleteTarget(w.name) }}
                 >
@@ -113,10 +118,11 @@ export function WatchlistSwitcher(): React.JSX.Element {
             </div>
           ))}
           <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onClick={() => setNameDialog({ mode: 'create', value: '', error: null, target: '' })}
-          >
-            New list…
+          <DropdownMenuItem onClick={() => setNameDialog({ mode: 'create', value: '', error: null, target: '' })}>
+            <Plus className="size-4" /> New workspace…
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setNameDialog({ mode: 'duplicate', value: `${activeWorkspace} copy`, error: null, target: activeWorkspace })}>
+            <Copy className="size-4" /> Duplicate current…
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -124,18 +130,16 @@ export function WatchlistSwitcher(): React.JSX.Element {
       <Dialog open={nameDialog !== null} onOpenChange={(open) => { if (!open) setNameDialog(null) }}>
         <DialogContent className="p-6">
           <DialogHeader>
-            <DialogTitle>{nameDialog?.mode === 'rename' ? 'Rename watchlist' : 'New watchlist'}</DialogTitle>
+            <DialogTitle>{dialogTitle}</DialogTitle>
           </DialogHeader>
           <div className="mt-4 flex flex-col gap-2">
-            <label className="text-sm font-medium" htmlFor="watchlist-name">Name</label>
+            <label className="text-sm font-medium" htmlFor="workspace-name">Name</label>
             <Input
-              id="watchlist-name"
+              id="workspace-name"
               value={nameDialog?.value ?? ''}
-              placeholder="e.g. Tech"
+              placeholder="e.g. Morning watch"
               autoFocus
               onChange={(e) => setNameDialog((prev) => (prev ? { ...prev, value: e.target.value, error: null } : prev))}
-              // Enter confirms (create/rename) when the name is non-empty — same guard as the button's
-              // disabled state — so users don't have to reach for the Create/Rename button.
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && (nameDialog?.value ?? '').trim().length > 0) {
                   e.preventDefault()
@@ -148,7 +152,7 @@ export function WatchlistSwitcher(): React.JSX.Element {
           <div className="mt-4 flex justify-end gap-2">
             <Button variant="secondary" onClick={() => setNameDialog(null)}>Cancel</Button>
             <Button onClick={confirmNameDialog} disabled={(nameDialog?.value ?? '').trim().length === 0}>
-              {nameDialog?.mode === 'rename' ? 'Rename' : 'Create'}
+              {nameDialog?.mode === 'rename' ? 'Rename' : nameDialog?.mode === 'duplicate' ? 'Duplicate' : 'Create'}
             </Button>
           </div>
         </DialogContent>
@@ -157,17 +161,14 @@ export function WatchlistSwitcher(): React.JSX.Element {
       <Dialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
         <DialogContent className="p-6">
           <DialogHeader>
-            <DialogTitle>Delete watchlist?</DialogTitle>
+            <DialogTitle>Delete workspace?</DialogTitle>
           </DialogHeader>
           <p className="mt-2 text-sm text-muted-foreground">
-            This removes the watchlist "{deleteTarget}" and its symbols. This can't be undone.
+            This removes the workspace "{deleteTarget}", its watchlist, and its layout. This can't be undone.
           </p>
           <div className="mt-4 flex justify-end gap-2">
             <Button variant="secondary" onClick={() => setDeleteTarget(null)}>Cancel</Button>
-            <Button
-              variant="destructive"
-              onClick={() => { if (deleteTarget) deleteWatchlist(deleteTarget); setDeleteTarget(null) }}
-            >
+            <Button variant="destructive" onClick={() => { if (deleteTarget) deleteWorkspace(deleteTarget); setDeleteTarget(null) }}>
               Delete
             </Button>
           </div>
