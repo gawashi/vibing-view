@@ -136,6 +136,36 @@ export function defaultWorkspaceCollection(): WorkspaceCollection {
   return { version: 3, active: 'Workspace 1', workspaces: [{ name: 'Workspace 1', items: [], layout: emptyLayout() }] }
 }
 
+// Guarantee every cell id and indicator id is unique across the WHOLE collection. Deterministic
+// (no counter/random) so every renderer window computes identical ids from the same input — the
+// enlarge window (keyed by cellId) relies on ids being collection-wide unique to find its cell
+// unambiguously. First occurrence keeps its id; later duplicates get suffixed until free.
+// ponytail: suffixing only ever touches emptyLayout() '1'/'2' seeds and verbatim-duplicated
+// workspaces (real cells already carry unique nextId-minted ids); good enough, no UUIDs needed.
+function dedupeCollectionIds(collection: WorkspaceCollection): WorkspaceCollection {
+  const seen = new Set<string>()
+  const uniq = (base: string): string => {
+    let id = base
+    while (seen.has(id)) id += '_'
+    seen.add(id)
+    return id
+  }
+  const workspaces = collection.workspaces.map((w) => {
+    let activeCellId = w.layout.activeCellId
+    const cells = w.layout.cells.map((c) => {
+      const id = uniq(c.id)
+      if (id !== c.id && c.id === w.layout.activeCellId) activeCellId = id
+      const indicators = c.indicators.map((inst) => {
+        const iid = uniq(inst.id)
+        return iid === inst.id ? inst : { ...inst, id: iid }
+      })
+      return { ...c, id, indicators }
+    })
+    return { ...w, layout: { ...w.layout, cells, activeCellId } }
+  })
+  return { ...collection, workspaces }
+}
+
 // never throws。workspaces は最低1件、active は必ず実在名に正規化。
 export function parseWorkspaceCollection(raw: unknown): WorkspaceCollection {
   if (!isRecord(raw)) return defaultWorkspaceCollection()
@@ -147,5 +177,5 @@ export function parseWorkspaceCollection(raw: unknown): WorkspaceCollection {
     typeof raw.active === 'string' && workspaces.some((w) => w.name === raw.active)
       ? raw.active
       : workspaces[0].name
-  return { version: 3, active, workspaces }
+  return dedupeCollectionIds({ version: 3, active, workspaces })
 }
