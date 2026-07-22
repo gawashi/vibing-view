@@ -6,7 +6,9 @@ import {
   SCHEMA_VERSION,
   emptyLayout,
   parseWorkspaceCollection,
-  defaultWorkspaceCollection
+  defaultWorkspaceCollection,
+  cellCount,
+  parseShape
 } from '../../src/shared/workspace'
 import type { Layout } from '@shared/types'
 
@@ -32,7 +34,7 @@ describe('parseLayout', () => {
     expect(parsed).toEqual({
       schemaVersion: SCHEMA_VERSION,
       cells: [{ id: 'c1', symbol: 'MSFT', timeframe: '1d', indicators: [] }],
-      shape: '1x1',
+      shape: { rows: 1, cols: 1 },
       activeCellId: 'c1'
     })
   })
@@ -48,7 +50,12 @@ describe('parseLayout', () => {
         { id: 'b-sma', type: 'ma', params: { length: 20 }, colors: { ma: '#F5A623' }, visible: true }
       ]
     }
-    const ws: Layout = { schemaVersion: SCHEMA_VERSION, cells: [cellA, cellB], shape: '2x1', activeCellId: 'b' }
+    const ws: Layout = {
+      schemaVersion: SCHEMA_VERSION,
+      cells: [cellA, cellB],
+      shape: { rows: 1, cols: 2 },
+      activeCellId: 'b'
+    }
 
     const roundTripped = parseLayout(JSON.parse(JSON.stringify(ws)))
     expect(roundTripped).toEqual(ws)
@@ -70,7 +77,7 @@ describe('parseLayout', () => {
 describe('emptyLayout', () => {
   it('is a 1x1 grid with an empty (null-symbol) cell that keeps the fixed Volume', () => {
     const l = emptyLayout()
-    expect(l.shape).toBe('1x1')
+    expect(l.shape).toEqual({ rows: 1, cols: 1 })
     expect(l.cells).toHaveLength(1)
     expect(l.cells[0].symbol).toBeNull()
     const vol = l.cells[0].indicators.find((i) => i.type === 'volume')
@@ -120,5 +127,33 @@ describe('parseWorkspaceCollection', () => {
     expect(parsed.workspaces).toHaveLength(1)
     expect(parsed.workspaces[0].items).toEqual([aapl])
     expect(parseWorkspaceCollection({ version: 3, active: 'x', workspaces: [] })).toEqual(defaultWorkspaceCollection())
+  })
+})
+
+describe('parseShape', () => {
+  it('parses new object form and clamps each dim to 1..3', () => {
+    expect(parseShape({ rows: 2, cols: 3 })).toEqual({ rows: 2, cols: 3 })
+    expect(parseShape({ rows: 5, cols: 0 })).toEqual({ rows: 3, cols: 1 })
+    expect(parseShape({ rows: 2.9, cols: 1.2 })).toEqual({ rows: 2, cols: 1 })
+  })
+
+  it('parses legacy "col x row" strings preserving orientation', () => {
+    expect(parseShape('1x1')).toEqual({ rows: 1, cols: 1 })
+    expect(parseShape('2x1')).toEqual({ rows: 1, cols: 2 }) // 2 columns, 1 row = horizontal
+    expect(parseShape('2x2')).toEqual({ rows: 2, cols: 2 })
+  })
+
+  it('falls back to 1x1 for unusable input', () => {
+    expect(parseShape(null)).toEqual({ rows: 1, cols: 1 })
+    expect(parseShape(42)).toEqual({ rows: 1, cols: 1 })
+    expect(parseShape('garbage')).toEqual({ rows: 1, cols: 1 })
+  })
+})
+
+describe('cellCount', () => {
+  it('is rows * cols', () => {
+    expect(cellCount({ rows: 1, cols: 1 })).toBe(1)
+    expect(cellCount({ rows: 3, cols: 3 })).toBe(9)
+    expect(cellCount({ rows: 1, cols: 2 })).toBe(2)
   })
 })

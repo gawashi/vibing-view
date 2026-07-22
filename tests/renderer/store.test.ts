@@ -10,7 +10,7 @@ describe('useAppStore grid shape logic', () => {
     const { cells, activeCellId } = useAppStore.getState()
     useAppStore.setState({
       cells: [cells.find((c) => c.id === activeCellId) ?? cells[0]],
-      shape: '1x1',
+      shape: { rows: 1, cols: 1 },
       activeCellId
     })
   })
@@ -21,7 +21,7 @@ describe('useAppStore grid shape logic', () => {
     const before = useAppStore.getState()
     const activeCell = before.cells.find((c) => c.id === before.activeCellId)!
 
-    useAppStore.getState().setShape('2x2')
+    useAppStore.getState().setShape({ rows: 2, cols: 2 })
 
     const state = useAppStore.getState()
     expect(state.cells).toHaveLength(4)
@@ -38,16 +38,16 @@ describe('useAppStore grid shape logic', () => {
   })
 
   it('shrink retains hidden cell configs so re-expand restores them (no re-duplication)', () => {
-    useAppStore.getState().setShape('2x2')
+    useAppStore.getState().setShape({ rows: 2, cols: 2 })
     const cell1Id = useAppStore.getState().cells[1].id
     useAppStore.getState().setActiveCell(cell1Id)
     useAppStore.getState().setActiveSymbol('MSFT')
 
-    useAppStore.getState().setShape('1x1')
+    useAppStore.getState().setShape({ rows: 1, cols: 1 })
     // shrink must not delete cells
     expect(useAppStore.getState().cells).toHaveLength(4)
 
-    useAppStore.getState().setShape('2x2')
+    useAppStore.getState().setShape({ rows: 2, cols: 2 })
     const state = useAppStore.getState()
     expect(state.cells).toHaveLength(4)
     const cell1 = state.cells.find((c) => c.id === cell1Id)!
@@ -55,13 +55,21 @@ describe('useAppStore grid shape logic', () => {
   })
 
   it('moves active cell to cell 0 when the active cell falls outside the shrunk range', () => {
-    useAppStore.getState().setShape('2x2')
+    useAppStore.getState().setShape({ rows: 2, cols: 2 })
     const cell2Id = useAppStore.getState().cells[2].id
     useAppStore.getState().setActiveCell(cell2Id)
 
-    useAppStore.getState().setShape('1x1')
+    useAppStore.getState().setShape({ rows: 1, cols: 1 })
 
     expect(useAppStore.getState().activeCellId).toBe(useAppStore.getState().cells[0].id)
+  })
+
+  it('expands to a full 3x3 (9 cells) with unique ids', () => {
+    useAppStore.getState().setShape({ rows: 3, cols: 3 })
+    const state = useAppStore.getState()
+    expect(state.cells).toHaveLength(9)
+    const allIds = state.cells.flatMap((c) => [c.id, ...c.indicators.map((i) => i.id)])
+    expect(new Set(allIds).size).toBe(allIds.length)
   })
 
   it('setCrosshair only updates the given cell, leaving other cells isolated', () => {
@@ -79,7 +87,7 @@ describe('useAppStore grid shape logic', () => {
     it('addIndicator after hydrate mints an id greater than every restored id, never colliding', () => {
       const ws: Layout = {
         schemaVersion: 1,
-        shape: '1x1',
+        shape: { rows: 1, cols: 1 },
         activeCellId: 'c1',
         cells: [
           {
@@ -110,7 +118,7 @@ describe('useAppStore grid shape logic', () => {
     it('setShape expand after hydrate mints a fresh cell id that does not collide with a restored high cell id', () => {
       const ws: Layout = {
         schemaVersion: 1,
-        shape: '1x1',
+        shape: { rows: 1, cols: 1 },
         activeCellId: '900',
         cells: [
           { id: '900', symbol: 'AAPL', timeframe: '1d', indicators: [] }
@@ -118,7 +126,7 @@ describe('useAppStore grid shape logic', () => {
       }
 
       useAppStore.getState().hydrate(ws)
-      useAppStore.getState().setShape('2x2')
+      useAppStore.getState().setShape({ rows: 2, cols: 2 })
 
       const { cells } = useAppStore.getState()
       expect(cells).toHaveLength(4)
@@ -132,7 +140,7 @@ describe('useAppStore grid shape logic', () => {
     it('hydrate re-seeds the always-on fixed Volume for a cell restored without it', () => {
       const ws: Layout = {
         schemaVersion: 1,
-        shape: '1x1',
+        shape: { rows: 1, cols: 1 },
         activeCellId: '900',
         // volume-less cell (e.g. saved by an older build whose clearCell wiped all indicators)
         cells: [{ id: '900', symbol: 'AAPL', timeframe: '1d', indicators: [] }]
@@ -150,7 +158,7 @@ describe('useAppStore grid shape logic', () => {
     it('hydrate leaves an existing Volume untouched (no duplicate)', () => {
       const ws: Layout = {
         schemaVersion: 1,
-        shape: '1x1',
+        shape: { rows: 1, cols: 1 },
         activeCellId: 'c9',
         cells: [{
           id: 'c9',
@@ -184,7 +192,7 @@ describe('useAppStore grid shape logic', () => {
           ]
         }],
         activeCellId: id,
-        shape: '1x1'
+        shape: { rows: 1, cols: 1 }
       })
       useAppStore.getState().setCrosshair(id, { price: { open: 1, high: 1, low: 1, close: 1 } })
 
@@ -202,7 +210,7 @@ describe('useAppStore grid shape logic', () => {
     })
 
     it('only clears the target cell, leaving others intact', () => {
-      useAppStore.getState().setShape('2x2')
+      useAppStore.getState().setShape({ rows: 2, cols: 2 })
       const [c0, c1] = useAppStore.getState().cells
       useAppStore.getState().clearCell(c0.id)
       const after = useAppStore.getState().cells
@@ -215,14 +223,14 @@ describe('useAppStore grid shape logic', () => {
     const L = (symbol: string | null, id = 'x1') => ({
       schemaVersion: 1,
       cells: [{ id, symbol, timeframe: '1d' as const, indicators: [] }],
-      shape: '1x1' as const,
+      shape: { rows: 1, cols: 1 } as const,
       activeCellId: id
     })
 
     beforeEach(() => {
       useAppStore.setState({
         cells: L('AAPL', 'c1').cells,
-        shape: '1x1',
+        shape: { rows: 1, cols: 1 },
         activeCellId: 'c1',
         workspaces: [{ name: 'Workspace 1', items: [], layout: L('AAPL', 'c1') }],
         activeWorkspace: 'Workspace 1'
@@ -271,10 +279,10 @@ describe('useAppStore grid shape logic', () => {
 
     it('switchWorkspace snapshots the current grid into the old workspace and loads the target layout', () => {
       useAppStore.setState({
-        cells: L('MSFT', 'c1').cells, shape: '1x1', activeCellId: 'c1',
+        cells: L('MSFT', 'c1').cells, shape: { rows: 1, cols: 1 }, activeCellId: 'c1',
         workspaces: [
           { name: 'Workspace 1', items: [], layout: L('MSFT', 'c1') },
-          { name: 'Scan', items: [], layout: { schemaVersion: 1, cells: [{ id: 'd1', symbol: 'GOOG', timeframe: '1h', indicators: [] }], shape: '1x1', activeCellId: 'd1' } }
+          { name: 'Scan', items: [], layout: { schemaVersion: 1, cells: [{ id: 'd1', symbol: 'GOOG', timeframe: '1h', indicators: [] }], shape: { rows: 1, cols: 1 }, activeCellId: 'd1' } }
         ],
         activeWorkspace: 'Workspace 1'
       })
@@ -302,7 +310,7 @@ describe('useAppStore grid shape logic', () => {
     it('duplicateWorkspace copies the current grid and active items into a new active workspace', () => {
       const a = { symbol: 'AAPL', name: 'Apple', exchange: 'NASDAQ' }
       useAppStore.setState({
-        cells: L('AAPL', 'c1').cells, shape: '1x1', activeCellId: 'c1',
+        cells: L('AAPL', 'c1').cells, shape: { rows: 1, cols: 1 }, activeCellId: 'c1',
         workspaces: [{ name: 'A', items: [a], layout: L('AAPL', 'c1') }],
         activeWorkspace: 'A'
       })
@@ -322,7 +330,7 @@ describe('useAppStore grid shape logic', () => {
 
     it('deleteWorkspace protects the last workspace and re-points active to the first survivor', () => {
       useAppStore.setState({
-        cells: L('AAPL', 'c1').cells, shape: '1x1', activeCellId: 'c1',
+        cells: L('AAPL', 'c1').cells, shape: { rows: 1, cols: 1 }, activeCellId: 'c1',
         workspaces: [
           { name: 'A', items: [], layout: L('AAPL', 'a1') },
           { name: 'B', items: [], layout: L('MSFT', 'b1') }

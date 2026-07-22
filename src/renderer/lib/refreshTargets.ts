@@ -1,6 +1,6 @@
 import type { Cell, Timeframe, GridShape } from '@shared/types'
 import type { CapabilityStatus } from '@shared/ipc'
-import { VISIBLE_COUNT } from '@shared/workspace'
+import { cellCount } from '@shared/workspace'
 
 export type RefreshTarget = { symbol: string; timeframe: Timeframe }
 
@@ -30,7 +30,7 @@ export function refreshTargets(
     seen.add(key)
     out.push({ symbol, timeframe: tf })
   }
-  for (const cell of cells.slice(0, VISIBLE_COUNT[shape])) {
+  for (const cell of cells.slice(0, cellCount(shape))) {
     if (!cell.symbol) continue
     push(cell.symbol, cell.timeframe)
     if (INTRADAY.includes(cell.timeframe)) push(cell.symbol, '1d')

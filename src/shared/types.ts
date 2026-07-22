@@ -54,7 +54,7 @@ export type IndicatorInstance = {
   fixed?: boolean
 }
 
-export type GridShape = '1x1' | '2x1' | '2x2'
+export type GridShape = { rows: number; cols: number }
 
 export type Cell = {
   id: string

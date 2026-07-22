@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { X, Star } from 'lucide-react'
 import { api, qk } from '@/api'
 import { useAppStore, selectActiveItems } from '@/store'
-import { VISIBLE_COUNT } from '@shared/workspace'
+import { cellCount } from '@shared/workspace'
 import { AddIndicatorMenu } from './AddIndicatorMenu'
 import { Button } from './ui/button'
 import { Chart } from './Chart'
@@ -260,14 +260,18 @@ export function GridHost(): React.JSX.Element {
   const shape = useAppStore((s) => s.shape)
   const activeCellId = useAppStore((s) => s.activeCellId)
 
-  const visible = cells.slice(0, VISIBLE_COUNT[shape])
-  const templateClass =
-    shape === '1x1' ? 'grid-cols-1 grid-rows-1'
-      : shape === '2x1' ? 'grid-cols-2 grid-rows-1'
-        : 'grid-cols-2 grid-rows-2'
+  const visible = cells.slice(0, cellCount(shape))
 
   return (
-    <div className={cn('grid h-full gap-4 p-4', templateClass)}>
+    <div
+      className="grid h-full gap-4 p-4"
+      style={{
+        // Tailwind の動的クラス（grid-cols-${n}）は JIT に拾われないため style 直指定。
+        // minmax(0,1fr) は 2x2 で使っていた min-h-0/min-w-0 と同趣旨のトラック縮小保証。
+        gridTemplateColumns: `repeat(${shape.cols}, minmax(0, 1fr))`,
+        gridTemplateRows: `repeat(${shape.rows}, minmax(0, 1fr))`
+      }}
+    >
       {visible.map((cell) => (
         <GridCell key={cell.id} cell={cell} active={cell.id === activeCellId} />
       ))}
