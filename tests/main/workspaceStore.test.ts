@@ -12,6 +12,7 @@ const store = await import('../../src/main/workspaceStore')
 const aapl = { symbol: 'AAPL', name: 'Apple Inc.', exchange: 'NASDAQ' }
 const msft = { symbol: 'MSFT', name: 'Microsoft Corp.', exchange: 'NASDAQ' }
 const layoutL: Layout = { schemaVersion: 1, cells: [{ id: 'c1', symbol: 'AAPL', timeframe: '1d', indicators: [] }], shape: { rows: 1, cols: 1 }, activeCellId: 'c1' }
+const layoutL2: Layout = { schemaVersion: 1, cells: [{ id: 'c2', symbol: 'AAPL', timeframe: '1d', indicators: [] }], shape: { rows: 1, cols: 1 }, activeCellId: 'c2' }
 
 describe('workspaceStore', () => {
   beforeEach(() => { userDataDir = mkdtempSync(join(tmpdir(), 'wsstore-test-')) })
@@ -31,7 +32,7 @@ describe('workspaceStore', () => {
       active: 'Scan',
       workspaces: [
         { name: 'Main', items: [aapl], layout: layoutL },
-        { name: 'Scan', items: [], layout: layoutL }
+        { name: 'Scan', items: [], layout: layoutL2 }
       ]
     }
     store.setWorkspaces(c)
