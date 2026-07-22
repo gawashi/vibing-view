@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { Timeframe, DateRange, Layout, WatchlistCollection, WorkspaceCollection } from '@shared/types'
+import type { Timeframe, DateRange, WorkspaceCollection } from '@shared/types'
 import { CH, type Api } from '@shared/ipc'
 
 const api: Api = {
@@ -31,19 +31,6 @@ const api: Api = {
     setTheme: (theme) => ipcRenderer.invoke(CH.settingsSetTheme, theme)
   },
   capabilities: { get: () => ipcRenderer.invoke(CH.capabilitiesGet) },
-  layout: {
-    getCurrent: () => ipcRenderer.invoke(CH.layoutGetCurrent),
-    setCurrent: (ws: Layout) => ipcRenderer.invoke(CH.layoutSetCurrent, ws),
-    list: () => ipcRenderer.invoke(CH.layoutList),
-    get: (name: string) => ipcRenderer.invoke(CH.layoutGet, name),
-    save: (name: string, ws: Layout) => ipcRenderer.invoke(CH.layoutSave, name, ws),
-    delete: (name: string) => ipcRenderer.invoke(CH.layoutDelete, name),
-    rename: (from: string, to: string) => ipcRenderer.invoke(CH.layoutRename, from, to)
-  },
-  watchlist: {
-    get: () => ipcRenderer.invoke(CH.watchlistGet),
-    set: (c: WatchlistCollection) => ipcRenderer.invoke(CH.watchlistSet, c)
-  },
   workspaces: {
     get: () => ipcRenderer.invoke(CH.workspacesGet),
     set: (c: WorkspaceCollection) => ipcRenderer.invoke(CH.workspacesSet, c)

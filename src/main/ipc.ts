@@ -1,5 +1,5 @@
 import { ipcMain } from 'electron'
-import type { Bar, Timeframe, DateRange, Layout, WatchlistCollection, WorkspaceCollection } from '@shared/types'
+import type { Bar, Timeframe, DateRange, WorkspaceCollection } from '@shared/types'
 import { CH, type CapabilityStatus } from '@shared/ipc'
 import { FmpProvider, FmpHttpError } from './providers/FmpProvider'
 import { electronHttpGetJson } from './net/httpClient'
@@ -10,8 +10,6 @@ import { getLastSymbol, setLastSymbol, getSidebarOpen, setSidebarOpen, getSideba
 import { createSearchCache } from './searchCache'
 import { classify } from './capabilityClassifier'
 import * as capabilityCache from './capabilityCache'
-import * as layoutStore from './layoutStore'
-import * as watchlistStore from './watchlistStore'
 import * as workspaceStore from './workspaceStore'
 import { createProfileService } from './profile/ProfileService'
 import * as profileStore from './db/profileStore'
@@ -138,15 +136,6 @@ export function registerIpc(): void {
   ipcMain.handle(CH.settingsSetSidebarWidth, (_e, width: number) => setSidebarWidth(width))
   ipcMain.handle(CH.settingsGetTheme, () => getTheme())
   ipcMain.handle(CH.settingsSetTheme, (_e, theme: import('./settings').Theme) => setTheme(theme))
-  ipcMain.handle(CH.layoutGetCurrent, () => layoutStore.getCurrent())
-  ipcMain.handle(CH.layoutSetCurrent, (_e, ws: Layout) => layoutStore.setCurrent(ws))
-  ipcMain.handle(CH.layoutList, () => layoutStore.listLayouts())
-  ipcMain.handle(CH.layoutGet, (_e, name: string) => layoutStore.getLayout(name))
-  ipcMain.handle(CH.layoutSave, (_e, name: string, ws: Layout) => layoutStore.saveLayout(name, ws))
-  ipcMain.handle(CH.layoutDelete, (_e, name: string) => layoutStore.deleteLayout(name))
-  ipcMain.handle(CH.layoutRename, (_e, from: string, to: string) => layoutStore.renameLayout(from, to))
-  ipcMain.handle(CH.watchlistGet, () => watchlistStore.getWatchlists())
-  ipcMain.handle(CH.watchlistSet, (_e, c: WatchlistCollection) => watchlistStore.setWatchlists(c))
   ipcMain.handle(CH.workspacesGet, () => workspaceStore.getWorkspaces())
   ipcMain.handle(CH.workspacesSet, (_e, c: WorkspaceCollection) => workspaceStore.setWorkspaces(c))
 

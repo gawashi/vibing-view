@@ -1,4 +1,4 @@
-import type { Bar, SymbolResult, Timeframe, DateRange, Layout, WatchlistCollection, WorkspaceCollection, Quote, MarketStatus } from './types'
+import type { Bar, SymbolResult, Timeframe, DateRange, WorkspaceCollection, Quote, MarketStatus } from './types'
 
 export const CH = {
   symbolsSearch: 'symbols:search',
@@ -19,15 +19,6 @@ export const CH = {
   settingsGetTheme: 'settings:getTheme',
   settingsSetTheme: 'settings:setTheme',
   capabilitiesGet: 'capabilities:get',
-  layoutGetCurrent: 'layout:getCurrent',
-  layoutSetCurrent: 'layout:setCurrent',
-  layoutList: 'layout:list',
-  layoutGet: 'layout:get',
-  layoutSave: 'layout:save',
-  layoutDelete: 'layout:delete',
-  layoutRename: 'layout:rename',
-  watchlistGet: 'watchlist:get',
-  watchlistSet: 'watchlist:set',
   workspacesGet: 'workspaces:get',
   workspacesSet: 'workspaces:set'
 } as const
@@ -67,19 +58,6 @@ export interface Api {
     setTheme(theme: Theme): Promise<void>
   }
   capabilities: { get(): Promise<Record<Timeframe, CapabilityStatus>> }
-  layout: {
-    getCurrent(): Promise<Layout | null>
-    setCurrent(ws: Layout): Promise<void>
-    list(): Promise<string[]>
-    get(name: string): Promise<Layout | null>
-    save(name: string, ws: Layout): Promise<void>
-    delete(name: string): Promise<void>
-    rename(from: string, to: string): Promise<void>
-  }
-  watchlist: {
-    get(): Promise<WatchlistCollection>
-    set(c: WatchlistCollection): Promise<void>
-  }
   workspaces: {
     get(): Promise<WorkspaceCollection>
     set(c: WorkspaceCollection): Promise<void>
