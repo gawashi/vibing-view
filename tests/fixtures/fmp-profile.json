@@ -1,0 +1,24 @@
+[
+  {
+    "symbol": "AAPL",
+    "companyName": "Apple Inc.",
+    "image": "https://images.financialmodelingprep.com/symbol/AAPL.png",
+    "exchange": "NASDAQ",
+    "sector": "Technology",
+    "industry": "Consumer Electronics",
+    "country": "US",
+    "marketCap": 3400000000000,
+    "ceo": "Mr. Timothy D. Cook",
+    "fullTimeEmployees": "164000",
+    "ipoDate": "1980-12-12",
+    "website": "https://www.apple.com",
+    "description": "Apple Inc. designs, manufactures, and markets smartphones, personal computers, tablets, wearables, and accessories worldwide.",
+    "beta": 1.24,
+    "range": "164.08-260.1",
+    "volume": 41000000,
+    "averageVolume": 55000000,
+    "lastDividend": 1.0,
+    "cik": "0000320193",
+    "isin": "US0378331005"
+  }
+]
