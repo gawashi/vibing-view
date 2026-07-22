@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useRef, useState } from 'react'
 import { Grid2x2 } from 'lucide-react'
 import { Popover, PopoverTrigger, PopoverContent, PopoverClose } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -12,12 +12,13 @@ export function GridShapePicker(): React.JSX.Element {
   const shape = useAppStore((s) => s.shape)
   const setShape = useAppStore((s) => s.setShape)
   const [hover, setHover] = useState<{ rows: number; cols: number } | null>(null)
+  const gridRef = useRef<HTMLDivElement>(null)
 
   // ホバー中はホバー先、非ホバー時は現在のシェイプをハイライト＆ラベル表示。
   const preview = hover ?? shape
 
   return (
-    <Popover>
+    <Popover onOpenChange={(open) => !open && setHover(null)}>
       <Tooltip>
         <TooltipTrigger asChild>
           <PopoverTrigger asChild>
@@ -29,9 +30,21 @@ export function GridShapePicker(): React.JSX.Element {
         </TooltipTrigger>
         <TooltipContent>Grid layout</TooltipContent>
       </Tooltip>
-      <PopoverContent className="w-auto" onMouseLeave={() => setHover(null)}>
+      <PopoverContent
+        className="w-auto"
+        onMouseLeave={() => setHover(null)}
+        // Radix は既定で最初のセル(1×1)へ自動フォーカスし、その onFocus が preview を
+        // 1×1 に上書きしてしまう。開いた瞬間は現在のシェイプに合わせてフォーカスさせる
+        // ことで誤プレビューを防ぎつつ、フォーカスをポップオーバー内に留めキーボード操作を維持する。
+        onOpenAutoFocus={(e) => {
+          e.preventDefault()
+          gridRef.current
+            ?.querySelector<HTMLButtonElement>(`[data-cell="${shape.rows}-${shape.cols}"]`)
+            ?.focus()
+        }}
+      >
         <div className="flex flex-col items-center gap-2">
-          <div className="grid grid-cols-3 gap-1">
+          <div ref={gridRef} className="grid grid-cols-3 gap-1">
             {DIMS.flatMap((r) =>
               DIMS.map((c) => {
                 const on = r <= preview.rows && c <= preview.cols
@@ -39,6 +52,7 @@ export function GridShapePicker(): React.JSX.Element {
                   <PopoverClose asChild key={`${r}-${c}`}>
                     <button
                       type="button"
+                      data-cell={`${r}-${c}`}
                       aria-label={`${c} columns by ${r} rows`}
                       onMouseEnter={() => setHover({ rows: r, cols: c })}
                       onFocus={() => setHover({ rows: r, cols: c })}
