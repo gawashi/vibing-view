@@ -16,7 +16,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './comp
 import { Toaster } from './components/ui/sonner'
 import { Watchlist } from './components/Watchlist'
 import { useAppStore, selectActiveItems } from './store'
-import { parseWorkspaceCollection } from '@shared/workspace'
+import { useWorkspaceSync } from './hooks/useWorkspaceSync'
 import { applyTheme } from './lib/theme'
 import type { CapabilityStatus } from '@shared/ipc'
 import type { Timeframe } from '@shared/types'
@@ -27,12 +27,10 @@ export default function App(): React.JSX.Element {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [sidebarWidth, setSidebarWidth] = useState(240)
 
-  // One-time startup restore (D-59/LAYOUT-04). main is a dumb persister — parseWorkspaceCollection
-  // owns the trust boundary and never throws (T-05-01), normalizing malformed/first-launch input
-  // into a valid collection (≥1 workspace, active resolved to a real name).
+  useWorkspaceSync()
+
   useEffect(() => {
     void api.settings.getTheme().then(applyTheme)
-    void api.workspaces.get().then((p) => useAppStore.getState().hydrateWorkspaces(parseWorkspaceCollection((p as unknown as { collection: unknown }).collection)))
     void api.settings.getSidebarOpen().then((open) => {
       if (open !== null) setSidebarOpen(open)
     })
@@ -104,30 +102,6 @@ export default function App(): React.JSX.Element {
       setReloading(false)
     }
   }
-
-  // Debounced auto-save (~500ms, ponytail: avoids write-thrash on rapid param edits) — persists the
-  // whole workspace collection (items + serialized layouts), NEVER crosshair (session-only, D-60).
-  // Folds the hot grid into the active workspace's layout so the on-disk copy is never stale.
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | null = null
-    const unsubscribe = useAppStore.subscribe(
-      (s) => [s.cells, s.shape, s.activeCellId, s.workspaces, s.activeWorkspace] as const,
-      () => {
-        if (timer) clearTimeout(timer)
-        timer = setTimeout(() => {
-          void api.workspaces.set(useAppStore.getState().collectionSnapshot())
-        }, 500)
-      },
-      // Default equalityFn is Object.is on the whole tuple, which is a fresh array every call —
-      // without this, a crosshair-only update (rAF-throttled mousemove) would still reset the
-      // debounce timer on every hover tick. Compare the fields by reference instead.
-      { equalityFn: (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3] && a[4] === b[4] }
-    )
-    return () => {
-      if (timer) clearTimeout(timer)
-      unsubscribe()
-    }
-  }, [])
 
   // Per-cell capability gating (eager intraday probe, requires-plan→snap-to-daily, rate-limit
   // toast) has moved into GridHost's GridCell (D-60) — each rendered cell now gates its own row off
