@@ -30,7 +30,7 @@ function CompanyInfoBody({ symbol }: { symbol: string }): React.JSX.Element {
   }
   if (q.isError || !q.data) {
     // Chart と同じ文言方針: HTTP 40x（プラン外/未カバー）は専用文言、それ以外は汎用エラー。
-    const notCovered = /FMP HTTP 40[0-9]/.test(String((q.error as Error)?.message))
+    const notCovered = /FMP HTTP (200|40[0-9])/.test(String((q.error as Error)?.message))
     return (
       <div className="p-2 text-center text-muted-foreground">
         {notCovered
