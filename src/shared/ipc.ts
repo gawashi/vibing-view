@@ -1,4 +1,4 @@
-import type { Bar, SymbolResult, Timeframe, DateRange, Workspace, WatchlistCollection, Quote, MarketStatus } from './types'
+import type { Bar, SymbolResult, Timeframe, DateRange, Layout, WatchlistCollection, Quote, MarketStatus } from './types'
 
 export const CH = {
   symbolsSearch: 'symbols:search',
@@ -66,11 +66,11 @@ export interface Api {
   }
   capabilities: { get(): Promise<Record<Timeframe, CapabilityStatus>> }
   layout: {
-    getCurrent(): Promise<Workspace | null>
-    setCurrent(ws: Workspace): Promise<void>
+    getCurrent(): Promise<Layout | null>
+    setCurrent(ws: Layout): Promise<void>
     list(): Promise<string[]>
-    get(name: string): Promise<Workspace | null>
-    save(name: string, ws: Workspace): Promise<void>
+    get(name: string): Promise<Layout | null>
+    save(name: string, ws: Layout): Promise<void>
     delete(name: string): Promise<void>
     rename(from: string, to: string): Promise<void>
   }

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { useAppStore, selectActiveItems } from '../../src/renderer/store'
-import type { Workspace } from '../../src/shared/types'
+import type { Layout } from '../../src/shared/types'
 
 describe('useAppStore grid shape logic', () => {
   beforeEach(() => {
@@ -81,7 +81,7 @@ describe('useAppStore grid shape logic', () => {
 
   describe('hydrate reseeds nextId past restored ids (Phase 5 review: nextId collision bug)', () => {
     it('addIndicator after hydrate mints an id greater than every restored id, never colliding', () => {
-      const ws: Workspace = {
+      const ws: Layout = {
         schemaVersion: 1,
         shape: '1x1',
         activeCellId: 'c1',
@@ -112,7 +112,7 @@ describe('useAppStore grid shape logic', () => {
     })
 
     it('setShape expand after hydrate mints a fresh cell id that does not collide with a restored high cell id', () => {
-      const ws: Workspace = {
+      const ws: Layout = {
         schemaVersion: 1,
         shape: '1x1',
         activeCellId: '900',
@@ -134,7 +134,7 @@ describe('useAppStore grid shape logic', () => {
     })
 
     it('hydrate re-seeds the always-on fixed Volume for a cell restored without it', () => {
-      const ws: Workspace = {
+      const ws: Layout = {
         schemaVersion: 1,
         shape: '1x1',
         activeCellId: '900',
@@ -152,7 +152,7 @@ describe('useAppStore grid shape logic', () => {
     })
 
     it('hydrate leaves an existing Volume untouched (no duplicate)', () => {
-      const ws: Workspace = {
+      const ws: Layout = {
         schemaVersion: 1,
         shape: '1x1',
         activeCellId: 'c9',

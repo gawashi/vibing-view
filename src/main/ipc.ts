@@ -1,5 +1,5 @@
 import { ipcMain } from 'electron'
-import type { Bar, Timeframe, DateRange, Workspace, WatchlistCollection } from '@shared/types'
+import type { Bar, Timeframe, DateRange, Layout, WatchlistCollection } from '@shared/types'
 import { CH, type CapabilityStatus } from '@shared/ipc'
 import { FmpProvider, FmpHttpError } from './providers/FmpProvider'
 import { electronHttpGetJson } from './net/httpClient'
@@ -138,10 +138,10 @@ export function registerIpc(): void {
   ipcMain.handle(CH.settingsGetTheme, () => getTheme())
   ipcMain.handle(CH.settingsSetTheme, (_e, theme: import('./settings').Theme) => setTheme(theme))
   ipcMain.handle(CH.layoutGetCurrent, () => layoutStore.getCurrent())
-  ipcMain.handle(CH.layoutSetCurrent, (_e, ws: Workspace) => layoutStore.setCurrent(ws))
+  ipcMain.handle(CH.layoutSetCurrent, (_e, ws: Layout) => layoutStore.setCurrent(ws))
   ipcMain.handle(CH.layoutList, () => layoutStore.listLayouts())
   ipcMain.handle(CH.layoutGet, (_e, name: string) => layoutStore.getLayout(name))
-  ipcMain.handle(CH.layoutSave, (_e, name: string, ws: Workspace) => layoutStore.saveLayout(name, ws))
+  ipcMain.handle(CH.layoutSave, (_e, name: string, ws: Layout) => layoutStore.saveLayout(name, ws))
   ipcMain.handle(CH.layoutDelete, (_e, name: string) => layoutStore.deleteLayout(name))
   ipcMain.handle(CH.layoutRename, (_e, from: string, to: string) => layoutStore.renameLayout(from, to))
   ipcMain.handle(CH.watchlistGet, () => watchlistStore.getWatchlists())

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
-import type { Workspace } from '@shared/types'
+import type { Layout } from '@shared/types'
 
 // ponytail: first precedent in this repo for mocking electron's `app` in Vitest (layoutStore is the
 // first main-process module worth testing beyond pure logic) — a real temp dir under os.tmpdir()
@@ -15,7 +15,7 @@ vi.mock('electron', () => ({
 
 const layoutStore = await import('../../src/main/layoutStore')
 
-const ws: Workspace = {
+const ws: Layout = {
   schemaVersion: 1,
   cells: [{ id: 'c1', symbol: 'AAPL', timeframe: '1d', indicators: [] }],
   shape: '1x1',
@@ -57,7 +57,7 @@ describe('layoutStore', () => {
   })
 
   it('deleting one named layout leaves siblings and current intact', () => {
-    const ws2: Workspace = { ...ws, activeCellId: 'c1', shape: '2x1' }
+    const ws2: Layout = { ...ws, activeCellId: 'c1', shape: '2x1' }
     layoutStore.setCurrent(ws)
     layoutStore.saveLayout('a', ws)
     layoutStore.saveLayout('b', ws2)
@@ -71,7 +71,7 @@ describe('layoutStore', () => {
   })
 
   it('saving the same name twice is an idempotent overwrite (one entry)', () => {
-    const ws2: Workspace = { ...ws, shape: '2x1' }
+    const ws2: Layout = { ...ws, shape: '2x1' }
     layoutStore.saveLayout('a', ws)
     layoutStore.saveLayout('a', ws2)
 

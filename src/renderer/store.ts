@@ -2,8 +2,8 @@ import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
 import { toast } from 'sonner'
 import { registry } from './indicators/registry'
-import { defaultWorkspace, duplicateCell, parseWorkspace, SCHEMA_VERSION, VISIBLE_COUNT } from './workspace'
-import type { Cell, GridShape, IndicatorInstance, Params, Timeframe, Workspace, WatchlistItem, NamedWatchlist, WatchlistCollection } from '@shared/types'
+import { defaultLayout, duplicateCell, parseLayout, SCHEMA_VERSION, VISIBLE_COUNT } from './workspace'
+import type { Cell, GridShape, IndicatorInstance, Params, Timeframe, Layout, WatchlistItem, NamedWatchlist, WatchlistCollection } from '@shared/types'
 
 // Crosshair readout injected into each pane's legend (D-38/39/40). Keyed by instance id for
 // per-output indicator values (keyed by draw-output key), plus a reserved `price` key holding the
@@ -48,7 +48,7 @@ type AppState = {
   toggleVisible: (id: string) => void
   updateParams: (id: string, patch: Params) => void
   setColor: (id: string, outputKey: string, color: string) => void
-  hydrate: (ws: Workspace) => void
+  hydrate: (ws: Layout) => void
   // Keyed by cellId so each grid cell's crosshair readout is isolated (05-02 grid).
   crosshairByCell: Record<string, CrosshairValues>
   setCrosshair: (cellId: string, values: CrosshairValues) => void
@@ -57,7 +57,7 @@ type AppState = {
   // workspace has never been saved under a name (or was switched away from one) — Rename/overwrite
   // Save both key off this.
   activeLayoutName: string | null
-  currentWorkspace: () => Workspace
+  currentWorkspace: () => Layout
   saveLayoutAs: (name: string) => Promise<{ ok: true } | { ok: false; error: string }>
   saveActiveLayout: () => Promise<void>
   renameActiveLayout: (to: string) => Promise<{ ok: true } | { ok: false; error: string }>
@@ -83,12 +83,12 @@ type AppState = {
 export const selectActiveItems = (s: AppState): WatchlistItem[] =>
   s.watchlists.find((w) => w.name === s.activeWatchlist)?.items ?? []
 
-const initialWorkspace = defaultWorkspace(String(nextId++), String(nextId++))
+const initialLayout = defaultLayout(String(nextId++), String(nextId++))
 
 export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) => ({
-  cells: initialWorkspace.cells,
-  activeCellId: initialWorkspace.activeCellId,
-  shape: initialWorkspace.shape,
+  cells: initialLayout.cells,
+  activeCellId: initialLayout.activeCellId,
+  shape: initialLayout.shape,
 
   crosshairByCell: {},
   setCrosshair: (cellId, values) => set((state) => ({
@@ -285,7 +285,7 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
       // D-58: auto-save current state before switching away, no confirmation.
       await window.api.layout.setCurrent(get().currentWorkspace())
       const raw = await window.api.layout.get(name)
-      const ws = parseWorkspace(raw)
+      const ws = parseLayout(raw)
       // Corrupt/unparseable stored layout — abort the switch, keep current state (never wipe it).
       if (!ws) return
       get().hydrate(ws)

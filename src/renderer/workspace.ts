@@ -1,6 +1,6 @@
-import type { Cell, GridShape, IndicatorInstance, Timeframe, Workspace } from '@shared/types'
+import type { Cell, GridShape, IndicatorInstance, Timeframe, Layout } from '@shared/types'
 
-// Bump when Workspace's shape changes incompatibly. parseWorkspace stays forward-compatible
+// Bump when Layout's shape changes incompatibly. parseLayout stays forward-compatible
 // (fills missing fields with defaults) so old-schema saved files still restore.
 export const SCHEMA_VERSION = 1
 
@@ -46,7 +46,7 @@ export function duplicateCell(src: Cell, newId: string, newIndicatorIds: string[
 }
 
 // First-ever-launch default: 1x1 grid, one AAPL cell (D-59).
-export function defaultWorkspace(cellId: string, volId: string): Workspace {
+export function defaultLayout(cellId: string, volId: string): Layout {
   const cell = newCellSeed(cellId, volId)
   return { schemaVersion: SCHEMA_VERSION, cells: [cell], shape: '1x1', activeCellId: cell.id }
 }
@@ -82,10 +82,10 @@ function parseCell(raw: unknown): Cell | null {
   return { id, symbol, timeframe, indicators }
 }
 
-// Validates/coerces arbitrary persisted or malformed JSON into a Workspace. Never throws —
+// Validates/coerces arbitrary persisted or malformed JSON into a Layout. Never throws —
 // unresolvable input (not an object at all) returns null; everything else is coerced/defaulted
 // (forward-compatible partial-state restore, T-05-01).
-export function parseWorkspace(raw: unknown): Workspace | null {
+export function parseLayout(raw: unknown): Layout | null {
   try {
     if (!isRecord(raw)) return null
     const shape = isGridShape(raw.shape) ? raw.shape : '1x1'

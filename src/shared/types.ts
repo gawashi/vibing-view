@@ -63,7 +63,7 @@ export type Cell = {
   indicators: IndicatorInstance[]
 }
 
-export type Workspace = {
+export type Layout = {
   schemaVersion: number
   cells: Cell[]
   shape: GridShape

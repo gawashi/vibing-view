@@ -16,7 +16,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './comp
 import { Toaster } from './components/ui/sonner'
 import { Watchlist } from './components/Watchlist'
 import { useAppStore, selectActiveItems } from './store'
-import { parseWorkspace } from './workspace'
+import { parseLayout } from './workspace'
 import { applyTheme } from './lib/theme'
 import type { CapabilityStatus } from '@shared/ipc'
 import type { Timeframe } from '@shared/types'
@@ -28,12 +28,12 @@ export default function App(): React.JSX.Element {
   const [sidebarWidth, setSidebarWidth] = useState(240)
 
   // One-time startup restore (D-59/LAYOUT-04): replaces the old getLastSymbol restore. main is a
-  // dumb persister — parseWorkspace owns the trust boundary and never throws (T-05-01). A null
+  // dumb persister — parseLayout owns the trust boundary and never throws (T-05-01). A null
   // result (first-ever launch or corrupt file) leaves the store's own default (1x1 + AAPL).
   useEffect(() => {
     void api.settings.getTheme().then(applyTheme)
     void api.layout.getCurrent().then((raw) => {
-      const ws = parseWorkspace(raw)
+      const ws = parseLayout(raw)
       if (ws) useAppStore.getState().hydrate(ws)
     })
     void api.watchlist.get().then((c) => useAppStore.getState().hydrateWatchlists(c))
