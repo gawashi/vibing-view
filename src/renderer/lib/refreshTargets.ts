@@ -1,6 +1,6 @@
 import type { Cell, Timeframe, GridShape } from '@shared/types'
 import type { CapabilityStatus } from '@shared/ipc'
-import { VISIBLE_COUNT } from '../workspace'
+import { VISIBLE_COUNT } from '@shared/workspace'
 
 export type RefreshTarget = { symbol: string; timeframe: Timeframe }
 

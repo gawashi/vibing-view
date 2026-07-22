@@ -7,7 +7,7 @@ import {
   emptyLayout,
   parseWorkspaceCollection,
   defaultWorkspaceCollection
-} from '../../src/renderer/workspace'
+} from '../../src/shared/workspace'
 import type { Layout } from '@shared/types'
 
 const aapl = { symbol: 'AAPL', name: 'Apple Inc.', exchange: 'NASDAQ' }

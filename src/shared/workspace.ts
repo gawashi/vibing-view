@@ -103,7 +103,7 @@ export function emptyLayout(): Layout {
   return defaultLayout('1', '2')
 }
 
-const isWatchlistItem = (v: unknown): v is WatchlistItem =>
+export const isWatchlistItem = (v: unknown): v is WatchlistItem =>
   isRecord(v) &&
   typeof v.symbol === 'string' &&
   typeof v.name === 'string' &&

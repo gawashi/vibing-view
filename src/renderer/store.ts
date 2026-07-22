@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
 import { registry } from './indicators/registry'
-import { defaultLayout, newCellSeed, SCHEMA_VERSION, VISIBLE_COUNT } from './workspace'
+import { defaultLayout, newCellSeed, SCHEMA_VERSION, VISIBLE_COUNT } from '@shared/workspace'
 import type { Cell, GridShape, IndicatorInstance, Params, Timeframe, Layout, WatchlistItem, Workspace, WorkspaceCollection } from '@shared/types'
 
 // Crosshair readout injected into each pane's legend (D-38/39/40). Keyed by instance id for
@@ -57,6 +57,9 @@ type AppState = {
   // (no IPC) so they're unit-testable. Switch/create/duplicate/delete snapshot the hot grid into
   // the active workspace first so in-flight edits aren't lost.
   currentLayout: () => Layout
+  // Whole persisted collection with the hot grid folded into the active workspace's layout. App's
+  // debounced auto-save serializes this verbatim — the fold lives here, not in the effect.
+  collectionSnapshot: () => WorkspaceCollection
   workspaces: Workspace[]
   activeWorkspace: string
   addToWatchlist: (item: WatchlistItem) => void
@@ -84,6 +87,15 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
     const { workspaces, activeWorkspace } = get()
     const layout = get().currentLayout()
     return workspaces.map((w) => (w.name === activeWorkspace ? { ...w, layout } : w))
+  }
+  // Make `name` the active workspace and hydrate its layout into the hot grid. Callers pass the
+  // already-snapshotted array so the outgoing grid isn't lost. Single owner of the set-active +
+  // hydrate pairing — create/duplicate/delete/switch all end here (keeps the nextId reseed in hydrate
+  // on every activation path, see the collision note in hydrate below).
+  const activate = (workspaces: Workspace[], name: string): void => {
+    const layout = (workspaces.find((w) => w.name === name) ?? workspaces[0]).layout
+    set({ workspaces, activeWorkspace: name })
+    get().hydrate(layout)
   }
   return {
   cells: initialLayout.cells,
@@ -224,6 +236,7 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
     const { cells, shape, activeCellId } = get()
     return { schemaVersion: SCHEMA_VERSION, cells, shape, activeCellId }
   },
+  collectionSnapshot: () => ({ version: 3, active: get().activeWorkspace, workspaces: snapshotActive() }),
 
   workspaces: [{ name: 'Workspace 1', items: [], layout: initialLayout }],
   activeWorkspace: 'Workspace 1',
@@ -269,9 +282,7 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
       return { ok: false, error: `A workspace named "${trimmed}" already exists.` }
     }
     const layout = defaultLayout(String(nextId++), String(nextId++))
-    const snapshot = snapshotActive()
-    set({ workspaces: [...snapshot, { name: trimmed, items: [], layout }], activeWorkspace: trimmed })
-    get().hydrate(layout)
+    activate([...snapshotActive(), { name: trimmed, items: [], layout }], trimmed)
     return { ok: true }
   },
   duplicateWorkspace: (name) => {
@@ -282,9 +293,7 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
     }
     const layout = get().currentLayout()
     const items = selectActiveItems(get()).map((i) => ({ ...i }))
-    const snapshot = snapshotActive()
-    set({ workspaces: [...snapshot, { name: trimmed, items, layout }], activeWorkspace: trimmed })
-    get().hydrate(layout)
+    activate([...snapshotActive(), { name: trimmed, items, layout }], trimmed)
     return { ok: true }
   },
   renameWorkspace: (from, to) => {
@@ -304,9 +313,7 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
     if (state.workspaces.length <= 1) return
     const remaining = snapshotActive().filter((w) => w.name !== name)
     if (state.activeWorkspace === name) {
-      const next = remaining[0]
-      set({ workspaces: remaining, activeWorkspace: next.name })
-      get().hydrate(next.layout)
+      activate(remaining, remaining[0].name)
     } else {
       set({ workspaces: remaining })
     }
@@ -316,13 +323,10 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
     if (name === state.activeWorkspace) return
     const target = state.workspaces.find((w) => w.name === name)
     if (!target) return
-    set({ workspaces: snapshotActive(), activeWorkspace: name })
-    get().hydrate(target.layout)
+    activate(snapshotActive(), name)
   },
   hydrateWorkspaces: (collection) => {
-    const active = collection.workspaces.find((w) => w.name === collection.active) ?? collection.workspaces[0]
-    set({ workspaces: collection.workspaces, activeWorkspace: collection.active })
-    get().hydrate(active.layout)
+    activate(collection.workspaces, collection.active)
   }
   }
 }))

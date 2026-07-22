@@ -16,7 +16,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './comp
 import { Toaster } from './components/ui/sonner'
 import { Watchlist } from './components/Watchlist'
 import { useAppStore, selectActiveItems } from './store'
-import { parseWorkspaceCollection } from './workspace'
+import { parseWorkspaceCollection } from '@shared/workspace'
 import { applyTheme } from './lib/theme'
 import type { CapabilityStatus } from '@shared/ipc'
 import type { Timeframe } from '@shared/types'
@@ -117,10 +117,7 @@ export default function App(): React.JSX.Element {
       () => {
         if (timer) clearTimeout(timer)
         timer = setTimeout(() => {
-          const s = useAppStore.getState()
-          const layout = s.currentLayout()
-          const workspaces = s.workspaces.map((w) => (w.name === s.activeWorkspace ? { ...w, layout } : w))
-          void api.workspaces.set({ version: 3, active: s.activeWorkspace, workspaces })
+          void api.workspaces.set(useAppStore.getState().collectionSnapshot())
         }, 500)
       },
       // Default equalityFn is Object.is on the whole tuple, which is a fresh array every call —
