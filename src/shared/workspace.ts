@@ -53,10 +53,14 @@ const clampDim = (n: unknown): number =>
 // - それ以外: { rows: 1, cols: 1 }
 export function parseShape(raw: unknown): GridShape {
   if (isRecord(raw)) return { rows: clampDim(raw.rows), cols: clampDim(raw.cols) }
-  if (typeof raw === 'string') {
-    const [c, r] = raw.split('x').map((v) => parseInt(v, 10))
-    return { rows: clampDim(r), cols: clampDim(c) }
+  // 旧文字列は allowlist の3値のみ受理（"2"/"2oops"/"3x2junk" 等は既定へ落とす）。
+  // 新形式は上の { rows, cols } を通るため、ここは純粋な旧データ移行パス。
+  const LEGACY: Record<string, GridShape> = {
+    '1x1': { rows: 1, cols: 1 },
+    '2x1': { rows: 1, cols: 2 },
+    '2x2': { rows: 2, cols: 2 }
   }
+  if (typeof raw === 'string' && Object.hasOwn(LEGACY, raw)) return LEGACY[raw]
   return { rows: 1, cols: 1 }
 }
 
