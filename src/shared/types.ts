@@ -69,3 +69,16 @@ export type Layout = {
   shape: GridShape
   activeCellId: string
 }
+
+// 名前付き作業コンテキスト = ウォッチリスト + グリッドレイアウト
+export type Workspace = {
+  name: string
+  items: WatchlistItem[]
+  layout: Layout
+}
+
+export type WorkspaceCollection = {
+  version: 3
+  active: string
+  workspaces: Workspace[]
+}
