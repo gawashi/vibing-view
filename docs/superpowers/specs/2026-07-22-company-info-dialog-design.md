@@ -53,8 +53,10 @@ fetched_at  INTEGER   -- epoch秒
 JSON blob 一本にしてフィールド追加時のマイグレーションを不要にする。
 
 ### db/companyProfileStore.ts
-- `getCompanyProfile(symbol): { data: CompanyInfo; fetchedAt: number } | null`
-- `upsertCompanyProfile(symbol, data, fetchedAt): void`（onConflictDoUpdate）
+- payload 型 `CompanyProfileData = Omit<CompanyInfo, 'fetchedAt'>`（JSON blob と一致）。
+- `getCompanyProfile(symbol): { data: CompanyProfileData; fetchedAt: number } | null`
+- `upsertCompanyProfile(symbol, data: CompanyProfileData, fetchedAt): void`（onConflictDoUpdate）
+- `fetchedAt` は blob に含めず列で持つ。`CompanyInfo`（`fetchedAt` 込み）への組み立ては `CompanyInfoService` 側で行う。
 
 ### CompanyInfoService.getInfo(symbol): Promise<CompanyInfo>
 - TTL = 86400 秒（1日）。
@@ -105,7 +107,8 @@ JSON blob 一本にしてフィールド追加時のマイグレーションを�
 - `src/renderer/components/CompanyInfoDialog.tsx`
 
 変更:
-- `src/main/db/schema.ts`（company_profiles）
+- `src/main/db/schema.ts`（company_profiles の Drizzle 宣言）
+- `src/main/db/client.ts`（**必須**: 既存の生 `CREATE TABLE IF NOT EXISTS` 群に `company_profiles` を追加。Drizzle 宣言はマイグレーションを生成しないため、ここで作らないと `no such table`）
 - `src/shared/ipc.ts`（CH.companyInfo, Api.company）
 - `src/shared/types.ts`（CompanyInfo）
 - `src/main/ipc.ts` / `src/preload/index.ts`（配線）
