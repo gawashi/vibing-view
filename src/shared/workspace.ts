@@ -13,15 +13,10 @@ import type {
 // (fills missing fields with defaults) so old-schema saved files still restore.
 export const SCHEMA_VERSION = 1
 
-// How many cells are visible for a given grid shape (05-02 grid expansion reads this too).
-export const VISIBLE_COUNT: Record<GridShape, number> = { '1x1': 1, '2x1': 2, '2x2': 4 }
+// 可視セル数 = rows * cols（旧 VISIBLE_COUNT マップの後継。3x3 拡張はこれで駆動）。
+export const cellCount = (s: GridShape): number => s.rows * s.cols
 
-const GRID_SHAPES: GridShape[] = ['1x1', '2x1', '2x2']
 const TIMEFRAMES: Timeframe[] = ['1m', '5m', '15m', '1h', '1d', '1w', '1M']
-
-function isGridShape(v: unknown): v is GridShape {
-  return typeof v === 'string' && (GRID_SHAPES as string[]).includes(v)
-}
 
 function isTimeframe(v: unknown): v is Timeframe {
   return typeof v === 'string' && (TIMEFRAMES as string[]).includes(v)
@@ -41,11 +36,28 @@ export function newCellSeed(id: string, volId: string): Cell {
 // First-ever-launch default: 1x1 grid, one empty cell (D-59).
 export function defaultLayout(cellId: string, volId: string): Layout {
   const cell = newCellSeed(cellId, volId)
-  return { schemaVersion: SCHEMA_VERSION, cells: [cell], shape: '1x1', activeCellId: cell.id }
+  return { schemaVersion: SCHEMA_VERSION, cells: [cell], shape: { rows: 1, cols: 1 }, activeCellId: cell.id }
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null
+}
+
+const clampDim = (n: unknown): number =>
+  typeof n === 'number' && Number.isFinite(n) ? Math.min(3, Math.max(1, Math.trunc(n))) : 1
+
+// GridShape の正規化。never throws。
+// - 新形式 { rows, cols }: 各 1..3 にクランプ
+// - 旧形式 "C x R" 文字列（"2x1" = 2列1行）: 先頭=cols, 末尾=rows で読む。現行の grid-cols-N
+//   grid-rows-M 表記に合わせており、ここを逆にすると既存の "2x1" 保存が縦2段に化ける。
+// - それ以外: { rows: 1, cols: 1 }
+export function parseShape(raw: unknown): GridShape {
+  if (isRecord(raw)) return { rows: clampDim(raw.rows), cols: clampDim(raw.cols) }
+  if (typeof raw === 'string') {
+    const [c, r] = raw.split('x').map((v) => parseInt(v, 10))
+    return { rows: clampDim(r), cols: clampDim(c) }
+  }
+  return { rows: 1, cols: 1 }
 }
 
 function parseIndicator(raw: unknown): IndicatorInstance | null {
@@ -81,7 +93,7 @@ function parseCell(raw: unknown): Cell | null {
 export function parseLayout(raw: unknown): Layout | null {
   try {
     if (!isRecord(raw)) return null
-    const shape = isGridShape(raw.shape) ? raw.shape : '1x1'
+    const shape = parseShape(raw.shape)
     const cells = Array.isArray(raw.cells)
       ? raw.cells.map(parseCell).filter((c): c is Cell => c !== null)
       : []
