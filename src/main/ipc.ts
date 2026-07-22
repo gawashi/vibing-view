@@ -61,7 +61,7 @@ export function registerIpc(): void {
   const providerFor = () => {
     const apiKey = getApiKey()
     if (!apiKey) throw new Error('NO_API_KEY')
-    return new FmpProvider({ apiKey })
+    return new FmpProvider({ apiKey, httpGetJson: electronHttpGetJson })
   }
 
   ipcMain.handle(CH.symbolsSearch, async (_e, query: string) => {
