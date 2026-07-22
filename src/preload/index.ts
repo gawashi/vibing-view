@@ -36,7 +36,8 @@ const api: Api = {
     set: (c: WorkspaceCollection) => ipcRenderer.invoke(CH.workspacesSet, c)
   },
   company: {
-    info: (symbol) => ipcRenderer.invoke(CH.companyInfo, symbol)
+    info: (symbol) => ipcRenderer.invoke(CH.companyInfo, symbol),
+    openWindow: (symbol) => ipcRenderer.invoke(CH.companyOpenWindow, symbol)
   }
 }
 

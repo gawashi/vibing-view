@@ -21,7 +21,8 @@ export const CH = {
   capabilitiesGet: 'capabilities:get',
   workspacesGet: 'workspaces:get',
   workspacesSet: 'workspaces:set',
-  companyInfo: 'company:info'
+  companyInfo: 'company:info',
+  companyOpenWindow: 'company:openWindow'
 } as const
 
 export type KeyStatus = { hasKey: boolean; encryptionAvailable: boolean; maskedKey?: string }
@@ -65,6 +66,7 @@ export interface Api {
   }
   company: {
     info(symbol: string): Promise<CompanyInfo>
+    openWindow(symbol: string): Promise<void>
   }
 }
 
