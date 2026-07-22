@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
 import { registry } from './indicators/registry'
-import { defaultLayout, newCellSeed, SCHEMA_VERSION, VISIBLE_COUNT } from '@shared/workspace'
+import { defaultLayout, newCellSeed, SCHEMA_VERSION, cellCount } from '@shared/workspace'
 import type { Cell, GridShape, IndicatorInstance, Params, Timeframe, Layout, WatchlistItem, Workspace, WorkspaceCollection } from '@shared/types'
 
 // Crosshair readout injected into each pane's legend (D-38/39/40). Keyed by instance id for
@@ -109,7 +109,7 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
 
   setActiveCell: (id) => set({ activeCellId: id }),
   setShape: (shape) => set((state) => {
-    const target = VISIBLE_COUNT[shape]
+    const target = cellCount(shape)
     let cells = state.cells
     if (target > cells.length) {
       const added: Cell[] = []
