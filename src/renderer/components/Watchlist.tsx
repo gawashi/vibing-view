@@ -99,13 +99,20 @@ function Row({
       </span>
       <span className="font-semibold">{item.symbol}</span>
       <span className="truncate text-xs text-muted-foreground" title={item.name}>{item.name}</span>
-      <span
-        className={cn(
-          'ml-auto shrink-0 text-sm',
-          change?.pct != null && (change.pct >= 0 ? 'text-green-500' : 'text-red-500')
+      <span className="ml-auto flex shrink-0 flex-col items-end gap-0.5 leading-tight">
+        <span className="text-sm font-bold text-foreground">{change ? change.price.toFixed(2) : ''}</span>
+        {change?.pct != null && (
+          <span
+            className={cn(
+              'rounded border px-1 py-0.5 text-xs tabular-nums',
+              change.pct >= 0
+                ? 'border-green-500/40 bg-green-500/10 text-green-500'
+                : 'border-red-500/40 bg-red-500/10 text-red-500'
+            )}
+          >
+            {change.pct >= 0 ? '+' : ''}{change.pct.toFixed(2)}%
+          </span>
         )}
-      >
-        {change ? change.price.toFixed(2) : ''}
       </span>
       <button
         onClick={(e) => {

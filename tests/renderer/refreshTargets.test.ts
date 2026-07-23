@@ -19,6 +19,16 @@ describe('refreshTargets', () => {
     ])
   })
 
+  it('adds a 1d target for weekly/monthly cells (header 前日比 is daily-based)', () => {
+    const cells = [cell('a', 'AAPL', '1w'), cell('b', 'MSFT', '1M')]
+    expect(refreshTargets(cells, { rows: 1, cols: 2 }, undefined)).toEqual([
+      { symbol: 'AAPL', timeframe: '1w' },
+      { symbol: 'AAPL', timeframe: '1d' },
+      { symbol: 'MSFT', timeframe: '1M' },
+      { symbol: 'MSFT', timeframe: '1d' }
+    ])
+  })
+
   it('skips gated timeframes', () => {
     const cells = [cell('a', 'AAPL', '5m')]
     const caps = { '1m': 'available', '5m': 'requires-plan', '15m': 'available', '1h': 'available',

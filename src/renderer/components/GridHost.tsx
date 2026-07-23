@@ -12,7 +12,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { TimeframeRow, TF_LABELS } from './TimeframeRow'
 import { ChartContextMenu } from './ChartContextMenu'
 import { cn } from '@/lib/utils'
-import { computeChange } from '@/lib/priceChange'
+import { latestPriceChange } from '@/lib/priceChange'
 import type { Bar, Cell, MarketStatus, Quote, Timeframe, SymbolResult } from '@shared/types'
 
 // Module-level (shared across every cell, not per-cell state): the rate-limited-tf toast guard.
@@ -113,7 +113,7 @@ function useProfile(symbol: string): ReturnType<typeof useQuery<SymbolResult>> {
 // subscribe-only(enabled:false)で読むだけ(追加フェッチ無し)。intraday の前日終値は日足が要るため、
 // intraday セルのみ日足を1回実フェッチ(1銘柄1リクエスト・永続キャッシュ、週足/月足にも再利用)。
 function SymbolLabel({ symbol, timeframe }: { symbol: string; timeframe: Timeframe }): React.JSX.Element {
-  const isIntraday = timeframe === '1m' || timeframe === '5m' || timeframe === '15m' || timeframe === '1h'
+  const isDaily = timeframe === '1d'
   const barsQ = useQuery<Bar[]>({
     queryKey: qk.ohlcv(symbol, timeframe),
     queryFn: () => api.ohlcv.get(symbol, timeframe, undefined),
@@ -122,12 +122,15 @@ function SymbolLabel({ symbol, timeframe }: { symbol: string; timeframe: Timefra
   const dailyQ = useQuery<Bar[]>({
     queryKey: qk.ohlcv(symbol, '1d'),
     queryFn: () => api.ohlcv.get(symbol, '1d', undefined),
-    enabled: isIntraday, // intraday のみ前日終値のため実フェッチ
+    // 前日比は常に日足ベース。日足セルは barsQ が日足なので不要、それ以外(intraday/週足/月足)は
+    // 日足を1回実フェッチ(1銘柄1リクエスト・永続キャッシュ、watchlist と同キーでデデュープ)。
+    enabled: !isDaily,
     staleTime: Infinity
   })
   // Populated by the global reload only (enabled:false → read cache, re-render on setQueryData).
-  // Open → live quote (matches chart legend/candle + watchlist); closed/not-yet-loaded → existing
-  // timeframe-aware daily-close fallback.
+  // Header change = 前日比(日足ベース), identical to the watchlist by construction: open → live
+  // quote, closed → daily close vs prev daily close. Independent of the cell's chart timeframe so
+  // the grid and watchlist never diverge. daily series = barsQ on a 1d cell, dailyQ otherwise.
   const { data: marketStatus } = useQuery<MarketStatus>({
     queryKey: qk.marketStatus(),
     queryFn: () => api.market.status(),
@@ -138,9 +141,8 @@ function SymbolLabel({ symbol, timeframe }: { symbol: string; timeframe: Timefra
     queryFn: () => api.quote.get(symbol),
     enabled: false
   })
-  const change = marketStatus?.isOpen && quote
-    ? { price: quote.price, pct: quote.changePercentage }
-    : computeChange(barsQ.data, timeframe, dailyQ.data)
+  const daily = isDaily ? barsQ.data : dailyQ.data
+  const change = latestPriceChange(daily, quote, marketStatus?.isOpen ?? false)
 
   // 銘柄あたり最大1フェッチ。検索で選んだ銘柄は種まき済みで無通信ヒット。staleTime:Infinity で
   // 以後は API キー登録時の invalidate(['profile']) のみが再取得契機。
@@ -158,7 +160,7 @@ function SymbolLabel({ symbol, timeframe }: { symbol: string; timeframe: Timefra
       {name && <span className="truncate text-sm text-muted-foreground" title={name}>{name}</span>}
       {change && (
         <>
-          <span className="shrink-0 text-sm text-muted-foreground">{change.price.toFixed(2)}</span>
+          <span className="shrink-0 text-sm font-bold text-foreground">{change.price.toFixed(2)}</span>
           {change.pct !== null && (
             <span className={cn('shrink-0 text-sm', change.pct >= 0 ? 'text-green-500' : 'text-red-500')}>
               {change.pct >= 0 ? '+' : ''}{change.pct.toFixed(2)}%

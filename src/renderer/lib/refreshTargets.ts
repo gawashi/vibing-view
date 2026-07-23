@@ -4,11 +4,10 @@ import { cellCount } from '@shared/workspace'
 
 export type RefreshTarget = { symbol: string; timeframe: Timeframe }
 
-const INTRADAY: Timeframe[] = ['1m', '5m', '15m', '1h']
-
 // Visible cells only, de-duped by symbol|tf. Gated tfs (requires-plan/rate-limited) are skipped so
-// reload never burns an API request that will just 402/429. Intraday cells also refresh their '1d'
-// so the prev-close-based change label stays correct across a trading-day boundary.
+// reload never burns an API request that will just 402/429. Non-daily cells (intraday/week/month)
+// also refresh their '1d' because the header's 前日比 is always daily-based (matches the watchlist)
+// — so the daily series must stay current across a trading-day boundary.
 //
 // `watchlistSymbols` are the active watchlist's currently-displayed symbols (empty when the sidebar
 // is closed). Each gets a '1d' refresh so the sidebar's price/change stays current — de-duped
@@ -33,7 +32,7 @@ export function refreshTargets(
   for (const cell of cells.slice(0, cellCount(shape))) {
     if (!cell.symbol) continue
     push(cell.symbol, cell.timeframe)
-    if (INTRADAY.includes(cell.timeframe)) push(cell.symbol, '1d')
+    if (cell.timeframe !== '1d') push(cell.symbol, '1d')
   }
   for (const symbol of watchlistSymbols) push(symbol, '1d')
   return out
