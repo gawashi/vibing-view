@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { Timeframe, DateRange, WorkspaceCollection } from '@shared/types'
-import { CH, type Api, type WorkspacesPayload } from '@shared/ipc'
+import type { Timeframe, DateRange, WorkspaceCollection, ClipboardCell } from '@shared/types'
+import { CH, type Api, type WorkspacesPayload, type ClipboardPayload } from '@shared/ipc'
 
 const api: Api = {
   symbols: {
@@ -38,6 +38,15 @@ const api: Api = {
       const listener = (_e: unknown, payload: WorkspacesPayload): void => cb(payload)
       ipcRenderer.on(CH.workspacesChanged, listener)
       return () => ipcRenderer.removeListener(CH.workspacesChanged, listener)
+    }
+  },
+  clipboard: {
+    get: () => ipcRenderer.invoke(CH.clipboardGet),
+    set: (c: ClipboardCell | null) => ipcRenderer.invoke(CH.clipboardSet, c),
+    onChanged: (cb) => {
+      const listener = (_e: unknown, payload: ClipboardPayload): void => cb(payload)
+      ipcRenderer.on(CH.clipboardChanged, listener)
+      return () => ipcRenderer.removeListener(CH.clipboardChanged, listener)
     }
   },
   company: {

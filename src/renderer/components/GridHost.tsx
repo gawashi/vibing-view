@@ -10,7 +10,7 @@ import { Button } from './ui/button'
 import { Chart } from './Chart'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { TimeframeRow, TF_LABELS } from './TimeframeRow'
-import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } from './ui/context-menu'
+import { ChartContextMenu } from './ChartContextMenu'
 import { cn } from '@/lib/utils'
 import { computeChange } from '@/lib/priceChange'
 import type { Bar, Cell, MarketStatus, Quote, Timeframe, SymbolResult } from '@shared/types'
@@ -288,40 +288,32 @@ function GridCell({
         isDropTarget && 'outline-dashed outline-2 outline-offset-[-4px] outline-primary'
       )}
     >
-      {cell.symbol
-        ? (
-          <ContextMenu>
-            <ContextMenuTrigger asChild>
-              {/* pl-6 reserves a left gutter for the drag handle so it sits to the LEFT of the ticker
-                  instead of top-right next to the × button (mis-click hazard). Grid-only wrapper, so
-                  ChartWindow (renders ChartPanel directly) keeps its flush layout. */}
-              <div className="flex h-full min-h-0 min-w-0 flex-col gap-4 pl-6">
-                {/* Drag handle: the ONLY drag source for the cell — keeps chart body, timeframe/★/×
-                    buttons, and the shared ChartPanel (used by ChartWindow) non-draggable. */}
-                <span
-                  draggable
-                  onDragStart={(e) => {
-                    e.stopPropagation()
-                    e.dataTransfer.setData('application/x-vv-cell', cell.id)
-                  }}
-                  onDragEnd={() => onDropTarget(null)}
-                  onClick={(e) => e.stopPropagation()}
-                  aria-label={`Move ${cell.symbol} chart`}
-                  className="invisible absolute left-1 top-1.5 z-10 cursor-grab text-muted-foreground hover:text-foreground group-hover/cell:visible"
-                >
-                  <GripVertical className="size-4" />
-                </span>
-                <ChartPanel cell={cell} />
-              </div>
-            </ContextMenuTrigger>
-            <ContextMenuContent>
-              <ContextMenuItem onSelect={() => void api.company.openWindow(cell.symbol!)}>
-                Show company info
-              </ContextMenuItem>
-            </ContextMenuContent>
-          </ContextMenu>
-          )
-        : <div className="p-6 text-muted-foreground">Search a symbol to begin.</div>}
+      <ChartContextMenu cellId={cell.id}>
+        {cell.symbol
+          ? (
+            /* pl-6 reserves a left gutter for the drag handle so it sits to the LEFT of the ticker
+               instead of top-right next to the × button (mis-click hazard). */
+            <div className="flex h-full min-h-0 min-w-0 flex-col gap-4 pl-6">
+              {/* Drag handle: the ONLY drag source for the cell — keeps chart body, timeframe/★/×
+                  buttons, and the shared ChartPanel (used by ChartWindow) non-draggable. */}
+              <span
+                draggable
+                onDragStart={(e) => {
+                  e.stopPropagation()
+                  e.dataTransfer.setData('application/x-vv-cell', cell.id)
+                }}
+                onDragEnd={() => onDropTarget(null)}
+                onClick={(e) => e.stopPropagation()}
+                aria-label={`Move ${cell.symbol} chart`}
+                className="invisible absolute left-1 top-1.5 z-10 cursor-grab text-muted-foreground hover:text-foreground group-hover/cell:visible"
+              >
+                <GripVertical className="size-4" />
+              </span>
+              <ChartPanel cell={cell} />
+            </div>
+            )
+          : <div className="flex h-full min-h-0 min-w-0 items-start p-6 text-muted-foreground">Search a symbol to begin.</div>}
+      </ChartContextMenu>
     </div>
   )
 }

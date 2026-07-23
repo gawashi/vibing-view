@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
 import { registry } from './indicators/registry'
 import { defaultLayout, newCellSeed, SCHEMA_VERSION, cellCount } from '@shared/workspace'
-import type { Cell, GridShape, IndicatorInstance, Params, Timeframe, Layout, WatchlistItem, Workspace, WorkspaceCollection } from '@shared/types'
+import type { Cell, GridShape, IndicatorInstance, Params, Timeframe, Layout, WatchlistItem, Workspace, WorkspaceCollection, ClipboardCell } from '@shared/types'
 
 // Crosshair readout injected into each pane's legend (D-38/39/40). Keyed by instance id for
 // per-output indicator values (keyed by draw-output key), plus a reserved `price` key holding the
@@ -64,6 +64,14 @@ export type AppState = {
   // Keyed by cellId so each grid cell's crosshair readout is isolated (05-02 grid).
   crosshairByCell: Record<string, CrosshairValues>
   setCrosshair: (cellId: string, values: CrosshairValues) => void
+
+  // Chart config clipboard (copy/cut/paste). In-memory only, synced across windows by
+  // useClipboardSync — never persisted. Pure actions (no IPC) so they stay unit-testable.
+  chartClipboard: ClipboardCell | null
+  copyCell: (cellId: string) => void
+  cutCell: (cellId: string) => void
+  pasteCell: (cellId: string) => void
+  setClipboard: (clip: ClipboardCell | null) => void
 
   // Unified Workspace model (= watchlist items + grid layout under one name). All actions act on
   // the ACTIVE workspace; App wires load-on-startup and persist-on-change. Pure state mutations
@@ -153,6 +161,7 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
   shape: initialLayout.shape,
 
   crosshairByCell: {},
+  chartClipboard: null,
   setCrosshair: (cellId, values) => set((state) => ({
     crosshairByCell: { ...state.crosshairByCell, [cellId]: values }
   })),
@@ -225,6 +234,46 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
       crosshairByCell
     }
   }),
+  copyCell: (cellId) => {
+    const cell = get().cells.find((c) => c.id === cellId)
+    if (!cell || !cell.symbol) return // nothing to copy from an empty cell
+    set({
+      chartClipboard: {
+        symbol: cell.symbol,
+        timeframe: cell.timeframe,
+        // deep clone so later edits to the source cell (or the clipboard) don't alias each other
+        indicators: cell.indicators.map((i) => ({ ...i, params: { ...i.params }, colors: { ...i.colors } }))
+      }
+    })
+  },
+  cutCell: (cellId) => {
+    const cell = get().cells.find((c) => c.id === cellId)
+    if (!cell || !cell.symbol) return
+    // ponytail: clipboard broadcasts immediately but the source clear rides useWorkspaceSync's 500ms
+    // debounce, so cut-here-then-paste-there-within-500ms across windows can drop the paste. Accepted
+    // (rare, non-destructive — worst case is an undone paste). Flush workspace on cut/paste if it bites.
+    get().copyCell(cellId)
+    get().clearCell(cellId)
+  },
+  pasteCell: (cellId) => {
+    const src = get().chartClipboard
+    if (!src) return
+    if (!get().cells.some((c) => c.id === cellId)) return
+    // Re-mint every indicator id (collection-wide uniqueness). The clipboard is only ever written
+    // from copyCell/cutCell, so src already carries exactly one fixed Volume at index 0 — no
+    // normalization needed.
+    const indicators = src.indicators.map((i) => ({ ...i, id: String(nextId++), params: { ...i.params }, colors: { ...i.colors } }))
+    set((state) => {
+      const { [cellId]: _removed, ...crosshairByCell } = state.crosshairByCell
+      return {
+        cells: state.cells.map((c) =>
+          c.id === cellId ? { ...c, symbol: src.symbol, timeframe: src.timeframe, indicators } : c
+        ),
+        crosshairByCell
+      }
+    })
+  },
+  setClipboard: (clip) => set({ chartClipboard: clip }),
   addIndicator: (type, cellId) => {
     const targetId = cellId ?? get().activeCellId
     const cell = get().cells.find((c) => c.id === targetId)

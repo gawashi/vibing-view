@@ -1,5 +1,5 @@
 import { ipcMain, BrowserWindow } from 'electron'
-import type { Bar, Timeframe, DateRange, WorkspaceCollection } from '@shared/types'
+import type { Bar, Timeframe, DateRange, WorkspaceCollection, ClipboardCell } from '@shared/types'
 import { CH, type CapabilityStatus } from '@shared/ipc'
 import { FmpProvider, FmpHttpError } from './providers/FmpProvider'
 import { electronHttpGetJson } from './net/httpClient'
@@ -166,6 +166,26 @@ export function registerIpc(): void {
         w.webContents.send(CH.workspacesChanged, { collection: c, rev: workspacesRev })
       }
     }
+  })
+
+  // Chart clipboard: authoritative value lives here (in-memory, never persisted) so a window
+  // opened after a copy can fetch it via clipboard:get. Mirrors the workspaces rev/broadcast
+  // contract — renderers drop stale (<= lastRev) payloads (see useClipboardSync).
+  let clipboard: ClipboardCell | null = null
+  let clipboardRev = 0
+
+  ipcMain.handle(CH.clipboardGet, () => ({ clipboard, rev: clipboardRev }))
+  ipcMain.handle(CH.clipboardSet, (e, c: ClipboardCell | null) => {
+    clipboard = c
+    clipboardRev += 1
+    for (const w of BrowserWindow.getAllWindows()) {
+      if (w.webContents.id !== e.sender.id) {
+        w.webContents.send(CH.clipboardChanged, { clipboard: c, rev: clipboardRev })
+      }
+    }
+    // Return the authoritative rev so the sender can advance its lastRev: the sender gets no
+    // self-broadcast, so without this a startup get() that lost the race could clobber this write.
+    return clipboardRev
   })
 
   ipcMain.handle(CH.capabilitiesGet, () => {

@@ -63,6 +63,14 @@ export type Cell = {
   indicators: IndicatorInstance[]
 }
 
+// Copy/paste payload for a chart cell's config (no cell id — paste re-mints ids). Held in the
+// main process and synced across windows; never persisted (SQLite = OHLCV / JSON = prefs only).
+export type ClipboardCell = {
+  symbol: string
+  timeframe: Timeframe
+  indicators: IndicatorInstance[]
+}
+
 export type Layout = {
   schemaVersion: number
   cells: Cell[]

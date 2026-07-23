@@ -624,4 +624,78 @@ describe('useAppStore grid shape logic', () => {
       expect(res.ok).toBe(false)
     })
   })
+
+  describe('chart clipboard (copy/cut/paste)', () => {
+    const seedCell = (id: string, symbol: string | null, extra: import('../../src/shared/types').IndicatorInstance[] = []) => ({
+      id,
+      symbol,
+      timeframe: '1d' as const,
+      indicators: [
+        { id: `${id}-vol`, type: 'volume', params: {}, colors: {}, visible: true, fixed: true },
+        ...extra
+      ]
+    })
+
+    beforeEach(() => {
+      useAppStore.setState({
+        cells: [seedCell('src', 'AAPL', [{ id: 'src-ma', type: 'ma', params: { period: 20 }, colors: { line: '#fff' }, visible: true }]), seedCell('dst', null)],
+        shape: { rows: 1, cols: 2 },
+        activeCellId: 'src',
+        chartClipboard: null
+      })
+    })
+
+    it('copyCell deep-clones symbol/timeframe/indicators; no aliasing with the source cell', () => {
+      useAppStore.getState().copyCell('src')
+      const clip = useAppStore.getState().chartClipboard!
+      expect(clip.symbol).toBe('AAPL')
+      expect(clip.timeframe).toBe('1d')
+      expect(clip.indicators.map((i) => i.type)).toEqual(['volume', 'ma'])
+      // mutate the clipboard's params — source cell must not change (deep clone)
+      clip.indicators[1].params.period = 999
+      const srcCell = useAppStore.getState().cells.find((c) => c.id === 'src')!
+      expect(srcCell.indicators[1].params.period).toBe(20)
+    })
+
+    it('copyCell is a no-op for a missing cell or a null-symbol cell', () => {
+      useAppStore.getState().copyCell('dst') // null symbol
+      expect(useAppStore.getState().chartClipboard).toBeNull()
+      useAppStore.getState().copyCell('nope') // missing
+      expect(useAppStore.getState().chartClipboard).toBeNull()
+    })
+
+    it('cutCell fills the clipboard and empties the source cell (keeps fixed Volume)', () => {
+      useAppStore.getState().cutCell('src')
+      expect(useAppStore.getState().chartClipboard!.symbol).toBe('AAPL')
+      const srcCell = useAppStore.getState().cells.find((c) => c.id === 'src')!
+      expect(srcCell.symbol).toBeNull()
+      expect(srcCell.indicators.map((i) => i.type)).toEqual(['volume'])
+    })
+
+    it('pasteCell applies symbol/timeframe/indicators with fresh (re-minted) ids', () => {
+      useAppStore.getState().copyCell('src')
+      const clip = useAppStore.getState().chartClipboard!
+      useAppStore.getState().pasteCell('dst')
+      const dst = useAppStore.getState().cells.find((c) => c.id === 'dst')!
+      expect(dst.symbol).toBe('AAPL')
+      expect(dst.indicators.map((i) => i.type)).toEqual(['volume', 'ma'])
+      // ids differ from the clipboard's (collection-wide uniqueness)
+      const clipIds = clip.indicators.map((i) => i.id)
+      for (const i of dst.indicators) expect(clipIds).not.toContain(i.id)
+    })
+
+    it('pasteCell works onto an empty cell and clears that cell\'s crosshair', () => {
+      useAppStore.getState().setCrosshair('dst', { price: { open: 1, high: 1, low: 1, close: 1 } })
+      useAppStore.getState().copyCell('src')
+      useAppStore.getState().pasteCell('dst')
+      expect(useAppStore.getState().cells.find((c) => c.id === 'dst')!.symbol).toBe('AAPL')
+      expect(useAppStore.getState().crosshairByCell['dst']).toBeUndefined()
+    })
+
+    it('pasteCell is a no-op when the clipboard is empty', () => {
+      const before = useAppStore.getState().cells
+      useAppStore.getState().pasteCell('dst')
+      expect(useAppStore.getState().cells).toBe(before)
+    })
+  })
 })
