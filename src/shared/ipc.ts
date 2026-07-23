@@ -1,4 +1,4 @@
-import type { Bar, SymbolResult, Timeframe, DateRange, WorkspaceCollection, Quote, MarketStatus, CompanyInfo } from './types'
+import type { Bar, SymbolResult, Timeframe, DateRange, WorkspaceCollection, Quote, MarketStatus, CompanyInfo, ClipboardCell } from './types'
 
 export const CH = {
   symbolsSearch: 'symbols:search',
@@ -24,7 +24,10 @@ export const CH = {
   companyInfo: 'company:info',
   companyOpenWindow: 'company:openWindow',
   chartOpenWindow: 'chart:openWindow',
-  workspacesChanged: 'workspaces:changed'
+  workspacesChanged: 'workspaces:changed',
+  clipboardGet: 'clipboard:get',
+  clipboardSet: 'clipboard:set',
+  clipboardChanged: 'clipboard:changed'
 } as const
 
 export type KeyStatus = { hasKey: boolean; encryptionAvailable: boolean; maskedKey?: string }
@@ -32,6 +35,7 @@ export type SetKeyResult = { ok: boolean; encryptionAvailable: boolean }
 export type CapabilityStatus = 'available' | 'requires-plan' | 'rate-limited' | 'unknown'
 export type Theme = 'light' | 'dark' | 'system'
 export type WorkspacesPayload = { collection: WorkspaceCollection; rev: number }
+export type ClipboardPayload = { clipboard: ClipboardCell | null; rev: number }
 
 export interface Api {
   symbols: {
@@ -69,6 +73,13 @@ export interface Api {
     get(): Promise<WorkspacesPayload>
     set(c: WorkspaceCollection): Promise<void>
     onChanged(cb: (p: WorkspacesPayload) => void): () => void
+  }
+  // Chart clipboard: main holds the value + a monotonic rev; renderers ignore stale (<= lastRev)
+  // payloads. Same ordering contract as workspaces so a window opened after a copy still sees it.
+  clipboard: {
+    get(): Promise<ClipboardPayload>
+    set(c: ClipboardCell | null): Promise<void>
+    onChanged(cb: (p: ClipboardPayload) => void): () => void
   }
   company: {
     info(symbol: string): Promise<CompanyInfo>
