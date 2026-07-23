@@ -100,7 +100,7 @@ function Row({
       <span className="font-semibold">{item.symbol}</span>
       <span className="truncate text-xs text-muted-foreground" title={item.name}>{item.name}</span>
       <span className="ml-auto flex shrink-0 flex-col items-end gap-0.5 leading-tight">
-        <span className="text-sm text-muted-foreground">{change ? change.price.toFixed(2) : ''}</span>
+        <span className="text-sm font-bold text-foreground">{change ? change.price.toFixed(2) : ''}</span>
         {change?.pct != null && (
           <span
             className={cn(

@@ -160,7 +160,7 @@ function SymbolLabel({ symbol, timeframe }: { symbol: string; timeframe: Timefra
       {name && <span className="truncate text-sm text-muted-foreground" title={name}>{name}</span>}
       {change && (
         <>
-          <span className="shrink-0 text-sm text-muted-foreground">{change.price.toFixed(2)}</span>
+          <span className="shrink-0 text-sm font-bold text-foreground">{change.price.toFixed(2)}</span>
           {change.pct !== null && (
             <span className={cn('shrink-0 text-sm', change.pct >= 0 ? 'text-green-500' : 'text-red-500')}>
               {change.pct >= 0 ? '+' : ''}{change.pct.toFixed(2)}%
