@@ -4,6 +4,7 @@ import { Button } from './ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { TimeframeRow } from './TimeframeRow'
+import { BulkDeleteMenu } from './BulkDeleteMenu'
 import { ParamFields } from './ParamFields'
 import { registry } from '../indicators/registry'
 import { useAppStore } from '../store'
@@ -55,6 +56,7 @@ export function ApplyToAllToolbar(): React.JSX.Element {
         </TooltipTrigger>
         <TooltipContent>Add an indicator to all charts</TooltipContent>
       </Tooltip>
+      <BulkDeleteMenu />
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="p-6">
           <DialogHeader>
