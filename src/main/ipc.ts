@@ -183,6 +183,9 @@ export function registerIpc(): void {
         w.webContents.send(CH.clipboardChanged, { clipboard: c, rev: clipboardRev })
       }
     }
+    // Return the authoritative rev so the sender can advance its lastRev: the sender gets no
+    // self-broadcast, so without this a startup get() that lost the race could clobber this write.
+    return clipboardRev
   })
 
   ipcMain.handle(CH.capabilitiesGet, () => {

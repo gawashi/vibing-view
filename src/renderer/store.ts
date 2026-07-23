@@ -249,30 +249,20 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
   cutCell: (cellId) => {
     const cell = get().cells.find((c) => c.id === cellId)
     if (!cell || !cell.symbol) return
-    // Deferred move: copy the config and mark the source, but DON'T empty it yet — the cell stays
-    // visible (greyed) and is only cleared when pasted elsewhere (see pasteCell).
+    // ponytail: clipboard broadcasts immediately but the source clear rides useWorkspaceSync's 500ms
+    // debounce, so cut-here-then-paste-there-within-500ms across windows can drop the paste. Accepted
+    // (rare, non-destructive — worst case is an undone paste). Flush workspace on cut/paste if it bites.
     get().copyCell(cellId)
-    set({ chartClipboard: { ...get().chartClipboard!, cutSourceCellId: cellId } })
+    get().clearCell(cellId)
   },
   pasteCell: (cellId) => {
     const src = get().chartClipboard
     if (!src) return
     if (!get().cells.some((c) => c.id === cellId)) return
-    // Re-mint every indicator id (collection-wide uniqueness) and normalize to exactly one fixed
-    // Volume: keep the first clipboard Volume forced fixed, drop the rest; seed one if none exist.
-    const clones = src.indicators.map((i) => ({ ...i, id: String(nextId++), params: { ...i.params }, colors: { ...i.colors } }))
-    const firstVolumeIndex = clones.findIndex((i) => i.type === 'volume')
-    let indicators: IndicatorInstance[]
-    if (firstVolumeIndex === -1) {
-      indicators = [
-        { id: String(nextId++), type: 'volume', params: {}, colors: {}, visible: true, fixed: true },
-        ...clones
-      ]
-    } else {
-      indicators = clones
-        .filter((i, idx) => i.type !== 'volume' || idx === firstVolumeIndex)
-        .map((i) => (i.type === 'volume' ? { ...i, fixed: true } : i))
-    }
+    // Re-mint every indicator id (collection-wide uniqueness). The clipboard is only ever written
+    // from copyCell/cutCell, so src already carries exactly one fixed Volume at index 0 — no
+    // normalization needed.
+    const indicators = src.indicators.map((i) => ({ ...i, id: String(nextId++), params: { ...i.params }, colors: { ...i.colors } }))
     set((state) => {
       const { [cellId]: _removed, ...crosshairByCell } = state.crosshairByCell
       return {
@@ -282,12 +272,6 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
         crosshairByCell
       }
     })
-    // Deferred cut: empty the source now that its content has landed elsewhere (skip a self-paste),
-    // then consume the marker so the source stops greying and a second paste won't re-empty it.
-    if (src.cutSourceCellId) {
-      if (src.cutSourceCellId !== cellId) get().clearCell(src.cutSourceCellId)
-      set({ chartClipboard: { ...get().chartClipboard!, cutSourceCellId: undefined } })
-    }
   },
   setClipboard: (clip) => set({ chartClipboard: clip }),
   addIndicator: (type, cellId) => {

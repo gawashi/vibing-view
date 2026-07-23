@@ -36,7 +36,11 @@ export function useClipboardSync(): void {
       (s) => s.chartClipboard,
       (clipboard) => {
         if (applyingRemote) return
-        void api.clipboard.set(clipboard)
+        // Advance lastRev with the rev main assigns this write, so a slower startup get() can't
+        // resolve afterward and overwrite a local copy/cut (esp. a cut, whose source is cleared).
+        void api.clipboard.set(clipboard).then((rev) => {
+          if (rev > lastRev) lastRev = rev
+        })
       }
     )
 

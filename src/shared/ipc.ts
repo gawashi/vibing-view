@@ -78,7 +78,7 @@ export interface Api {
   // payloads. Same ordering contract as workspaces so a window opened after a copy still sees it.
   clipboard: {
     get(): Promise<ClipboardPayload>
-    set(c: ClipboardCell | null): Promise<void>
+    set(c: ClipboardCell | null): Promise<number> // resolves to the authoritative rev main assigned
     onChanged(cb: (p: ClipboardPayload) => void): () => void
   }
   company: {

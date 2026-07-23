@@ -664,45 +664,12 @@ describe('useAppStore grid shape logic', () => {
       expect(useAppStore.getState().chartClipboard).toBeNull()
     })
 
-    it('cutCell fills the clipboard and marks the source (deferred cut — source stays until paste)', () => {
+    it('cutCell fills the clipboard and empties the source cell (keeps fixed Volume)', () => {
       useAppStore.getState().cutCell('src')
-      const clip = useAppStore.getState().chartClipboard!
-      expect(clip.symbol).toBe('AAPL')
-      expect(clip.cutSourceCellId).toBe('src')
-      // the source cell is NOT emptied on cut — it only clears when pasted elsewhere
+      expect(useAppStore.getState().chartClipboard!.symbol).toBe('AAPL')
       const srcCell = useAppStore.getState().cells.find((c) => c.id === 'src')!
-      expect(srcCell.symbol).toBe('AAPL')
-      expect(srcCell.indicators.map((i) => i.type)).toEqual(['volume', 'ma'])
-    })
-
-    it('copyCell leaves no cut marker (copy is not a move)', () => {
-      useAppStore.getState().copyCell('src')
-      expect(useAppStore.getState().chartClipboard!.cutSourceCellId).toBeUndefined()
-    })
-
-    it('paste after cut empties the source cell and consumes the cut marker', () => {
-      useAppStore.getState().cutCell('src')
-      useAppStore.getState().pasteCell('dst')
-      const src = useAppStore.getState().cells.find((c) => c.id === 'src')!
-      const dst = useAppStore.getState().cells.find((c) => c.id === 'dst')!
-      expect(src.symbol).toBeNull() // moved out
-      expect(src.indicators.map((i) => i.type)).toEqual(['volume']) // keeps fixed Volume
-      expect(dst.symbol).toBe('AAPL')
-      // marker consumed → source stops greying and a second paste won't re-empty it
-      expect(useAppStore.getState().chartClipboard!.cutSourceCellId).toBeUndefined()
-    })
-
-    it('paste after copy leaves the source intact (copy, not move)', () => {
-      useAppStore.getState().copyCell('src')
-      useAppStore.getState().pasteCell('dst')
-      expect(useAppStore.getState().cells.find((c) => c.id === 'src')!.symbol).toBe('AAPL')
-    })
-
-    it('cut then paste onto the same cell keeps it (self-move is a no-op clear) and consumes the marker', () => {
-      useAppStore.getState().cutCell('src')
-      useAppStore.getState().pasteCell('src')
-      expect(useAppStore.getState().cells.find((c) => c.id === 'src')!.symbol).toBe('AAPL')
-      expect(useAppStore.getState().chartClipboard!.cutSourceCellId).toBeUndefined()
+      expect(srcCell.symbol).toBeNull()
+      expect(srcCell.indicators.map((i) => i.type)).toEqual(['volume'])
     })
 
     it('pasteCell applies symbol/timeframe/indicators with fresh (re-minted) ids', () => {
@@ -715,25 +682,6 @@ describe('useAppStore grid shape logic', () => {
       // ids differ from the clipboard's (collection-wide uniqueness)
       const clipIds = clip.indicators.map((i) => i.id)
       for (const i of dst.indicators) expect(clipIds).not.toContain(i.id)
-    })
-
-    it('pasteCell normalizes to exactly one fixed Volume for 0 / 1 / many clipboard Volumes', () => {
-      const paste = (indicators: import('../../src/shared/types').IndicatorInstance[]) => {
-        useAppStore.setState({ chartClipboard: { symbol: 'AAPL', timeframe: '1d', indicators } })
-        useAppStore.getState().pasteCell('dst')
-        return useAppStore.getState().cells.find((c) => c.id === 'dst')!.indicators.filter((i) => i.type === 'volume')
-      }
-      // zero volumes → one seeded
-      expect(paste([{ id: 'a', type: 'ma', params: {}, colors: {}, visible: true }])).toHaveLength(1)
-      // one volume → kept, forced fixed
-      const one = paste([{ id: 'v', type: 'volume', params: {}, colors: {}, visible: true, fixed: false }])
-      expect(one).toHaveLength(1)
-      expect(one[0].fixed).toBe(true)
-      // many volumes → collapsed to one
-      expect(paste([
-        { id: 'v1', type: 'volume', params: {}, colors: {}, visible: true, fixed: true },
-        { id: 'v2', type: 'volume', params: {}, colors: {}, visible: true, fixed: true }
-      ])).toHaveLength(1)
     })
 
     it('pasteCell works onto an empty cell and clears that cell\'s crosshair', () => {

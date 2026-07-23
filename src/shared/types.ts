@@ -65,14 +65,10 @@ export type Cell = {
 
 // Copy/paste payload for a chart cell's config (no cell id — paste re-mints ids). Held in the
 // main process and synced across windows; never persisted (SQLite = OHLCV / JSON = prefs only).
-// `cutSourceCellId` is set only by a Cut (deferred move): the source cell stays visible/greyed
-// until a paste, which then empties it. It rides inside the clipboard so cross-window sync carries
-// the pending-cut marker for free. Undefined for a Copy.
 export type ClipboardCell = {
   symbol: string
   timeframe: Timeframe
   indicators: IndicatorInstance[]
-  cutSourceCellId?: string
 }
 
 export type Layout = {
