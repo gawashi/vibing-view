@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { ChevronDown, Copy, Pencil, Plus } from 'lucide-react'
+import { ChevronDown, Copy, Folders, Pencil, Plus } from 'lucide-react'
 import { Button } from './ui/button'
 import {
   DropdownMenu,
@@ -29,6 +29,7 @@ export function WorkspaceSwitcher(): React.JSX.Element {
       <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen} modal={false}>
         <DropdownMenuTrigger asChild>
           <Button variant="secondary" className="max-w-[220px]">
+            <Folders className="size-4 shrink-0" />
             <span className="truncate" title={activeWorkspace}>{activeWorkspace}</span>
             <ChevronDown className="shrink-0" />
           </Button>
