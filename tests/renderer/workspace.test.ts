@@ -8,7 +8,8 @@ import {
   parseWorkspaceCollection,
   defaultWorkspaceCollection,
   cellCount,
-  parseShape
+  parseShape,
+  reorderTargetIndex
 } from '../../src/shared/workspace'
 import type { Layout, Workspace } from '@shared/types'
 
@@ -204,5 +205,31 @@ describe('parseWorkspaceCollection dedupes ids across the whole collection', () 
     expect(ids[0]).toBe('x') // first occurrence of 'x' kept
     expect(ids[2]).toBe('x_') // the pre-existing unique 'x_' is NOT stolen/renamed
     expect(ids[1]).not.toBe('x_') // duplicate skips the reserved 'x_'
+  })
+})
+
+describe('reorderTargetIndex (DnD drop index -> reorderWorkspaces `to`)', () => {
+  it('shifts down by one when moving an item further down (from < drop)', () => {
+    // [0,1,2,3] から index0 を row2 の前へ → 削除後は index1 に挿入
+    expect(reorderTargetIndex(0, 2, 4)).toBe(1)
+  })
+
+  it('keeps the drop index when moving up (from > drop)', () => {
+    // [0,1,2,3] から index3 を row1 の前へ → 削除後も index1
+    expect(reorderTargetIndex(3, 1, 4)).toBe(1)
+  })
+
+  it('is a no-op position when dropping just below itself (drop === from+? -> equals from)', () => {
+    // index1 を row2 の前へ = 自分の直後 = 動かない
+    expect(reorderTargetIndex(1, 2, 4)).toBe(1)
+  })
+
+  it('clamps the end drop zone (dropIndex === length) to the last slot', () => {
+    // index0 を末尾ゾーンへ → 削除後配列(長さ3)の末尾に追加 = splice index3
+    expect(reorderTargetIndex(0, 4, 4)).toBe(3)
+  })
+
+  it('end drop zone on the already-last item resolves to itself (no-op)', () => {
+    expect(reorderTargetIndex(3, 4, 4)).toBe(3)
   })
 })

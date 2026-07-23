@@ -70,7 +70,7 @@ type AppState = {
   reorderWatchlist: (from: number, to: number) => void
   reorderWorkspaces: (from: number, to: number) => WatchlistActionResult
   createWorkspace: (name: string) => WatchlistActionResult
-  duplicateWorkspace: (name: string) => WatchlistActionResult
+  duplicateWorkspace: (newName: string, sourceName?: string) => WatchlistActionResult
   renameWorkspace: (from: string, to: string) => WatchlistActionResult
   deleteWorkspace: (name: string) => void
   switchWorkspace: (name: string) => void
@@ -318,15 +318,24 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
     activate([...snapshotActive(), { name: trimmed, items: [], layout }], trimmed)
     return { ok: true }
   },
-  duplicateWorkspace: (name) => {
-    const trimmed = name.trim()
+  duplicateWorkspace: (newName, sourceName) => {
+    const trimmed = newName.trim()
     if (trimmed.length === 0) return { ok: false, error: 'Name cannot be empty.' }
     if (get().workspaces.some((w) => w.name === trimmed)) {
       return { ok: false, error: `A workspace named "${trimmed}" already exists.` }
     }
-    const layout = remintLayout(get().currentLayout())
-    const items = selectActiveItems(get()).map((i) => ({ ...i }))
-    activate([...snapshotActive(), { name: trimmed, items, layout }], trimmed)
+    // snapshotActive() でアクティブのホットなグリッドを取り込んでから layout を読む。
+    // これでコピー元がアクティブ自身でも編集中の内容を取りこぼさない。
+    const snapshot = snapshotActive()
+    const source = sourceName ?? get().activeWorkspace
+    const src = snapshot.find((w) => w.name === source)
+    if (!src) return { ok: false, error: `Workspace "${source}" not found.` }
+    const layout = remintLayout(src.layout)
+    const items = src.items.map((i) => ({ ...i }))
+    const next = [...snapshot, { name: trimmed, items, layout }]
+    // sourceName 省略 = 従来「現在の複製」: コピーへ切替。指定時 = 管理操作: アクティブ据え置き。
+    if (sourceName === undefined) activate(next, trimmed)
+    else set({ workspaces: next })
     return { ok: true }
   },
   renameWorkspace: (from, to) => {
