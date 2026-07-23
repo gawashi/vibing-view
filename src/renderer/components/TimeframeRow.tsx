@@ -8,6 +8,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { api, qk } from '@/api'
 import { cn } from '@/lib/utils'
 import type { Timeframe } from '@shared/types'
@@ -37,24 +38,39 @@ function statusFor(tf: Timeframe, caps: Partial<Record<Timeframe, CapabilityStat
 export function TimeframeRow({
   value,
   onChange,
-  label
+  label,
+  tooltip
 }: {
   value?: Timeframe
   onChange: (tf: Timeframe) => void
-  label?: string
+  label?: React.ReactNode
+  tooltip?: string
 }): React.JSX.Element {
   // Last-known + revalidate (UI-SPEC): TanStack retains previous `data` across a failed/in-flight
   // refetch, so caps.isError never blanks the row — it just keeps the last successful map.
   const caps = useQuery({ queryKey: qk.capabilities(), queryFn: () => api.capabilities.get() })
 
+  // A radix Tooltip inside the DropdownMenu's *items* fights the menu's hover/focus (see note below),
+  // but wrapping the *trigger* is fine — same composition GridShapePicker uses for its header button.
+  const trigger = (
+    <DropdownMenuTrigger asChild>
+      <Button variant="secondary" size="sm" className="h-6 gap-1 px-2 text-xs [&_svg]:size-3">
+        {label ?? (value ? TF_LABELS[value] : '')}
+        <ChevronDown />
+      </Button>
+    </DropdownMenuTrigger>
+  )
+
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="secondary" size="sm" className="h-6 gap-1 px-2 text-xs [&_svg]:size-3">
-          {label ?? (value ? TF_LABELS[value] : '')}
-          <ChevronDown />
-        </Button>
-      </DropdownMenuTrigger>
+      {tooltip ? (
+        <Tooltip>
+          <TooltipTrigger asChild>{trigger}</TooltipTrigger>
+          <TooltipContent>{tooltip}</TooltipContent>
+        </Tooltip>
+      ) : (
+        trigger
+      )}
       <DropdownMenuContent align="start" className="min-w-[6rem]">
         {TIMEFRAMES.map((tf) => {
           const status = statusFor(tf, caps.data)

@@ -1,7 +1,8 @@
 import React, { useState } from 'react'
-import { Plus } from 'lucide-react'
+import { Stamp, CopyPlus } from 'lucide-react'
 import { Button } from './ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog'
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { TimeframeRow } from './TimeframeRow'
 import { ParamFields } from './ParamFields'
 import { registry } from '../indicators/registry'
@@ -31,15 +32,29 @@ export function ApplyToAllToolbar(): React.JSX.Element {
 
   return (
     <div className="flex items-center gap-2">
-      <TimeframeRow label="TF (all)" onChange={setAllTimeframes} />
-      <Button
-        size="sm"
-        className="h-6 gap-1 px-2 text-xs [&_svg]:size-3"
-        onClick={() => setOpen(true)}
-      >
-        <Plus />
-        Indicator (all)
-      </Button>
+      <TimeframeRow
+        label={
+          <span className="flex items-center gap-1">
+            <Stamp />
+            TF
+          </span>
+        }
+        tooltip="Apply timeframe to all charts"
+        onChange={setAllTimeframes}
+      />
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            size="sm"
+            className="h-6 gap-1 px-2 text-xs [&_svg]:size-3"
+            onClick={() => setOpen(true)}
+          >
+            <CopyPlus />
+            Indicator
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Add an indicator to all charts</TooltipContent>
+      </Tooltip>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="p-6">
           <DialogHeader>
