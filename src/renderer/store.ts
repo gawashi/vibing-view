@@ -26,7 +26,7 @@ const bumpId = (id: string): number => {
   return Number.isFinite(n) ? n + 1 : nextId
 }
 
-type AppState = {
+export type AppState = {
   cells: Cell[]
   activeCellId: string
   shape: GridShape
@@ -51,6 +51,10 @@ type AppState = {
   // 固定指標(Volume, fixed:true)は残す — 再検索で銘柄を入れ直したとき出来高が消えないように。
   // そのセルの crosshair も破棄。
   clearCell: (cellId: string) => void
+  // Bulk delete — mirror of setAllTimeframes/addIndicatorToAll, but act on ALL cells of the active
+  // workspace (visible + hidden): "clear all" means all. Fixed Volume is kept (see clearCell).
+  clearAllCells: () => void
+  removeAllIndicators: () => void
   addIndicator: (type: string, cellId?: string) => void
   removeIndicator: (id: string) => void
   toggleVisible: (id: string) => void
@@ -239,6 +243,13 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
       ...c,
       indicators: c.indicators.filter((i) => i.id !== id || i.fixed)
     }))
+  })),
+  clearAllCells: () => set((state) => ({
+    cells: state.cells.map((c) => ({ ...c, symbol: null, indicators: c.indicators.filter((i) => i.fixed) })),
+    crosshairByCell: {}
+  })),
+  removeAllIndicators: () => set((state) => ({
+    cells: state.cells.map((c) => ({ ...c, indicators: c.indicators.filter((i) => i.fixed) }))
   })),
   toggleVisible: (id) => set((state) => ({
     cells: state.cells.map((c) => ({
