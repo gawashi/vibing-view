@@ -1,15 +1,13 @@
 import React from 'react'
-import { Input } from '@/components/ui/input'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useAppStore } from '@/store'
 import { registry } from '@/indicators/registry'
-import type { FieldDesc, Source } from '@/indicators/types'
+import { ParamFields } from './ParamFields'
 
-const SOURCES: Source[] = ['close', 'open', 'high', 'low', 'hl2', 'hlc3']
-
-// D-25: this form renders purely from registry[type].params (FieldDesc[]) — no per-indicator
-// branching. Adding a new indicator module (e.g. BB) requires zero changes here.
+// D-25: renders purely from registry[type].params. ParamFields covers number/select/source;
+// color stays here because it writes to instance.colors via setColor (fanned across every output),
+// not to params. Color is the last field in every module's params array, so appending its row after
+// ParamFields preserves the original top-to-bottom field order.
 export function IndicatorEditForm({
   instanceId,
   open,
@@ -27,80 +25,9 @@ export function IndicatorEditForm({
   const module = registry[instance.type]
   if (!module) return null
 
-  const renderField = (field: FieldDesc): React.JSX.Element => {
-    switch (field.kind) {
-      case 'number': {
-        const value = Number(instance.params[field.key])
-        return (
-          <Input
-            type="number"
-            min={field.min}
-            step={field.step}
-            value={Number.isNaN(value) ? '' : value}
-            // Enter commits nothing new (onChange already persists each edit) — it just closes the
-            // dialog so the user doesn't have to reach for the top-right X. Tab between boxes is left
-            // to the browser's native focus order inside the Dialog's focus trap.
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                onOpenChange(false)
-              }
-            }}
-            onChange={(e) => {
-              const raw = e.target.value
-              if (raw === '') return
-              const parsed = Number(raw)
-              if (Number.isNaN(parsed)) return
-              const clamped = field.min !== undefined ? Math.max(field.min, parsed) : parsed
-              updateParams(instance.id, { [field.key]: clamped })
-            }}
-          />
-        )
-      }
-      case 'select':
-        return (
-          <ToggleGroup
-            type="single"
-            value={String(instance.params[field.key])}
-            onValueChange={(v) => { if (v) updateParams(instance.id, { [field.key]: v }) }}
-          >
-            {field.options.map((opt) => (
-              <ToggleGroupItem key={opt} value={opt} size="sm">{opt}</ToggleGroupItem>
-            ))}
-          </ToggleGroup>
-        )
-      case 'source':
-        return (
-          <ToggleGroup
-            type="single"
-            value={String(instance.params[field.key])}
-            onValueChange={(v) => { if (v) updateParams(instance.id, { [field.key]: v }) }}
-          >
-            {SOURCES.map((src) => (
-              <ToggleGroupItem key={src} value={src} size="sm">{src}</ToggleGroupItem>
-            ))}
-          </ToggleGroup>
-        )
-      case 'color': {
-        // AMBIGUITY RESOLUTION: one shared hue per instance (D-30), not per output key. Read/write
-        // via the module's first output key; onChange fans out to every output so all lines + any
-        // band recolor together in one interaction.
-        const firstOutputKey = module.outputs[0]?.key
-        const value = firstOutputKey ? instance.colors[firstOutputKey] ?? '#ffffff' : '#ffffff'
-        return (
-          <input
-            type="color"
-            value={value}
-            onChange={(e) => {
-              for (const output of module.outputs) {
-                setColor(instance.id, output.key, e.target.value)
-              }
-            }}
-          />
-        )
-      }
-    }
-  }
+  const colorField = module.params.find((f) => f.kind === 'color')
+  const firstOutputKey = module.outputs[0]?.key
+  const colorValue = firstOutputKey ? instance.colors[firstOutputKey] ?? '#ffffff' : '#ffffff'
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -109,12 +36,24 @@ export function IndicatorEditForm({
           <DialogTitle>{module.label(instance.params)}</DialogTitle>
         </DialogHeader>
         <div className="mt-4 flex flex-col gap-4">
-          {module.params.map((field) => (
-            <div key={field.key} className="flex items-center justify-between gap-2">
-              <span className="text-sm text-muted-foreground">{field.label}</span>
-              {renderField(field)}
+          <ParamFields
+            type={instance.type}
+            params={instance.params}
+            onChange={(patch) => updateParams(instance.id, patch)}
+            onCommit={() => onOpenChange(false)}
+          />
+          {colorField && (
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm text-muted-foreground">{colorField.label}</span>
+              <input
+                type="color"
+                value={colorValue}
+                onChange={(e) => {
+                  for (const output of module.outputs) setColor(instance.id, output.key, e.target.value)
+                }}
+              />
             </div>
-          ))}
+          )}
         </div>
       </DialogContent>
     </Dialog>

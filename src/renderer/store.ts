@@ -38,6 +38,9 @@ type AppState = {
   // non-active cell's own TimeframeRow (or an automatic gating effect) can set it directly without
   // depending on click-event ordering to focus the cell first.
   setCellTimeframe: (cellId: string, tf: Timeframe) => void
+  // Bulk (apply-to-all) variants — act on the visible slice cells[0..cellCount(shape)-1].
+  setAllTimeframes: (tf: Timeframe) => void
+  addIndicatorToAll: (type: string, params: Params) => void
   // チャート削除: 対象セルを空(symbol=null)に戻す。ユーザー追加の指標は消すが、常時表示の
   // 固定指標(Volume, fixed:true)は残す — 再検索で銘柄を入れ直したとき出来高が消えないように。
   // そのセルの crosshair も破棄。
@@ -108,6 +111,32 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
     set({ workspaces, activeWorkspace: name })
     get().hydrate(layout)
   }
+  // Build one IndicatorInstance with palette-assigned colors. Extracted from addIndicator so the
+  // bulk addIndicatorToAll shares the exact color/id logic. `base` = the target cell's current
+  // indicator count (palette is round-robin by add order). Returns null for an unknown type.
+  const makeInstance = (type: string, params: Params, base: number): IndicatorInstance | null => {
+    const module = registry[type]
+    if (!module) return null
+    const colors: Record<string, string> = {}
+    const lineCount = module.outputs.filter((o) => o.kind === 'line').length
+    const hasBand = module.outputs.some((o) => o.kind === 'band')
+    if (lineCount > 1 && !hasBand) {
+      let n = 0
+      for (const output of module.outputs) {
+        colors[output.key] =
+          output.kind === 'line' ? PALETTE[(base + n++) % PALETTE.length] : PALETTE[base % PALETTE.length]
+      }
+    } else {
+      const color = PALETTE[base % PALETTE.length]
+      for (const output of module.outputs) colors[output.key] = color
+    }
+    return { id: String(nextId++), type, params: { ...params }, colors, visible: true }
+  }
+  // Shallow params equality — same type ⇒ same key set, so key-count + per-key value compare suffices.
+  const sameParams = (a: Params, b: Params): boolean => {
+    const ak = Object.keys(a)
+    return ak.length === Object.keys(b).length && ak.every((k) => a[k] === b[k])
+  }
   return {
   cells: initialLayout.cells,
   activeCellId: initialLayout.activeCellId,
@@ -145,6 +174,23 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
   setCellTimeframe: (cellId, tf) => set((state) => ({
     cells: state.cells.map((c) => (c.id === cellId ? { ...c, timeframe: tf } : c))
   })),
+  setAllTimeframes: (tf) => set((state) => {
+    const visible = cellCount(state.shape)
+    return { cells: state.cells.map((c, i) => (i < visible ? { ...c, timeframe: tf } : c)) }
+  }),
+  addIndicatorToAll: (type, params) => {
+    if (!registry[type]) return
+    set((state) => {
+      const visible = cellCount(state.shape)
+      return {
+        cells: state.cells.map((c, i) => {
+          if (i >= visible) return c
+          if (c.indicators.some((ind) => ind.type === type && sameParams(ind.params, params))) return c
+          return { ...c, indicators: [...c.indicators, makeInstance(type, params, c.indicators.length)!] }
+        })
+      }
+    })
+  },
   clearCell: (cellId) => set((state) => {
     const { [cellId]: _removed, ...crosshairByCell } = state.crosshairByCell
     return {
@@ -156,36 +202,12 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
     }
   }),
   addIndicator: (type, cellId) => {
+    const targetId = cellId ?? get().activeCellId
+    const cell = get().cells.find((c) => c.id === targetId)
+    if (!cell) return
     const module = registry[type]
     if (!module) return
-    const targetId = cellId ?? get().activeCellId
-    const activeCell = get().cells.find((c) => c.id === targetId)
-    if (!activeCell) return
-    const base = activeCell.indicators.length
-    const colors: Record<string, string> = {}
-    // Multi-line-no-band modules (MACD: macd+signal, no band) get CONSECUTIVE hues so the two lines
-    // are distinguishable; derived from outputs structure, never inst.type. ma/rsi (single line) and
-    // bb (has a band) keep the single-hue path. Non-line outputs (histogram) get a placeholder — its
-    // real per-bar colors come from compute, so the palette value is unused.
-    const lineCount = module.outputs.filter((o) => o.kind === 'line').length
-    const hasBand = module.outputs.some((o) => o.kind === 'band')
-    if (lineCount > 1 && !hasBand) {
-      let n = 0
-      for (const output of module.outputs) {
-        colors[output.key] =
-          output.kind === 'line' ? PALETTE[(base + n++) % PALETTE.length] : PALETTE[base % PALETTE.length]
-      }
-    } else {
-      const color = PALETTE[base % PALETTE.length]
-      for (const output of module.outputs) colors[output.key] = color
-    }
-    const instance: IndicatorInstance = {
-      id: String(nextId++),
-      type,
-      params: { ...module.defaults },
-      colors,
-      visible: true
-    }
+    const instance = makeInstance(type, { ...module.defaults }, cell.indicators.length)!
     set((state) => ({
       cells: state.cells.map((c) =>
         c.id === targetId ? { ...c, indicators: [...c.indicators, instance] } : c
