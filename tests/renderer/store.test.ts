@@ -469,4 +469,39 @@ describe('useAppStore grid shape logic', () => {
       expect(copy.layout.cells.some((c) => c.id === copy.layout.activeCellId)).toBe(true)
     })
   })
+
+  describe('useAppStore swapCells / setCellSymbol', () => {
+    beforeEach(() => {
+      const { cells, activeCellId } = useAppStore.getState()
+      useAppStore.setState({
+        cells: [cells.find((c) => c.id === activeCellId) ?? cells[0]],
+        shape: { rows: 1, cols: 1 },
+        activeCellId
+      })
+    })
+
+    it('swapCells exchanges positions; active id (ring) follows cell identity', () => {
+      useAppStore.getState().setShape({ rows: 2, cols: 2 })
+      const s0 = useAppStore.getState()
+      const idA = s0.cells[0].id
+      const idB = s0.cells[1].id
+      useAppStore.getState().setActiveCell(idA)
+
+      useAppStore.getState().swapCells(idA, idB)
+
+      const s1 = useAppStore.getState()
+      expect(s1.cells[0].id).toBe(idB)
+      expect(s1.cells[1].id).toBe(idA)
+      expect(s1.activeCellId).toBe(idA) // unchanged → ring stays on the same chart, now at index 1
+    })
+
+    it('swapCells is a no-op (same cells ref) for same id or unknown id', () => {
+      useAppStore.getState().setShape({ rows: 2, cols: 2 })
+      const before = useAppStore.getState().cells
+      useAppStore.getState().swapCells(before[0].id, before[0].id)
+      expect(useAppStore.getState().cells).toBe(before)
+      useAppStore.getState().swapCells(before[0].id, 'nope')
+      expect(useAppStore.getState().cells).toBe(before)
+    })
+  })
 })
