@@ -225,8 +225,8 @@ describe('reorderTargetIndex (DnD drop index -> reorderWorkspaces `to`)', () => 
   })
 
   it('clamps the end drop zone (dropIndex === length) to the last slot', () => {
-    // index0 を末尾ゾーンへ → 削除後配列(長さ3)の末尾 index2
-    expect(reorderTargetIndex(0, 4, 4)).toBe(2)
+    // index0 を末尾ゾーンへ → 削除後配列(長さ3)の末尾に追加 = splice index3
+    expect(reorderTargetIndex(0, 4, 4)).toBe(3)
   })
 
   it('end drop zone on the already-last item resolves to itself (no-op)', () => {
