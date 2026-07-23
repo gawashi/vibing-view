@@ -38,6 +38,12 @@ type AppState = {
   // non-active cell's own TimeframeRow (or an automatic gating effect) can set it directly without
   // depending on click-event ordering to focus the cell first.
   setCellTimeframe: (cellId: string, tf: Timeframe) => void
+  // ドラッグ&ドロップ用の純粋ミューテーション。swap は cells 配列内で 2 セルを id ごと入替える
+  // (activeCellId は id 参照なのでリングは中身に追従)。
+  swapCells: (idA: string, idB: string) => void
+  // 対象セルの symbol のみ差し替え(timeframe/indicators 維持)。空セルを埋める用途も兼ねる。
+  // 不明 id・同値 symbol は state 不変(不要な永続化を避ける)。
+  setCellSymbol: (cellId: string, symbol: string) => void
   // Bulk (apply-to-all) variants — act on the visible slice cells[0..cellCount(shape)-1].
   setAllTimeframes: (tf: Timeframe) => void
   addIndicatorToAll: (type: string, params: Params) => void
@@ -174,6 +180,20 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
   setCellTimeframe: (cellId, tf) => set((state) => ({
     cells: state.cells.map((c) => (c.id === cellId ? { ...c, timeframe: tf } : c))
   })),
+  swapCells: (idA, idB) => set((state) => {
+    if (idA === idB) return state
+    const ia = state.cells.findIndex((c) => c.id === idA)
+    const ib = state.cells.findIndex((c) => c.id === idB)
+    if (ia === -1 || ib === -1) return state
+    const cells = state.cells.slice()
+    ;[cells[ia], cells[ib]] = [cells[ib], cells[ia]]
+    return { cells }
+  }),
+  setCellSymbol: (cellId, symbol) => set((state) => {
+    const cell = state.cells.find((c) => c.id === cellId)
+    if (!cell || cell.symbol === symbol) return state
+    return { cells: state.cells.map((c) => (c.id === cellId ? { ...c, symbol } : c)) }
+  }),
   setAllTimeframes: (tf) => set((state) => {
     const visible = cellCount(state.shape)
     return { cells: state.cells.map((c, i) => (i < visible ? { ...c, timeframe: tf } : c)) }

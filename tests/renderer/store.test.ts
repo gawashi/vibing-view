@@ -471,6 +471,73 @@ describe('useAppStore grid shape logic', () => {
     })
   })
 
+  describe('useAppStore swapCells / setCellSymbol', () => {
+    beforeEach(() => {
+      const { cells, activeCellId } = useAppStore.getState()
+      useAppStore.setState({
+        cells: [cells.find((c) => c.id === activeCellId) ?? cells[0]],
+        shape: { rows: 1, cols: 1 },
+        activeCellId
+      })
+    })
+
+    it('swapCells exchanges positions; active id (ring) follows cell identity', () => {
+      useAppStore.getState().setShape({ rows: 2, cols: 2 })
+      const s0 = useAppStore.getState()
+      const idA = s0.cells[0].id
+      const idB = s0.cells[1].id
+      useAppStore.getState().setActiveCell(idA)
+
+      useAppStore.getState().swapCells(idA, idB)
+
+      const s1 = useAppStore.getState()
+      expect(s1.cells[0].id).toBe(idB)
+      expect(s1.cells[1].id).toBe(idA)
+      expect(s1.activeCellId).toBe(idA) // unchanged → ring stays on the same chart, now at index 1
+    })
+
+    it('swapCells is a no-op (same cells ref) for same id or unknown id', () => {
+      useAppStore.getState().setShape({ rows: 2, cols: 2 })
+      const before = useAppStore.getState().cells
+      useAppStore.getState().swapCells(before[0].id, before[0].id)
+      expect(useAppStore.getState().cells).toBe(before)
+      useAppStore.getState().swapCells(before[0].id, 'nope')
+      expect(useAppStore.getState().cells).toBe(before)
+    })
+
+    it('setCellSymbol replaces only the symbol, keeping timeframe and indicators', () => {
+      const id = useAppStore.getState().activeCellId
+      useAppStore.getState().setCellTimeframe(id, '1h')
+      useAppStore.getState().addIndicator('ma', id)
+      const before = useAppStore.getState().cells.find((c) => c.id === id)!
+
+      useAppStore.getState().setCellSymbol(id, 'MSFT')
+
+      const after = useAppStore.getState().cells.find((c) => c.id === id)!
+      expect(after.symbol).toBe('MSFT')
+      expect(after.timeframe).toBe(before.timeframe)
+      expect(after.indicators).toEqual(before.indicators)
+    })
+
+    it('setCellSymbol fills an empty (null-symbol) cell', () => {
+      useAppStore.getState().setShape({ rows: 2, cols: 2 })
+      const emptyId = useAppStore.getState().cells[1].id
+      expect(useAppStore.getState().cells[1].symbol).toBeNull()
+      useAppStore.getState().setCellSymbol(emptyId, 'NVDA')
+      expect(useAppStore.getState().cells.find((c) => c.id === emptyId)!.symbol).toBe('NVDA')
+    })
+
+    it('setCellSymbol is a no-op (same cells ref) for unknown id or unchanged symbol', () => {
+      const before = useAppStore.getState().cells
+      const id = useAppStore.getState().activeCellId
+      const sym = before.find((c) => c.id === id)!.symbol!
+      useAppStore.getState().setCellSymbol(id, sym)
+      expect(useAppStore.getState().cells).toBe(before)
+      useAppStore.getState().setCellSymbol('nope', 'MSFT')
+      expect(useAppStore.getState().cells).toBe(before)
+    })
+  })
+
   describe('duplicateWorkspace(newName, sourceName)', () => {
     beforeEach(() => {
       useAppStore.setState({

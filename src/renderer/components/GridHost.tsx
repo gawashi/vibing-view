@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { X, Star } from 'lucide-react'
+import { X, Star, GripVertical } from 'lucide-react'
 import { api, qk } from '@/api'
 import { useAppStore, selectActiveItems } from '@/store'
 import { cellCount } from '@shared/workspace'
@@ -237,29 +237,80 @@ export function ChartPanel({ cell }: { cell: Cell }): React.JSX.Element {
   )
 }
 
-function GridCell({ cell, active }: { cell: Cell; active: boolean }): React.JSX.Element {
+function GridCell({
+  cell,
+  active,
+  isDropTarget,
+  onDropTarget
+}: {
+  cell: Cell
+  active: boolean
+  isDropTarget: boolean
+  onDropTarget: (id: string | null) => void
+}): React.JSX.Element {
   const setActiveCell = useAppStore((s) => s.setActiveCell)
 
   return (
     <div
       onClick={() => setActiveCell(cell.id)}
       // Double-click a chart-bearing cell → open it enlarged in its own OS window (keyed by cellId).
-      // The user reports the chart canvas's built-in double-click zoom-reset doesn't fire in-app, so
-      // binding the whole cell is safe. Empty cells have nothing to enlarge.
       onDoubleClick={cell.symbol ? () => void api.chart.openWindow(cell.id) : undefined}
+      // Whole cell (incl. empty) is a drop target. Accept only our two MIME types so unrelated drags
+      // (text selections, files) don't preventDefault. getData() is empty during dragover — read
+      // types here, full payload on drop.
+      onDragOver={(e) => {
+        const t = e.dataTransfer.types
+        if (!t.includes('application/x-vv-cell') && !t.includes('application/x-vv-symbol')) return
+        e.preventDefault()
+        onDropTarget(cell.id)
+      }}
+      onDrop={(e) => {
+        e.preventDefault()
+        const draggedId = e.dataTransfer.getData('application/x-vv-cell')
+        if (draggedId) {
+          if (draggedId !== cell.id) useAppStore.getState().swapCells(draggedId, cell.id)
+        } else {
+          const symbol = e.dataTransfer.getData('application/x-vv-symbol')
+          if (symbol) {
+            useAppStore.getState().setCellSymbol(cell.id, symbol)
+            setActiveCell(cell.id)
+          }
+        }
+        onDropTarget(null)
+      }}
       className={cn(
-        // min-h-0 + min-w-0: a grid item defaults to min-height:auto and won't shrink below its
-        // content, so in 2x2 the chart's autoSize measurement would balloon the row past 1fr and
-        // the top cell renders double-height, clipping the one below. Let the cell shrink to its track.
-        'flex h-full min-h-0 min-w-0 flex-col gap-4 rounded-md',
-        active && 'ring-2 ring-primary ring-offset-2 ring-offset-background'
+        // group/cell: scopes the grip handle's hover-reveal. min-h-0 + min-w-0: let the cell shrink
+        // to its grid track (2x2 height fix). relative: anchors the absolutely-positioned handle.
+        'group/cell relative flex h-full min-h-0 min-w-0 flex-col gap-4 rounded-md',
+        active && 'ring-2 ring-primary ring-offset-2 ring-offset-background',
+        // Drop-target highlight is visually distinct from the active ring: a dashed inset accent
+        // outline that reads as "this is where it lands". Can co-exist with the active ring.
+        isDropTarget && 'outline-dashed outline-2 outline-offset-[-4px] outline-primary'
       )}
     >
       {cell.symbol
         ? (
           <ContextMenu>
             <ContextMenuTrigger asChild>
-              <div className="flex h-full min-h-0 min-w-0 flex-col gap-4">
+              {/* pl-6 reserves a left gutter for the drag handle so it sits to the LEFT of the ticker
+                  instead of top-right next to the × button (mis-click hazard). Grid-only wrapper, so
+                  ChartWindow (renders ChartPanel directly) keeps its flush layout. */}
+              <div className="flex h-full min-h-0 min-w-0 flex-col gap-4 pl-6">
+                {/* Drag handle: the ONLY drag source for the cell — keeps chart body, timeframe/★/×
+                    buttons, and the shared ChartPanel (used by ChartWindow) non-draggable. */}
+                <span
+                  draggable
+                  onDragStart={(e) => {
+                    e.stopPropagation()
+                    e.dataTransfer.setData('application/x-vv-cell', cell.id)
+                  }}
+                  onDragEnd={() => onDropTarget(null)}
+                  onClick={(e) => e.stopPropagation()}
+                  aria-label={`Move ${cell.symbol} chart`}
+                  className="invisible absolute left-1 top-1.5 z-10 cursor-grab text-muted-foreground hover:text-foreground group-hover/cell:visible"
+                >
+                  <GripVertical className="size-4" />
+                </span>
                 <ChartPanel cell={cell} />
               </div>
             </ContextMenuTrigger>
@@ -279,12 +330,18 @@ export function GridHost(): React.JSX.Element {
   const cells = useAppStore((s) => s.cells)
   const shape = useAppStore((s) => s.shape)
   const activeCellId = useAppStore((s) => s.activeCellId)
+  // Single drop-target highlight for the whole grid. Cleared on drop, dragend, or when the pointer
+  // leaves the grid entirely (relatedTarget outside) — covers Esc/cancel and off-grid drops.
+  const [dragOverCellId, setDragOverCellId] = React.useState<string | null>(null)
 
   const visible = cells.slice(0, cellCount(shape))
 
   return (
     <div
       className="grid h-full gap-4 p-4"
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverCellId(null)
+      }}
       style={{
         // Tailwind の動的クラス（grid-cols-${n}）は JIT に拾われないため style 直指定。
         // minmax(0,1fr) は 2x2 で使っていた min-h-0/min-w-0 と同趣旨のトラック縮小保証。
@@ -293,7 +350,13 @@ export function GridHost(): React.JSX.Element {
       }}
     >
       {visible.map((cell) => (
-        <GridCell key={cell.id} cell={cell} active={cell.id === activeCellId} />
+        <GridCell
+          key={cell.id}
+          cell={cell}
+          active={cell.id === activeCellId}
+          isDropTarget={cell.id === dragOverCellId}
+          onDropTarget={setDragOverCellId}
+        />
       ))}
     </div>
   )
