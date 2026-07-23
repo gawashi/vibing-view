@@ -6,6 +6,7 @@ import { api, qk } from './api'
 import { Button } from './components/ui/button'
 import { GridHost } from './components/GridHost'
 import { GridShapePicker } from './components/GridShapePicker'
+import { ApplyToAllToolbar } from './components/ApplyToAllToolbar'
 import { WorkspaceSwitcher } from './components/WorkspaceSwitcher'
 import { quoteSymbols } from './lib/quoteTargets'
 import { refreshTargets } from './lib/refreshTargets'
@@ -125,6 +126,7 @@ export default function App(): React.JSX.Element {
             <TooltipContent>{sidebarOpen ? 'Hide watchlist' : 'Show watchlist'}</TooltipContent>
           </Tooltip>
           <GridShapePicker />
+          <ApplyToAllToolbar />
           <WorkspaceSwitcher />
           <div className="ml-auto flex items-center gap-4">
             <Tooltip>
