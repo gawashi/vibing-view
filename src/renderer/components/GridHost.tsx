@@ -206,15 +206,47 @@ function FavoriteStar({ symbol }: { symbol: string }): React.JSX.Element {
   )
 }
 
-function GridCell({ cell, active }: { cell: Cell; active: boolean }): React.JSX.Element {
-  const setActiveCell = useAppStore((s) => s.setActiveCell)
+// The chart toolbar + chart body for one symbol-bearing cell. Rendered fragment (no outer box) so
+// GridCell can wrap it as a ContextMenu trigger and ChartWindow can render it full-screen. Owns the
+// per-cell capability gating so both the grid and the enlarge window gate their own row.
+export function ChartPanel({ cell }: { cell: Cell }): React.JSX.Element {
   const setCellTimeframe = useAppStore((s) => s.setCellTimeframe)
   const clearCell = useAppStore((s) => s.clearCell)
   useCellCapabilityGating(cell.id, cell.symbol, cell.timeframe)
 
   return (
+    <>
+      <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
+        <SymbolLabel symbol={cell.symbol!} timeframe={cell.timeframe} />
+        <TimeframeRow value={cell.timeframe} onChange={(tf) => setCellTimeframe(cell.id, tf)} />
+        <AddIndicatorMenu cellId={cell.id} />
+        <Button
+          variant="ghost"
+          size="icon"
+          className="ml-auto h-6 w-6 [&_svg]:size-3.5"
+          aria-label={`Remove ${cell.symbol} chart`}
+          onClick={(e) => { e.stopPropagation(); clearCell(cell.id) }}
+        >
+          <X />
+        </Button>
+      </div>
+      <div className="min-h-0 flex-1">
+        <Chart cellId={cell.id} symbol={cell.symbol!} timeframe={cell.timeframe} />
+      </div>
+    </>
+  )
+}
+
+function GridCell({ cell, active }: { cell: Cell; active: boolean }): React.JSX.Element {
+  const setActiveCell = useAppStore((s) => s.setActiveCell)
+
+  return (
     <div
       onClick={() => setActiveCell(cell.id)}
+      // Double-click a chart-bearing cell → open it enlarged in its own OS window (keyed by cellId).
+      // The user reports the chart canvas's built-in double-click zoom-reset doesn't fire in-app, so
+      // binding the whole cell is safe. Empty cells have nothing to enlarge.
+      onDoubleClick={cell.symbol ? () => void api.chart.openWindow(cell.id) : undefined}
       className={cn(
         // min-h-0 + min-w-0: a grid item defaults to min-height:auto and won't shrink below its
         // content, so in 2x2 the chart's autoSize measurement would balloon the row past 1fr and
@@ -228,29 +260,7 @@ function GridCell({ cell, active }: { cell: Cell; active: boolean }): React.JSX.
           <ContextMenu>
             <ContextMenuTrigger asChild>
               <div className="flex h-full min-h-0 min-w-0 flex-col gap-4">
-                {/* min-w-0 + flex-wrap: in a narrow 2x2 cell the toolbar's intrinsic width (label +
-                    7 tf buttons + Indicator + X) exceeds the track; without these it overflows into
-                    the neighbouring cell. Let it wrap to a second line instead. */}
-                <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
-                  <SymbolLabel symbol={cell.symbol} timeframe={cell.timeframe} />
-                  <TimeframeRow
-                    value={cell.timeframe}
-                    onChange={(tf) => setCellTimeframe(cell.id, tf)}
-                  />
-                  <AddIndicatorMenu cellId={cell.id} />
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="ml-auto h-6 w-6 [&_svg]:size-3.5"
-                    aria-label={`Remove ${cell.symbol} chart`}
-                    onClick={(e) => { e.stopPropagation(); clearCell(cell.id) }}
-                  >
-                    <X />
-                  </Button>
-                </div>
-                <div className="min-h-0 flex-1">
-                  <Chart cellId={cell.id} symbol={cell.symbol} timeframe={cell.timeframe} />
-                </div>
+                <ChartPanel cell={cell} />
               </div>
             </ContextMenuTrigger>
             <ContextMenuContent>

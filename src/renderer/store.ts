@@ -88,6 +88,17 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
     const layout = get().currentLayout()
     return workspaces.map((w) => (w.name === activeWorkspace ? { ...w, layout } : w))
   }
+  // Fresh ids for every cell + indicator in a layout (used when duplicating a workspace so the copy
+  // never shares an id with its source — collection-wide uniqueness, see workspace.ts dedupe).
+  const remintLayout = (layout: Layout): Layout => {
+    let activeCellId = layout.activeCellId
+    const cells = layout.cells.map((c) => {
+      const id = String(nextId++)
+      if (c.id === layout.activeCellId) activeCellId = id
+      return { ...c, id, indicators: c.indicators.map((i) => ({ ...i, id: String(nextId++) })) }
+    })
+    return { ...layout, cells, activeCellId }
+  }
   // Make `name` the active workspace and hydrate its layout into the hot grid. Callers pass the
   // already-snapshotted array so the outgoing grid isn't lost. Single owner of the set-active +
   // hydrate pairing — create/duplicate/delete/switch all end here (keeps the nextId reseed in hydrate
@@ -291,7 +302,7 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
     if (get().workspaces.some((w) => w.name === trimmed)) {
       return { ok: false, error: `A workspace named "${trimmed}" already exists.` }
     }
-    const layout = get().currentLayout()
+    const layout = remintLayout(get().currentLayout())
     const items = selectActiveItems(get()).map((i) => ({ ...i }))
     activate([...snapshotActive(), { name: trimmed, items, layout }], trimmed)
     return { ok: true }
@@ -326,6 +337,14 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
     activate(snapshotActive(), name)
   },
   hydrateWorkspaces: (collection) => {
+    // Reseed nextId past every id in EVERY workspace (not just the active one activate() hydrates),
+    // so a runtime-minted id can't collide with a non-active workspace's cell/indicator id.
+    for (const w of collection.workspaces) {
+      for (const cell of w.layout.cells) {
+        nextId = Math.max(nextId, bumpId(cell.id))
+        for (const inst of cell.indicators) nextId = Math.max(nextId, bumpId(inst.id))
+      }
+    }
     activate(collection.workspaces, collection.active)
   }
   }

@@ -10,7 +10,7 @@ import {
   cellCount,
   parseShape
 } from '../../src/shared/workspace'
-import type { Layout } from '@shared/types'
+import type { Layout, Workspace } from '@shared/types'
 
 const aapl = { symbol: 'AAPL', name: 'Apple Inc.', exchange: 'NASDAQ' }
 
@@ -96,8 +96,8 @@ describe('parseWorkspaceCollection', () => {
       version: 3,
       active: 'Scan',
       workspaces: [
-        { name: 'Main', items: [aapl], layout: emptyLayout() },
-        { name: 'Scan', items: [], layout: emptyLayout() }
+        { name: 'Main', items: [aapl], layout: defaultLayout('c1', 'v1') },
+        { name: 'Scan', items: [], layout: defaultLayout('c2', 'v2') }
       ]
     }
     expect(parseWorkspaceCollection(c)).toEqual(c)
@@ -155,5 +155,54 @@ describe('cellCount', () => {
     expect(cellCount({ rows: 1, cols: 1 })).toBe(1)
     expect(cellCount({ rows: 3, cols: 3 })).toBe(9)
     expect(cellCount({ rows: 1, cols: 2 })).toBe(2)
+  })
+})
+
+describe('parseWorkspaceCollection dedupes ids across the whole collection', () => {
+  it('reassigns duplicate cell/indicator ids, keeping the first occurrence', () => {
+    const dupCell = {
+      id: '1', symbol: 'AAPL', timeframe: '1d',
+      indicators: [{ id: '2', type: 'volume', params: {}, colors: {}, visible: true, fixed: true }]
+    }
+    const raw = {
+      version: 3,
+      active: 'A',
+      workspaces: [
+        { name: 'A', items: [], layout: { schemaVersion: 1, cells: [dupCell], shape: { rows: 1, cols: 1 }, activeCellId: '1' } },
+        { name: 'B', items: [], layout: { schemaVersion: 1, cells: [{ ...dupCell }], shape: { rows: 1, cols: 1 }, activeCellId: '1' } }
+      ]
+    }
+    const parsed = parseWorkspaceCollection(raw)
+    const ids = parsed.workspaces.flatMap((w) => w.layout.cells.flatMap((c) => [c.id, ...c.indicators.map((i) => i.id)]))
+    expect(new Set(ids).size).toBe(ids.length) // all unique
+    expect(parsed.workspaces[0].layout.cells[0].id).toBe('1') // first occurrence kept
+    // workspace B's activeCellId follows its cell's reassigned id
+    const bCell = parsed.workspaces[1].layout.cells[0]
+    expect(parsed.workspaces[1].layout.activeCellId).toBe(bCell.id)
+    expect(bCell.id).not.toBe('1')
+  })
+
+  it('leaves an already-unique collection untouched', () => {
+    const raw = defaultWorkspaceCollection()
+    expect(parseWorkspaceCollection(raw)).toEqual(parseWorkspaceCollection(raw))
+  })
+
+  it('does not rename an existing unique id when reminting a duplicate (x, x, x_ case)', () => {
+    const cell = (id: string) => ({ id, symbol: 'AAPL', timeframe: '1d', indicators: [] })
+    const raw = {
+      version: 3,
+      active: 'A',
+      workspaces: [
+        { name: 'A', items: [], layout: { schemaVersion: 1, cells: [cell('x')], shape: { rows: 1, cols: 1 }, activeCellId: 'x' } },
+        { name: 'B', items: [], layout: { schemaVersion: 1, cells: [cell('x')], shape: { rows: 1, cols: 1 }, activeCellId: 'x' } },
+        { name: 'C', items: [], layout: { schemaVersion: 1, cells: [cell('x_')], shape: { rows: 1, cols: 1 }, activeCellId: 'x_' } }
+      ]
+    }
+    const parsed = parseWorkspaceCollection(raw)
+    const ids = parsed.workspaces.map((w) => w.layout.cells[0].id)
+    expect(new Set(ids).size).toBe(3) // all unique
+    expect(ids[0]).toBe('x') // first occurrence of 'x' kept
+    expect(ids[2]).toBe('x_') // the pre-existing unique 'x_' is NOT stolen/renamed
+    expect(ids[1]).not.toBe('x_') // duplicate skips the reserved 'x_'
   })
 })

@@ -374,4 +374,32 @@ describe('useAppStore grid shape logic', () => {
       expect(useAppStore.getState().cells[0].symbol).toBe('NVDA')
     })
   })
+
+  describe('workspace duplication mints fresh ids', () => {
+    beforeEach(() => {
+      useAppStore.getState().hydrateWorkspaces({
+        version: 3, active: 'Src',
+        workspaces: [{
+          name: 'Src', items: [],
+          layout: {
+            schemaVersion: 1,
+            cells: [{ id: 'srcC', symbol: 'AAPL', timeframe: '1d', indicators: [{ id: 'srcI', type: 'volume', params: {}, colors: {}, visible: true, fixed: true }] }],
+            shape: { rows: 1, cols: 1 }, activeCellId: 'srcC'
+          }
+        }]
+      })
+    })
+
+    it('duplicate shares no cell or indicator id with its source', () => {
+      useAppStore.getState().duplicateWorkspace('Copy')
+      const wss = useAppStore.getState().workspaces
+      const src = wss.find((w) => w.name === 'Src')!
+      const copy = wss.find((w) => w.name === 'Copy')!
+      const srcIds = src.layout.cells.flatMap((c) => [c.id, ...c.indicators.map((i) => i.id)])
+      const copyIds = copy.layout.cells.flatMap((c) => [c.id, ...c.indicators.map((i) => i.id)])
+      expect(srcIds.some((id) => copyIds.includes(id))).toBe(false)
+      // copy's activeCellId points at a real cell in the copy
+      expect(copy.layout.cells.some((c) => c.id === copy.layout.activeCellId)).toBe(true)
+    })
+  })
 })

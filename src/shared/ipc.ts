@@ -22,13 +22,16 @@ export const CH = {
   workspacesGet: 'workspaces:get',
   workspacesSet: 'workspaces:set',
   companyInfo: 'company:info',
-  companyOpenWindow: 'company:openWindow'
+  companyOpenWindow: 'company:openWindow',
+  chartOpenWindow: 'chart:openWindow',
+  workspacesChanged: 'workspaces:changed'
 } as const
 
 export type KeyStatus = { hasKey: boolean; encryptionAvailable: boolean; maskedKey?: string }
 export type SetKeyResult = { ok: boolean; encryptionAvailable: boolean }
 export type CapabilityStatus = 'available' | 'requires-plan' | 'rate-limited' | 'unknown'
 export type Theme = 'light' | 'dark' | 'system'
+export type WorkspacesPayload = { collection: WorkspaceCollection; rev: number }
 
 export interface Api {
   symbols: {
@@ -61,12 +64,18 @@ export interface Api {
   }
   capabilities: { get(): Promise<Record<Timeframe, CapabilityStatus>> }
   workspaces: {
-    get(): Promise<WorkspaceCollection>
+    // rev: monotonic version stamped by main. Renderers ignore any get/onChanged payload whose rev
+    // is <= the last one they applied (drops out-of-order broadcasts and the startup get-vs-broadcast race).
+    get(): Promise<WorkspacesPayload>
     set(c: WorkspaceCollection): Promise<void>
+    onChanged(cb: (p: WorkspacesPayload) => void): () => void
   }
   company: {
     info(symbol: string): Promise<CompanyInfo>
     openWindow(symbol: string): Promise<void>
+  }
+  chart: {
+    openWindow(cellId: string): Promise<void>
   }
 }
 
