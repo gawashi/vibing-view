@@ -20,26 +20,22 @@ export function ChartWindow({ cellId }: { cellId: string }): React.JSX.Element {
 
   // One TooltipProvider/Toaster around every branch: ChartPanel renders Radix Tooltips (SymbolLabel,
   // TimeframeRow) which throw without a provider ancestor, and gating toasts need somewhere to render.
-  let content: React.JSX.Element
-  if (!cell) {
-    content = (
+  const msg = !cell
+    ? 'This chart is not in the current workspace. Switch back to its workspace to see it again.'
+    : !cell.symbol
+      ? 'This chart has no symbol set.'
+      : null
+  const content = msg
+    ? (
       <div className="flex h-screen items-center justify-center bg-background p-8 text-center text-muted-foreground">
-        このチャートは現在のワークスペースにありません。元のワークスペースに戻すと再表示されます。
+        {msg}
       </div>
     )
-  } else if (!cell.symbol) {
-    content = (
-      <div className="flex h-screen items-center justify-center bg-background p-8 text-center text-muted-foreground">
-        このチャートには銘柄が設定されていません。
-      </div>
-    )
-  } else {
-    content = (
+    : (
       <div className="flex h-screen min-h-0 min-w-0 flex-col gap-4 bg-background p-4 text-foreground">
-        <ChartPanel cell={cell} />
+        <ChartPanel cell={cell!} />
       </div>
     )
-  }
 
   return (
     <TooltipProvider>

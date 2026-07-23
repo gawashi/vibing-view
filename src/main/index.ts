@@ -57,15 +57,17 @@ function createWindow(): void {
   loadRenderer(win)
 }
 
-function openCompanyWindow(symbol: string): void {
-  const existing = companyWindows.get(symbol)
+// One hardened, per-key satellite window keyed in `map`. Reopening a live key focuses it; a new key
+// spawns another. Cleared on 'closed'. Backs both the company (per-symbol) and chart (per-cellId) windows.
+function openHashWindow(map: Map<string, BrowserWindow>, key: string, width: number, height: number, hash: string): void {
+  const existing = map.get(key)
   if (existing) {
     existing.focus()
     return
   }
   const win = new BrowserWindow({
-    width: 480,
-    height: 680,
+    width,
+    height,
     backgroundColor: '#0B0E11',
     show: false,
     webPreferences: {
@@ -76,35 +78,10 @@ function openCompanyWindow(symbol: string): void {
     }
   })
   hardenWindow(win)
-  companyWindows.set(symbol, win)
+  map.set(key, win)
   win.on('ready-to-show', () => win.show())
-  win.on('closed', () => companyWindows.delete(symbol))
-  loadRenderer(win, buildCompanyHash(symbol))
-}
-
-function openChartWindow(cellId: string): void {
-  const existing = chartWindows.get(cellId)
-  if (existing) {
-    existing.focus()
-    return
-  }
-  const win = new BrowserWindow({
-    width: 1100,
-    height: 760,
-    backgroundColor: '#0B0E11',
-    show: false,
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
-      contextIsolation: true,
-      nodeIntegration: false
-    }
-  })
-  hardenWindow(win)
-  chartWindows.set(cellId, win)
-  win.on('ready-to-show', () => win.show())
-  win.on('closed', () => chartWindows.delete(cellId))
-  loadRenderer(win, buildChartHash(cellId))
+  win.on('closed', () => map.delete(key))
+  loadRenderer(win, hash)
 }
 
 app.whenReady().then(async () => {
@@ -112,8 +89,8 @@ app.whenReady().then(async () => {
   // corporate networks block direct egress, so an unconfigured client times out (see net/httpClient).
   await configureProxy()
   registerIpc()
-  ipcMain.handle(CH.companyOpenWindow, (_e, symbol: string) => openCompanyWindow(symbol))
-  ipcMain.handle(CH.chartOpenWindow, (_e, cellId: string) => openChartWindow(cellId))
+  ipcMain.handle(CH.companyOpenWindow, (_e, symbol: string) => openHashWindow(companyWindows, symbol, 480, 680, buildCompanyHash(symbol)))
+  ipcMain.handle(CH.chartOpenWindow, (_e, cellId: string) => openHashWindow(chartWindows, cellId, 1100, 760, buildChartHash(cellId)))
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
