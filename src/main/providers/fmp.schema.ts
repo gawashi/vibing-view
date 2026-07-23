@@ -67,6 +67,69 @@ export const fmpProfileRow = z.object({
   range: z.string().nullable().optional(),
   volume: z.coerce.number().nullable().optional(),
   averageVolume: z.coerce.number().nullable().optional(),
-  lastDividend: z.coerce.number().nullable().optional()
+  lastDividend: z.coerce.number().nullable().optional(),
+  price: z.coerce.number().nullable().optional()
 }).passthrough()
 export const fmpProfileResponse = z.array(fmpProfileRow)
+
+// Investment-metric endpoints. All numeric fields tolerate FMP field-name drift and bad values:
+// .catch(null) turns a malformed present value (wrong type, unparseable) into null rather than
+// throwing out the whole row. .passthrough() ignores the many fields we don't surface.
+// FMP returns single-element arrays for the *-ttm / consensus endpoints; we take element [0].
+const num = () => z.coerce.number().nullable().optional().catch(null)
+
+export const fmpRatiosTtmResponse = z.array(z.object({
+  priceToEarningsRatioTTM: num(),
+  priceToBookRatioTTM: num(),
+  priceToSalesRatioTTM: num(),
+  priceToEarningsGrowthRatioTTM: num(),
+  dividendYieldTTM: num(),
+  returnOnEquityTTM: num(),
+  returnOnAssetsTTM: num(),
+  netProfitMarginTTM: num(),
+  operatingProfitMarginTTM: num(),
+  grossProfitMarginTTM: num(),
+  currentRatioTTM: num(),
+  quickRatioTTM: num(),
+  debtToEquityRatioTTM: num()
+}).passthrough())
+
+export const fmpKeyMetricsTtmResponse = z.array(z.object({
+  // FMP has used both spellings across versions; try evToEBITDATTM, fall back handled in provider.
+  evToEBITDATTM: num(),
+  enterpriseValueOverEBITDATTM: num(),
+  earningsYieldTTM: num(),
+  freeCashFlowYieldTTM: num()
+}).passthrough())
+
+export const fmpGradesConsensusResponse = z.array(z.object({
+  strongBuy: num(),
+  buy: num(),
+  hold: num(),
+  sell: num(),
+  strongSell: num(),
+  consensus: z.string().nullable().optional().catch(null)
+}).passthrough())
+
+export const fmpPriceTargetConsensusResponse = z.array(z.object({
+  targetHigh: num(),
+  targetLow: num(),
+  targetMedian: num(),
+  targetConsensus: num()
+}).passthrough())
+
+export const fmpFinancialGrowthResponse = z.array(z.object({
+  // FMP field names for growth; loose so a rename degrades to null, not a throw.
+  revenueGrowth: num(),
+  growthRevenue: num(),
+  netIncomeGrowth: num(),
+  growthNetIncome: num(),
+  epsgrowth: num(),
+  growthEPS: num()
+}).passthrough())
+
+export const fmpEarningsResponse = z.array(z.object({
+  date: z.string(),
+  epsActual: num(),
+  epsEstimated: num()
+}).passthrough())

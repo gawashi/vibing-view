@@ -112,6 +112,52 @@ export type CompanyProfileData = {
   volume: number | null
   averageVolume: number | null
   lastDividend: number | null
+  // Investment metrics (added 2026-07-23). Optional so pre-existing cached rows (which lack
+  // these keys and parse back as undefined) stay valid. A fresh fetch always sets each group,
+  // to null if its endpoint failed. Consumers must test `group == null` (undefined OR null).
+  price?: number | null // from /profile, for the Analyst price-target comparison
+  valuation?: {
+    peRatio: number | null
+    pbRatio: number | null
+    psRatio: number | null
+    pegRatio: number | null
+    dividendYield: number | null
+    evToEbitda: number | null
+    earningsYield: number | null
+    fcfYield: number | null
+  } | null
+  financials?: {
+    roe: number | null
+    roa: number | null
+    netMargin: number | null
+    operatingMargin: number | null
+    grossMargin: number | null
+    debtToEquity: number | null
+    currentRatio: number | null
+    quickRatio: number | null
+  } | null
+  analyst?: {
+    strongBuy: number | null
+    buy: number | null
+    hold: number | null
+    sell: number | null
+    strongSell: number | null
+    consensus: string | null
+    targetHigh: number | null
+    targetLow: number | null
+    targetMedian: number | null
+    targetConsensus: number | null
+  } | null
+  growth?: {
+    revenueGrowth: number | null
+    netIncomeGrowth: number | null
+    epsGrowth: number | null
+  } | null
+  schedule?: {
+    nextEarningsDate: string | null
+    lastEpsActual: number | null
+    lastEpsEstimated: number | null
+  } | null
 }
 
 // fetchedAt は列で持ちダイアログの「as of YYYY-MM-DD」表記に使う（blob には含めない）。
