@@ -95,9 +95,7 @@ export const fmpRatiosTtmResponse = z.array(z.object({
 }).passthrough())
 
 export const fmpKeyMetricsTtmResponse = z.array(z.object({
-  // FMP has used both spellings across versions; try evToEBITDATTM, fall back handled in provider.
   evToEBITDATTM: num(),
-  enterpriseValueOverEBITDATTM: num(),
   earningsYieldTTM: num(),
   freeCashFlowYieldTTM: num()
 }).passthrough())
@@ -119,13 +117,9 @@ export const fmpPriceTargetConsensusResponse = z.array(z.object({
 }).passthrough())
 
 export const fmpFinancialGrowthResponse = z.array(z.object({
-  // FMP field names for growth; loose so a rename degrades to null, not a throw.
   revenueGrowth: num(),
-  growthRevenue: num(),
   netIncomeGrowth: num(),
-  growthNetIncome: num(),
-  epsgrowth: num(),
-  growthEPS: num()
+  epsgrowth: num()
 }).passthrough())
 
 export const fmpEarningsResponse = z.array(z.object({

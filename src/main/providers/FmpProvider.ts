@@ -210,7 +210,7 @@ export class FmpProvider {
       psRatio: ratios?.priceToSalesRatioTTM ?? null,
       pegRatio: ratios?.priceToEarningsGrowthRatioTTM ?? null,
       dividendYield: ratios?.dividendYieldTTM ?? null,
-      evToEbitda: keyMetrics?.evToEBITDATTM ?? keyMetrics?.enterpriseValueOverEBITDATTM ?? null,
+      evToEbitda: keyMetrics?.evToEBITDATTM ?? null,
       earningsYield: keyMetrics?.earningsYieldTTM ?? null,
       fcfYield: keyMetrics?.freeCashFlowYieldTTM ?? null
     } : null
@@ -240,9 +240,9 @@ export class FmpProvider {
     } : null
 
     const growth = growthRows ? {
-      revenueGrowth: growthRows.revenueGrowth ?? growthRows.growthRevenue ?? null,
-      netIncomeGrowth: growthRows.netIncomeGrowth ?? growthRows.growthNetIncome ?? null,
-      epsGrowth: growthRows.epsgrowth ?? growthRows.growthEPS ?? null
+      revenueGrowth: growthRows.revenueGrowth ?? null,
+      netIncomeGrowth: growthRows.netIncomeGrowth ?? null,
+      epsGrowth: growthRows.epsgrowth ?? null
     } : null
 
     // Upcoming earnings carry epsActual === null, but historical rows can too (FMP gaps),
