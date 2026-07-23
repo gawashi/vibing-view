@@ -27,7 +27,8 @@ it as a single JSON blob under the existing 1-day TTL, and present it across
   and price-target-vs-current; no good/bad coloring of ratios).
 
 Cost: **~6 FMP calls per symbol, at most once per day** (TTL cache). Within TTL,
-nothing is refetched even if some parts are missing.
+nothing is refetched even if some parts are missing — **except** an explicit
+force-reload button (top-right), which bypasses the TTL on demand (see below).
 
 ## Endpoints → tabs
 
@@ -117,6 +118,18 @@ nullable to tolerate FMP field-name drift / partial payloads.
   "Not available on your current FMP plan / couldn't load." (reuse the not-covered vs
   generic wording already in `CompanyInfoBody`).
 - Tab state is local component state; no store changes.
+- **Force-reload button (top-right)**: `RefreshCw` icon (matching the main toolbar's
+  reload button), `animate-spin` while in flight, tooltip "Reload company info". It
+  bypasses the TTL and refetches the full bundle, then writes the fresh blob into the
+  query cache. Disabled while in flight.
+
+### Force reload plumbing
+- `company:info` IPC / `CompanyInfoService.getInfo(symbol, opts?)` gain an optional
+  `force` flag. When `force`, skip the TTL cache-hit early return and always fetch +
+  upsert. (Stale-fallback on fetch failure is preserved.)
+- Renderer: the button runs a `useMutation` calling `api.company.info(symbol, { force:
+  true })`; on success `queryClient.setQueryData(qk.companyInfo(symbol), data)` so all
+  tabs update from the one refreshed blob. Spinner = `mutation.isPending`.
 
 ## Data flow
 
@@ -129,7 +142,8 @@ blob cached → renderer renders active tab from the one blob. No per-tab fetchi
 - `/profile` fails + no cache → existing not-covered / generic error (whole window).
 - `/profile` fails + stale cache → existing stale-fallback (returns cached blob).
 - Any optional endpoint fails → its group is `null` → only that tab shows the note.
-- Partial success is cached as-is; not refetched until TTL expires (call-saving).
+- Partial success is cached as-is; not refetched until TTL expires (call-saving), or
+  until the user hits force-reload.
 - Loose zod schemas prevent a single malformed field from throwing out a whole group.
 
 ## Testing
@@ -140,7 +154,8 @@ blob cached → renderer renders active tab from the one blob. No per-tab fetchi
 - New schema parse tests: a representative FMP payload parses; an error-shaped / empty
   payload yields `null` group (not a throw).
 - `CompanyInfoService.test.ts`: unchanged behavior with the enriched blob (cache
-  hit/miss/stale-fallback still pass).
+  hit/miss/stale-fallback still pass); `force: true` skips a fresh cache hit and
+  refetches.
 - Manual: open a covered symbol → all tabs populate; open with a free-tier-gated
   endpoint → that tab shows the note, others render.
 
