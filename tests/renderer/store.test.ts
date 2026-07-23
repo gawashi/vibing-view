@@ -219,6 +219,73 @@ describe('useAppStore grid shape logic', () => {
     })
   })
 
+  describe('apply-to-all actions', () => {
+    // The top-level beforeEach truncates `cells` to just the active cell but keeps its object
+    // reference (indicators included), so a 'ma'/'rsi' added by one test in this block would
+    // otherwise leak into the next (activeCellId never changes across these tests). Strip
+    // non-fixed indicators so each test starts from a clean (volume-only) cell.
+    beforeEach(() => {
+      const { cells } = useAppStore.getState()
+      useAppStore.setState({ cells: cells.map((c) => ({ ...c, indicators: c.indicators.filter((i) => i.fixed) })) })
+    })
+
+    it('setAllTimeframes updates only visible cells, leaving hidden cells untouched', () => {
+      useAppStore.getState().setShape({ rows: 2, cols: 2 }) // 4 cells created
+      useAppStore.getState().setShape({ rows: 1, cols: 1 }) // shrink: cells 1..3 now hidden but retained
+      const hiddenBefore = useAppStore.getState().cells[1].timeframe
+
+      useAppStore.getState().setAllTimeframes('1h')
+
+      const cells = useAppStore.getState().cells
+      expect(cells[0].timeframe).toBe('1h')       // visible → updated
+      expect(cells[1].timeframe).toBe(hiddenBefore) // hidden → unchanged
+    })
+
+    it('addIndicatorToAll adds to every visible cell but skips a same-type+same-params duplicate', () => {
+      useAppStore.getState().setShape({ rows: 1, cols: 2 }) // 2 visible cells
+      // cell 0 already has MA with the exact default params we are about to apply
+      const c0 = useAppStore.getState().cells[0].id
+      useAppStore.getState().addIndicator('ma', c0) // default params { kind:'SMA', period:20, source:'close' }
+
+      useAppStore.getState().addIndicatorToAll('ma', { kind: 'SMA', period: 20, source: 'close' })
+
+      const [cell0, cell1] = useAppStore.getState().cells
+      expect(cell0.indicators.filter((i) => i.type === 'ma')).toHaveLength(1) // skipped (dup)
+      expect(cell1.indicators.filter((i) => i.type === 'ma')).toHaveLength(1) // added
+    })
+
+    it('addIndicatorToAll adds when params differ from an existing same-type instance', () => {
+      useAppStore.getState().setShape({ rows: 1, cols: 1 })
+      const c0 = useAppStore.getState().cells[0].id
+      useAppStore.getState().addIndicator('ma', c0) // period 20
+
+      useAppStore.getState().addIndicatorToAll('ma', { kind: 'SMA', period: 50, source: 'close' })
+
+      const cell0 = useAppStore.getState().cells[0]
+      expect(cell0.indicators.filter((i) => i.type === 'ma')).toHaveLength(2) // different params → added
+    })
+
+    it('addIndicatorToAll does not touch hidden cells and mints unique ids', () => {
+      useAppStore.getState().setShape({ rows: 2, cols: 2 })
+      useAppStore.getState().setShape({ rows: 1, cols: 1 }) // 1 visible, 3 hidden
+
+      useAppStore.getState().addIndicatorToAll('rsi', { period: 14, overbought: 70, oversold: 30 })
+
+      const cells = useAppStore.getState().cells
+      expect(cells[0].indicators.some((i) => i.type === 'rsi')).toBe(true)
+      for (const c of cells.slice(1)) expect(c.indicators.some((i) => i.type === 'rsi')).toBe(false)
+      const allIds = cells.flatMap((c) => c.indicators.map((i) => i.id))
+      expect(new Set(allIds).size).toBe(allIds.length)
+    })
+
+    it('addIndicatorToAll is a no-op for an unknown indicator type', () => {
+      useAppStore.getState().setShape({ rows: 1, cols: 1 })
+      const before = useAppStore.getState().cells[0].indicators.length
+      useAppStore.getState().addIndicatorToAll('nope', {})
+      expect(useAppStore.getState().cells[0].indicators.length).toBe(before)
+    })
+  })
+
   describe('workspaces (unified list + layout)', () => {
     const L = (symbol: string | null, id = 'x1') => ({
       schemaVersion: 1,
