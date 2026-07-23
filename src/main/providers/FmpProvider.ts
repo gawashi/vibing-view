@@ -245,8 +245,12 @@ export class FmpProvider {
       epsGrowth: growthRows.epsgrowth ?? growthRows.growthEPS ?? null
     } : null
 
-    // Upcoming earnings carry epsActual === null; reported ones have it set. No clock needed.
-    const upcoming = (earnings ?? []).filter((e) => e.epsActual == null).sort((a, b) => a.date.localeCompare(b.date))[0]
+    // Upcoming earnings carry epsActual === null, but historical rows can too (FMP gaps),
+    // so require the date to be today or later before treating it as the next event.
+    const today = new Date().toISOString().slice(0, 10)
+    const upcoming = (earnings ?? [])
+      .filter((e) => e.epsActual == null && e.date >= today)
+      .sort((a, b) => a.date.localeCompare(b.date))[0]
     const reported = (earnings ?? []).filter((e) => e.epsActual != null).sort((a, b) => b.date.localeCompare(a.date))[0]
     const schedule = earnings ? {
       nextEarningsDate: upcoming?.date ?? null,

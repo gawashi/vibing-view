@@ -89,7 +89,7 @@ app.whenReady().then(async () => {
   // corporate networks block direct egress, so an unconfigured client times out (see net/httpClient).
   await configureProxy()
   registerIpc()
-  ipcMain.handle(CH.companyOpenWindow, (_e, symbol: string) => openHashWindow(companyWindows, symbol, 480, 680, buildCompanyHash(symbol)))
+  ipcMain.handle(CH.companyOpenWindow, (_e, symbol: string) => openHashWindow(companyWindows, symbol, 600, 800, buildCompanyHash(symbol)))
   ipcMain.handle(CH.chartOpenWindow, (_e, cellId: string) => openHashWindow(chartWindows, cellId, 1100, 760, buildChartHash(cellId)))
   createWindow()
   app.on('activate', () => {
