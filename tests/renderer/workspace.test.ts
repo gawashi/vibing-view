@@ -186,4 +186,23 @@ describe('parseWorkspaceCollection dedupes ids across the whole collection', () 
     const raw = defaultWorkspaceCollection()
     expect(parseWorkspaceCollection(raw)).toEqual(parseWorkspaceCollection(raw))
   })
+
+  it('does not rename an existing unique id when reminting a duplicate (x, x, x_ case)', () => {
+    const cell = (id: string) => ({ id, symbol: 'AAPL', timeframe: '1d', indicators: [] })
+    const raw = {
+      version: 3,
+      active: 'A',
+      workspaces: [
+        { name: 'A', items: [], layout: { schemaVersion: 1, cells: [cell('x')], shape: { rows: 1, cols: 1 }, activeCellId: 'x' } },
+        { name: 'B', items: [], layout: { schemaVersion: 1, cells: [cell('x')], shape: { rows: 1, cols: 1 }, activeCellId: 'x' } },
+        { name: 'C', items: [], layout: { schemaVersion: 1, cells: [cell('x_')], shape: { rows: 1, cols: 1 }, activeCellId: 'x_' } }
+      ]
+    }
+    const parsed = parseWorkspaceCollection(raw)
+    const ids = parsed.workspaces.map((w) => w.layout.cells[0].id)
+    expect(new Set(ids).size).toBe(3) // all unique
+    expect(ids[0]).toBe('x') // first occurrence of 'x' kept
+    expect(ids[2]).toBe('x_') // the pre-existing unique 'x_' is NOT stolen/renamed
+    expect(ids[1]).not.toBe('x_') // duplicate skips the reserved 'x_'
+  })
 })

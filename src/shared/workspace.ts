@@ -143,11 +143,23 @@ export function defaultWorkspaceCollection(): WorkspaceCollection {
 // ponytail: suffixing only ever touches emptyLayout() '1'/'2' seeds and verbatim-duplicated
 // workspaces (real cells already carry unique nextId-minted ids); good enough, no UUIDs needed.
 function dedupeCollectionIds(collection: WorkspaceCollection): WorkspaceCollection {
-  const seen = new Set<string>()
+  // Reserve every original id up front: a duplicate's suffix must skip ids that legitimately belong
+  // to another (non-duplicate) cell/indicator appearing later in the collection. Otherwise the
+  // duplicate would steal that id and the innocent original would get renamed, breaking first-
+  // occurrence stability and chart-window cellId keying (e.g. ids x, x, x_ → x, x__, x_ not x, x_, x__).
+  const reserved = new Set<string>()
+  for (const w of collection.workspaces) {
+    for (const c of w.layout.cells) {
+      reserved.add(c.id)
+      for (const inst of c.indicators) reserved.add(inst.id)
+    }
+  }
+  const used = new Set<string>()
   const uniq = (base: string): string => {
-    let id = base
-    while (seen.has(id)) id += '_'
-    seen.add(id)
+    if (!used.has(base)) { used.add(base); return base } // first occurrence keeps its id
+    let id = base + '_'
+    while (used.has(id) || reserved.has(id)) id += '_'
+    used.add(id)
     return id
   }
   const workspaces = collection.workspaces.map((w) => {
