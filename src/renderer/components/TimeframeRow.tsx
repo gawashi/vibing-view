@@ -36,10 +36,12 @@ function statusFor(tf: Timeframe, caps: Partial<Record<Timeframe, CapabilityStat
 // own hover/focus handling — the title attribute is the lazy, correct fit here).
 export function TimeframeRow({
   value,
-  onChange
+  onChange,
+  label
 }: {
-  value: Timeframe
+  value?: Timeframe
   onChange: (tf: Timeframe) => void
+  label?: string
 }): React.JSX.Element {
   // Last-known + revalidate (UI-SPEC): TanStack retains previous `data` across a failed/in-flight
   // refetch, so caps.isError never blanks the row — it just keeps the last successful map.
@@ -49,7 +51,7 @@ export function TimeframeRow({
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="secondary" size="sm" className="h-6 gap-1 px-2 text-xs [&_svg]:size-3">
-          {TF_LABELS[value]}
+          {label ?? (value ? TF_LABELS[value] : '')}
           <ChevronDown />
         </Button>
       </DropdownMenuTrigger>
