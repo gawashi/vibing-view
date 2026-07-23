@@ -32,7 +32,8 @@ export function BulkDeleteMenu(): React.JSX.Element {
 
   return (
     <>
-      <DropdownMenu>
+      {/* modal={false}: avoid body pointer-events lock when a menu item opens the confirm Dialog. */}
+      <DropdownMenu modal={false}>
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
