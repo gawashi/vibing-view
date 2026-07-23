@@ -15,9 +15,9 @@ export function createCompanyInfoService(deps: {
   const { store, fetch } = deps
   const now = deps.now ?? (() => Math.floor(Date.now() / 1000))
   return {
-    async getInfo(symbol: string): Promise<CompanyInfo> {
+    async getInfo(symbol: string, opts?: { force?: boolean }): Promise<CompanyInfo> {
       const cached = store.getCompanyProfile(symbol)
-      if (cached && now() - cached.fetchedAt < TTL_SECONDS) {
+      if (!opts?.force && cached && now() - cached.fetchedAt < TTL_SECONDS) {
         return { ...cached.data, fetchedAt: cached.fetchedAt }
       }
       try {

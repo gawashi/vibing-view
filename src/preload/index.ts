@@ -50,7 +50,7 @@ const api: Api = {
     }
   },
   company: {
-    info: (symbol) => ipcRenderer.invoke(CH.companyInfo, symbol),
+    info: (symbol, opts) => ipcRenderer.invoke(CH.companyInfo, symbol, opts),
     openWindow: (symbol) => ipcRenderer.invoke(CH.companyOpenWindow, symbol)
   },
   chart: {
