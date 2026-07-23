@@ -19,6 +19,7 @@ export function ChartWindow({ cellId }: { cellId: string }): React.JSX.Element {
   useEffect(() => { void api.settings.getTheme().then(applyTheme) }, [])
 
   const cell = useAppStore((s) => s.cells.find((c) => c.id === cellId))
+  const isCut = useAppStore((s) => s.chartClipboard?.cutSourceCellId === cellId)
   useEffect(() => { document.title = cell?.symbol ?? 'Chart' }, [cell?.symbol])
 
   // One TooltipProvider/Toaster around every branch: ChartPanel renders Radix Tooltips (SymbolLabel,
@@ -35,7 +36,7 @@ export function ChartWindow({ cellId }: { cellId: string }): React.JSX.Element {
       <ChartContextMenu cellId={cellId}>
         {cell.symbol
           ? (
-            <div className="flex h-screen min-h-0 min-w-0 flex-col gap-4 bg-background p-4 text-foreground">
+            <div className={`flex h-screen min-h-0 min-w-0 flex-col gap-4 bg-background p-4 text-foreground${isCut ? ' opacity-40' : ''}`}>
               <ChartPanel cell={cell} />
             </div>
             )

@@ -249,6 +249,7 @@ function GridCell({
   onDropTarget: (id: string | null) => void
 }): React.JSX.Element {
   const setActiveCell = useAppStore((s) => s.setActiveCell)
+  const isCut = useAppStore((s) => s.chartClipboard?.cutSourceCellId === cell.id)
 
   return (
     <div
@@ -292,8 +293,9 @@ function GridCell({
         {cell.symbol
           ? (
             /* pl-6 reserves a left gutter for the drag handle so it sits to the LEFT of the ticker
-               instead of top-right next to the × button (mis-click hazard). */
-            <div className="flex h-full min-h-0 min-w-0 flex-col gap-4 pl-6">
+               instead of top-right next to the × button (mis-click hazard). isCut greys the cell
+               while it's a pending-cut source (cleared on paste). */
+            <div className={cn('flex h-full min-h-0 min-w-0 flex-col gap-4 pl-6', isCut && 'opacity-40')}>
               {/* Drag handle: the ONLY drag source for the cell — keeps chart body, timeframe/★/×
                   buttons, and the shared ChartPanel (used by ChartWindow) non-draggable. */}
               <span

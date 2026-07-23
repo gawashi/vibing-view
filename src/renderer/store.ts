@@ -249,8 +249,10 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
   cutCell: (cellId) => {
     const cell = get().cells.find((c) => c.id === cellId)
     if (!cell || !cell.symbol) return
+    // Deferred move: copy the config and mark the source, but DON'T empty it yet — the cell stays
+    // visible (greyed) and is only cleared when pasted elsewhere (see pasteCell).
     get().copyCell(cellId)
-    get().clearCell(cellId)
+    set({ chartClipboard: { ...get().chartClipboard!, cutSourceCellId: cellId } })
   },
   pasteCell: (cellId) => {
     const src = get().chartClipboard
@@ -280,6 +282,12 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
         crosshairByCell
       }
     })
+    // Deferred cut: empty the source now that its content has landed elsewhere (skip a self-paste),
+    // then consume the marker so the source stops greying and a second paste won't re-empty it.
+    if (src.cutSourceCellId) {
+      if (src.cutSourceCellId !== cellId) get().clearCell(src.cutSourceCellId)
+      set({ chartClipboard: { ...get().chartClipboard!, cutSourceCellId: undefined } })
+    }
   },
   setClipboard: (clip) => set({ chartClipboard: clip }),
   addIndicator: (type, cellId) => {
