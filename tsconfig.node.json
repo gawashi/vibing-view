@@ -9,5 +9,5 @@
     "types": ["node", "electron-vite/node"],
     "paths": { "@shared/*": ["./src/shared/*"] }
   },
-  "include": ["src/main/**/*", "src/preload/**/*", "src/shared/**/*", "src/renderer/indicators/**/*", "src/renderer/lib/**/*", "src/renderer/workspace.ts", "src/renderer/store.ts", "src/renderer/components/bulkDelete.ts", "tests/**/*", "*.config.ts"]
+  "include": ["src/main/**/*", "src/preload/**/*", "src/shared/**/*", "src/renderer/indicators/**/*", "src/renderer/lib/**/*", "src/renderer/workspace.ts", "src/renderer/store.ts", "tests/**/*", "*.config.ts"]
 }
