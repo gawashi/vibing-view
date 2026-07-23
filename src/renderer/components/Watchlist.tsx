@@ -55,10 +55,19 @@ function Row({
       onKeyDown={(e) => { if (e.key === 'Enter') setActiveSymbol(item.symbol) }}
       // Whole row is the drop target — dragOver must preventDefault or the browser shows the
       // not-allowed cursor and never fires drop. Drag is only *initiated* from the grip (D-66).
-      onDragOver={(e) => { e.preventDefault(); setOverIndex(index) }}
+      onDragOver={(e) => {
+        // Only watchlist reorders carry text/plain; a grid-cell drag has only x-vv-cell → ignore
+        // (no preventDefault → no marker, no drop).
+        if (!e.dataTransfer.types.includes('text/plain')) return
+        e.preventDefault(); setOverIndex(index)
+      }}
       onDrop={(e) => {
         e.preventDefault()
-        const from = Number(e.dataTransfer.getData('text/plain'))
+        const raw = e.dataTransfer.getData('text/plain')
+        // Empty raw = not a watchlist reorder. Guard before Number(): Number('') === 0, which would
+        // silently move item 0.
+        if (raw === '') { setOverIndex(null); return }
+        const from = Number(raw)
         if (!Number.isNaN(from) && index >= 0) useAppStore.getState().reorderWatchlist(from, index)
         setOverIndex(null)
       }}
@@ -74,6 +83,7 @@ function Row({
           e.stopPropagation()
           const from = selectActiveItems(useAppStore.getState()).findIndex((w) => w.symbol === item.symbol)
           e.dataTransfer.setData('text/plain', String(from))
+          e.dataTransfer.setData('application/x-vv-symbol', item.symbol)
         }}
         onDragEnd={() => setOverIndex(null)}
         onClick={(e) => e.stopPropagation()}
@@ -156,10 +166,15 @@ export function Watchlist({
               {/* 末尾ドロップゾーン: 最終行の下へ落とすと末尾へ移動。marker(border-t)= 最終行の下端。
                   reorder(from, length) は from<length で to-1=末尾スロットに挿入。 */}
               <li
-                onDragOver={(e) => { e.preventDefault(); setOverIndex(watchlist.length) }}
+                onDragOver={(e) => {
+                  if (!e.dataTransfer.types.includes('text/plain')) return
+                  e.preventDefault(); setOverIndex(watchlist.length)
+                }}
                 onDrop={(e) => {
                   e.preventDefault()
-                  const from = Number(e.dataTransfer.getData('text/plain'))
+                  const raw = e.dataTransfer.getData('text/plain')
+                  if (raw === '') { setOverIndex(null); return }
+                  const from = Number(raw)
                   if (!Number.isNaN(from)) useAppStore.getState().reorderWatchlist(from, watchlist.length)
                   setOverIndex(null)
                 }}
