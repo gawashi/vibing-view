@@ -82,7 +82,7 @@ export function registerIpc(): void {
   })
 
   ipcMain.handle(CH.symbolsProfile, (_e, symbol: string) => profileService.getProfile(symbol))
-  ipcMain.handle(CH.companyInfo, (_e, symbol: string) => companyInfoService.getInfo(symbol))
+  ipcMain.handle(CH.companyInfo, (_e, symbol: string, opts?: { force?: boolean }) => companyInfoService.getInfo(symbol, opts))
 
   // Shared capability bookkeeping for every real OHLCV fetch (get + refresh): short-circuit known
   // out-of-plan daily-backed symbols, record 'available' on success, and classify FmpHttpErrors.

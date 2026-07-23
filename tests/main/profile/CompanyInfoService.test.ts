@@ -66,4 +66,14 @@ describe('CompanyInfoService.getInfo', () => {
     const svc = createCompanyInfoService({ store, fetch, now: () => NOW })
     await expect(svc.getInfo('AAPL')).rejects.toThrow('down')
   })
+
+  it('force: true refetches even when the row is fresh (within TTL)', async () => {
+    const store = fakeStore({ data: DATA, fetchedAt: NOW - 100 }) // fresh
+    const fetch = vi.fn(async () => DATA)
+    const svc = createCompanyInfoService({ store, fetch, now: () => NOW })
+    const info = await svc.getInfo('AAPL', { force: true })
+    expect(fetch).toHaveBeenCalledOnce()
+    expect(store.upsertCompanyProfile).toHaveBeenCalledWith('AAPL', DATA, NOW)
+    expect(info).toEqual({ ...DATA, fetchedAt: NOW })
+  })
 })

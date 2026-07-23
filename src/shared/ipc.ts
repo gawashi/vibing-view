@@ -82,7 +82,7 @@ export interface Api {
     onChanged(cb: (p: ClipboardPayload) => void): () => void
   }
   company: {
-    info(symbol: string): Promise<CompanyInfo>
+    info(symbol: string, opts?: { force?: boolean }): Promise<CompanyInfo>
     openWindow(symbol: string): Promise<void>
   }
   chart: {
