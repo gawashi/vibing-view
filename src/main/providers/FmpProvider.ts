@@ -204,7 +204,7 @@ export class FmpProvider {
       })()
     ])
 
-    const valuation = ratios ? {
+    const valuation = ratios || keyMetrics ? {
       peRatio: ratios?.priceToEarningsRatioTTM ?? null,
       pbRatio: ratios?.priceToBookRatioTTM ?? null,
       psRatio: ratios?.priceToSalesRatioTTM ?? null,

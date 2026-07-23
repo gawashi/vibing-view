@@ -190,10 +190,12 @@ describe('FmpProvider.getCompanyProfile', () => {
     expect(c.schedule?.lastEpsActual).toBe(1.4) // most recent row with epsActual != null
   })
 
-  it('sets an optional group to null when its endpoint fails, keeping the others', async () => {
+  it('keeps a partial valuation from key-metrics when ratios-ttm fails, but nulls financials', async () => {
     const c = await routed({ 'ratios-ttm': new Error('rate limited') }).getCompanyProfile('AAPL')
-    expect(c.valuation).toBeNull()
-    expect(c.financials).toBeNull() // ratios-ttm feeds both
+    expect(c.valuation).not.toBeNull()
+    expect(c.valuation?.peRatio).toBeNull() // ratios source failed
+    expect(c.valuation?.evToEbitda).toBe(26.4) // key-metrics source succeeded
+    expect(c.financials).toBeNull() // financials has no key-metrics source
     expect(c.analyst?.buy).toBe(21) // unaffected
     expect(c.symbol).toBe('AAPL')
   })
