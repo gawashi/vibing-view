@@ -286,13 +286,14 @@ describe('useAppStore grid shape logic', () => {
     })
   })
 
+  const L = (symbol: string | null, id = 'x1') => ({
+    schemaVersion: 1,
+    cells: [{ id, symbol, timeframe: '1d' as const, indicators: [] }],
+    shape: { rows: 1, cols: 1 } as const,
+    activeCellId: id
+  })
+
   describe('workspaces (unified list + layout)', () => {
-    const L = (symbol: string | null, id = 'x1') => ({
-      schemaVersion: 1,
-      cells: [{ id, symbol, timeframe: '1d' as const, indicators: [] }],
-      shape: { rows: 1, cols: 1 } as const,
-      activeCellId: id
-    })
 
     beforeEach(() => {
       useAppStore.setState({
@@ -467,6 +468,51 @@ describe('useAppStore grid shape logic', () => {
       expect(srcIds.some((id) => copyIds.includes(id))).toBe(false)
       // copy's activeCellId points at a real cell in the copy
       expect(copy.layout.cells.some((c) => c.id === copy.layout.activeCellId)).toBe(true)
+    })
+  })
+
+  describe('duplicateWorkspace(newName, sourceName)', () => {
+    beforeEach(() => {
+      useAppStore.setState({
+        cells: L('AAPL', 'c1').cells,
+        shape: { rows: 1, cols: 1 },
+        activeCellId: 'c1',
+        workspaces: [{ name: 'Workspace 1', items: [], layout: L('AAPL', 'c1') }],
+        activeWorkspace: 'Workspace 1'
+      })
+    })
+
+    it('duplicates a non-active workspace without changing the active one', () => {
+      const store = useAppStore.getState()
+      // 出発点を既知の状態に: アクティブ "Workspace 1" に加えてもう1つ作る
+      store.createWorkspace('Source WS')          // これがアクティブになる
+      useAppStore.getState().addToWatchlist({ symbol: 'AAPL', name: 'Apple Inc.', exchange: 'NASDAQ' })
+      useAppStore.getState().switchWorkspace('Workspace 1') // アクティブを別へ戻す
+
+      const res = useAppStore.getState().duplicateWorkspace('Copy WS', 'Source WS')
+      expect(res).toEqual({ ok: true })
+
+      const s = useAppStore.getState()
+      expect(s.activeWorkspace).toBe('Workspace 1')          // アクティブは変わらない
+      const copy = s.workspaces.find((w) => w.name === 'Copy WS')!
+      expect(copy).toBeDefined()
+      expect(copy.items.map((i) => i.symbol)).toEqual(['AAPL']) // items がコピーされている
+      // layout の cell/indicator id はコピー元と重複しない（remint 済み）
+      const source = s.workspaces.find((w) => w.name === 'Source WS')!
+      const srcIds = source.layout.cells.map((c) => c.id)
+      for (const c of copy.layout.cells) expect(srcIds).not.toContain(c.id)
+    })
+
+    it('with no sourceName, duplicates the active workspace and switches to the copy (legacy)', () => {
+      useAppStore.getState().switchWorkspace('Workspace 1')
+      const res = useAppStore.getState().duplicateWorkspace('Legacy Copy')
+      expect(res).toEqual({ ok: true })
+      expect(useAppStore.getState().activeWorkspace).toBe('Legacy Copy')
+    })
+
+    it('rejects an unknown sourceName', () => {
+      const res = useAppStore.getState().duplicateWorkspace('X', 'No Such WS')
+      expect(res.ok).toBe(false)
     })
   })
 })
