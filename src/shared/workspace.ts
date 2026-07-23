@@ -191,3 +191,13 @@ export function parseWorkspaceCollection(raw: unknown): WorkspaceCollection {
       : workspaces[0].name
   return dedupeCollectionIds({ version: 3, active, workspaces })
 }
+
+// DnD のドロップ表示インデックスを reorderWorkspaces(from, to) の `to`（削除後配列の splice
+// インデックス）へ変換する。dropIndex は「その行の前に挿入」の意味。末尾ドロップゾーンは length を
+// 渡す＝削除後配列の末尾（length）への追加としてそのままクランプする。from を抜いた後は from より
+// 下の座標が1つ詰まるので from<d のとき d-1。
+// 戻り値が from と一致する場合の no-op 判定は reorderWorkspaces 側が担う。
+export function reorderTargetIndex(from: number, dropIndex: number, length: number): number {
+  const d = Math.min(dropIndex, length)
+  return from < d ? d - 1 : d
+}
