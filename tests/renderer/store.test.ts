@@ -219,6 +219,48 @@ describe('useAppStore grid shape logic', () => {
     })
   })
 
+  describe('bulk delete (all cells, active workspace)', () => {
+    beforeEach(() => {
+      // Two cells, each with fixed Volume + a user-added MA, plus a symbol and a crosshair.
+      useAppStore.setState({
+        cells: [
+          { id: 'b0', symbol: 'AAPL', timeframe: '1d', indicators: [
+            { id: 'v0', type: 'volume', params: {}, colors: {}, visible: true, fixed: true },
+            { id: 'm0', type: 'ma', params: {}, colors: {}, visible: true }
+          ] },
+          { id: 'b1', symbol: 'MSFT', timeframe: '1h', indicators: [
+            { id: 'v1', type: 'volume', params: {}, colors: {}, visible: true, fixed: true },
+            { id: 'm1', type: 'ma', params: {}, colors: {}, visible: true }
+          ] }
+        ],
+        activeCellId: 'b0',
+        shape: { rows: 1, cols: 1 } // b1 is hidden — bulk delete must still hit it
+      })
+      useAppStore.getState().setCrosshair('b0', { price: { open: 1, high: 1, low: 1, close: 1 } })
+    })
+
+    it('clearAllCells empties every cell (incl. hidden): null symbol, only fixed Volume kept, crosshairs cleared', () => {
+      useAppStore.getState().clearAllCells()
+      const { cells, crosshairByCell } = useAppStore.getState()
+      for (const c of cells) {
+        expect(c.symbol).toBeNull()
+        expect(c.indicators.map((i) => i.type)).toEqual(['volume'])
+        expect(c.indicators.every((i) => i.fixed)).toBe(true)
+      }
+      expect(crosshairByCell).toEqual({})
+    })
+
+    it('removeAllIndicators strips user indicators from every cell but keeps symbols and Volume', () => {
+      useAppStore.getState().removeAllIndicators()
+      const { cells } = useAppStore.getState()
+      expect(cells[0].symbol).toBe('AAPL')
+      expect(cells[1].symbol).toBe('MSFT')
+      for (const c of cells) {
+        expect(c.indicators.map((i) => i.type)).toEqual(['volume'])
+      }
+    })
+  })
+
   describe('apply-to-all actions', () => {
     // The top-level beforeEach truncates `cells` to just the active cell but keeps its object
     // reference (indicators included), so a 'ma'/'rsi' added by one test in this block would
