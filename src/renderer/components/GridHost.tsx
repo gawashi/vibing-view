@@ -241,14 +241,12 @@ function GridCell({
   cell,
   active,
   isDropTarget,
-  onDragOverCell,
-  onClearDropTarget
+  onDropTarget
 }: {
   cell: Cell
   active: boolean
   isDropTarget: boolean
-  onDragOverCell: (id: string) => void
-  onClearDropTarget: () => void
+  onDropTarget: (id: string | null) => void
 }): React.JSX.Element {
   const setActiveCell = useAppStore((s) => s.setActiveCell)
 
@@ -264,7 +262,7 @@ function GridCell({
         const t = e.dataTransfer.types
         if (!t.includes('application/x-vv-cell') && !t.includes('application/x-vv-symbol')) return
         e.preventDefault()
-        onDragOverCell(cell.id)
+        onDropTarget(cell.id)
       }}
       onDrop={(e) => {
         e.preventDefault()
@@ -278,7 +276,7 @@ function GridCell({
             setActiveCell(cell.id)
           }
         }
-        onClearDropTarget()
+        onDropTarget(null)
       }}
       className={cn(
         // group/cell: scopes the grip handle's hover-reveal. min-h-0 + min-w-0: let the cell shrink
@@ -294,7 +292,10 @@ function GridCell({
         ? (
           <ContextMenu>
             <ContextMenuTrigger asChild>
-              <div className="flex h-full min-h-0 min-w-0 flex-col gap-4">
+              {/* pl-6 reserves a left gutter for the drag handle so it sits to the LEFT of the ticker
+                  instead of top-right next to the × button (mis-click hazard). Grid-only wrapper, so
+                  ChartWindow (renders ChartPanel directly) keeps its flush layout. */}
+              <div className="flex h-full min-h-0 min-w-0 flex-col gap-4 pl-6">
                 {/* Drag handle: the ONLY drag source for the cell — keeps chart body, timeframe/★/×
                     buttons, and the shared ChartPanel (used by ChartWindow) non-draggable. */}
                 <span
@@ -303,10 +304,10 @@ function GridCell({
                     e.stopPropagation()
                     e.dataTransfer.setData('application/x-vv-cell', cell.id)
                   }}
-                  onDragEnd={onClearDropTarget}
+                  onDragEnd={() => onDropTarget(null)}
                   onClick={(e) => e.stopPropagation()}
                   aria-label={`Move ${cell.symbol} chart`}
-                  className="invisible absolute right-1 top-1 z-10 cursor-grab text-muted-foreground hover:text-foreground group-hover/cell:visible"
+                  className="invisible absolute left-1 top-1.5 z-10 cursor-grab text-muted-foreground hover:text-foreground group-hover/cell:visible"
                 >
                   <GripVertical className="size-4" />
                 </span>
@@ -354,8 +355,7 @@ export function GridHost(): React.JSX.Element {
           cell={cell}
           active={cell.id === activeCellId}
           isDropTarget={cell.id === dragOverCellId}
-          onDragOverCell={setDragOverCellId}
-          onClearDropTarget={() => setDragOverCellId(null)}
+          onDropTarget={setDragOverCellId}
         />
       ))}
     </div>
