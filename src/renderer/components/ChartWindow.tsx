@@ -3,6 +3,7 @@ import { api } from '@/api'
 import { useAppStore } from '@/store'
 import { applyTheme } from '@/lib/theme'
 import { useWorkspaceSync } from '@/hooks/useWorkspaceSync'
+import { useClipboardSync } from '@/hooks/useClipboardSync'
 import { ChartPanel } from './GridHost'
 import { TooltipProvider } from './ui/tooltip'
 import { Toaster } from './ui/sonner'
@@ -13,6 +14,7 @@ import { Toaster } from './ui/sonner'
 // it shows a placeholder and auto-restores when the workspace becomes active again.
 export function ChartWindow({ cellId }: { cellId: string }): React.JSX.Element {
   useWorkspaceSync()
+  useClipboardSync()
   useEffect(() => { void api.settings.getTheme().then(applyTheme) }, [])
 
   const cell = useAppStore((s) => s.cells.find((c) => c.id === cellId))

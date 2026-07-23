@@ -18,6 +18,7 @@ import { Toaster } from './components/ui/sonner'
 import { Watchlist } from './components/Watchlist'
 import { useAppStore, selectActiveItems } from './store'
 import { useWorkspaceSync } from './hooks/useWorkspaceSync'
+import { useClipboardSync } from './hooks/useClipboardSync'
 import { applyTheme } from './lib/theme'
 import type { CapabilityStatus } from '@shared/ipc'
 import type { Timeframe } from '@shared/types'
@@ -29,6 +30,7 @@ export default function App(): React.JSX.Element {
   const [sidebarWidth, setSidebarWidth] = useState(240)
 
   useWorkspaceSync()
+  useClipboardSync()
 
   useEffect(() => {
     void api.settings.getTheme().then(applyTheme)
