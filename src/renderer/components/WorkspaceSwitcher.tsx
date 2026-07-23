@@ -1,7 +1,6 @@
 import React, { useState } from 'react'
 import { ChevronDown, ChevronUp, Copy, Pencil, Plus, Trash2 } from 'lucide-react'
 import { Button } from './ui/button'
-import { Input } from './ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog'
 import {
   DropdownMenu,
@@ -11,42 +10,20 @@ import {
   DropdownMenuTrigger
 } from './ui/dropdown-menu'
 import { useAppStore } from '../store'
-
-type NameDialogState = { mode: 'create' | 'rename' | 'duplicate'; value: string; error: string | null; target: string }
+import { WorkspaceNameDialog, type NameDialogMode } from './WorkspaceNameDialog'
 
 // ヘッダーの統合切替器。ワークスペース（= リスト + グリッド）の切替・並べ替え・rename・delete と、
 // 新規作成／現在の複製。切り替えるとサイドバーの銘柄リストとグリッドが一緒に変わる。
 export function WorkspaceSwitcher(): React.JSX.Element {
   const workspaces = useAppStore((s) => s.workspaces)
   const activeWorkspace = useAppStore((s) => s.activeWorkspace)
-  const createWorkspace = useAppStore((s) => s.createWorkspace)
-  const duplicateWorkspace = useAppStore((s) => s.duplicateWorkspace)
-  const renameWorkspace = useAppStore((s) => s.renameWorkspace)
   const deleteWorkspace = useAppStore((s) => s.deleteWorkspace)
   const switchWorkspace = useAppStore((s) => s.switchWorkspace)
   const reorderWorkspaces = useAppStore((s) => s.reorderWorkspaces)
 
   const [menuOpen, setMenuOpen] = useState(false)
-  const [nameDialog, setNameDialog] = useState<NameDialogState | null>(null)
+  const [nameDialog, setNameDialog] = useState<{ mode: NameDialogMode; value: string; target: string } | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
-
-  const confirmNameDialog = (): void => {
-    if (!nameDialog) return
-    const result =
-      nameDialog.mode === 'create'
-        ? createWorkspace(nameDialog.value)
-        : nameDialog.mode === 'duplicate'
-          ? duplicateWorkspace(nameDialog.value)
-          : renameWorkspace(nameDialog.target, nameDialog.value)
-    if (!result.ok) {
-      setNameDialog({ ...nameDialog, error: result.error })
-      return
-    }
-    setNameDialog(null)
-  }
-
-  const dialogTitle =
-    nameDialog?.mode === 'rename' ? 'Rename workspace' : nameDialog?.mode === 'duplicate' ? 'Duplicate workspace' : 'New workspace'
 
   return (
     <>
@@ -100,7 +77,7 @@ export function WorkspaceSwitcher(): React.JSX.Element {
                   onClick={(e) => {
                     e.stopPropagation()
                     setMenuOpen(false)
-                    setNameDialog({ mode: 'rename', value: w.name, error: null, target: w.name })
+                    setNameDialog({ mode: 'rename', value: w.name, target: w.name })
                   }}
                 >
                   <Pencil className="size-4" />
@@ -118,45 +95,23 @@ export function WorkspaceSwitcher(): React.JSX.Element {
             </div>
           ))}
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => setNameDialog({ mode: 'create', value: '', error: null, target: '' })}>
+          <DropdownMenuItem onClick={() => setNameDialog({ mode: 'create', value: '', target: '' })}>
             <Plus className="size-4" /> New workspace…
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setNameDialog({ mode: 'duplicate', value: `${activeWorkspace} copy`, error: null, target: activeWorkspace })}>
+          <DropdownMenuItem onClick={() => setNameDialog({ mode: 'duplicate', value: `${activeWorkspace} copy`, target: activeWorkspace })}>
             <Copy className="size-4" /> Duplicate current…
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Dialog open={nameDialog !== null} onOpenChange={(open) => { if (!open) setNameDialog(null) }}>
-        <DialogContent className="p-6">
-          <DialogHeader>
-            <DialogTitle>{dialogTitle}</DialogTitle>
-          </DialogHeader>
-          <div className="mt-4 flex flex-col gap-2">
-            <label className="text-sm font-medium" htmlFor="workspace-name">Name</label>
-            <Input
-              id="workspace-name"
-              value={nameDialog?.value ?? ''}
-              placeholder="e.g. Morning watch"
-              autoFocus
-              onChange={(e) => setNameDialog((prev) => (prev ? { ...prev, value: e.target.value, error: null } : prev))}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && (nameDialog?.value ?? '').trim().length > 0) {
-                  e.preventDefault()
-                  confirmNameDialog()
-                }
-              }}
-            />
-            {nameDialog?.error && <p className="text-sm text-destructive">{nameDialog.error}</p>}
-          </div>
-          <div className="mt-4 flex justify-end gap-2">
-            <Button variant="secondary" onClick={() => setNameDialog(null)}>Cancel</Button>
-            <Button onClick={confirmNameDialog} disabled={(nameDialog?.value ?? '').trim().length === 0}>
-              {nameDialog?.mode === 'rename' ? 'Rename' : nameDialog?.mode === 'duplicate' ? 'Duplicate' : 'Create'}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {nameDialog && (
+        <WorkspaceNameDialog
+          mode={nameDialog.mode}
+          initialValue={nameDialog.value}
+          target={nameDialog.target}
+          onClose={() => setNameDialog(null)}
+        />
+      )}
 
       <Dialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
         <DialogContent className="p-6">
