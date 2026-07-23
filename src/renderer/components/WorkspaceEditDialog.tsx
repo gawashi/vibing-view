@@ -21,18 +21,21 @@ export function WorkspaceEditDialog({ open, onOpenChange }: WorkspaceEditDialogP
   const [nameDialog, setNameDialog] = useState<{ mode: NameDialogMode; value: string; target: string } | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
 
-  // 表示ドロップ位置 dropIndex（末尾ゾーンは length）で並べ替え。最新の workspaces に対して変換する。
-  const handleDrop = (from: number, dropIndex: number): void => {
-    const to = reorderTargetIndex(from, dropIndex, useAppStore.getState().workspaces.length)
+  // ドラッグ中に別ウィンドウ(useWorkspaceSync)が一覧を変えても正しい行を動かすため、payload は
+  // インデックスでなくワークスペース名（安定 ID）で持ち、drop 時に最新の一覧から現在位置を引き直す。
+  // 表示ドロップ位置 dropIndex（末尾ゾーンは length）を最新の workspaces に対して変換する。
+  const handleDrop = (fromName: string, dropIndex: number): void => {
+    const list = useAppStore.getState().workspaces
+    const from = list.findIndex((w) => w.name === fromName)
+    if (from === -1) { setOverIndex(null); return } // 別ウィンドウで消えた行はドロップを無視
+    const to = reorderTargetIndex(from, dropIndex, list.length)
     reorderWorkspaces(from, to) // from===to は store 側で no-op
     setOverIndex(null)
   }
 
-  const readFrom = (e: React.DragEvent): number | null => {
+  const readName = (e: React.DragEvent): string | null => {
     const raw = e.dataTransfer.getData('text/plain')
-    if (raw === '') return null // 空 dataTransfer を弾く（Number('')===0 の誤爆防止）
-    const n = Number(raw)
-    return Number.isNaN(n) ? null : n
+    return raw === '' ? null : raw // 空 dataTransfer を弾く
   }
 
   return (
@@ -48,7 +51,7 @@ export function WorkspaceEditDialog({ open, onOpenChange }: WorkspaceEditDialogP
               <li
                 key={w.name}
                 onDragOver={(e) => { e.preventDefault(); setOverIndex(i) }}
-                onDrop={(e) => { e.preventDefault(); const from = readFrom(e); if (from !== null) handleDrop(from, i) }}
+                onDrop={(e) => { e.preventDefault(); const name = readName(e); if (name !== null) handleDrop(name, i) }}
                 className={cn(
                   'group flex items-center gap-1 border-t-2 border-transparent px-2 py-2',
                   w.name === activeWorkspace && 'bg-accent text-accent-foreground rounded-sm',
@@ -57,7 +60,7 @@ export function WorkspaceEditDialog({ open, onOpenChange }: WorkspaceEditDialogP
               >
                 <span
                   draggable
-                  onDragStart={(e) => { e.dataTransfer.setData('text/plain', String(i)) }}
+                  onDragStart={(e) => { e.dataTransfer.setData('text/plain', w.name) }}
                   onDragEnd={() => setOverIndex(null)}
                   aria-label={`Reorder ${w.name}`}
                   className="shrink-0 cursor-grab text-muted-foreground"
@@ -91,7 +94,7 @@ export function WorkspaceEditDialog({ open, onOpenChange }: WorkspaceEditDialogP
             {/* 末尾ドロップゾーン: dropIndex = length で末尾へ移動 */}
             <li
               onDragOver={(e) => { e.preventDefault(); setOverIndex(workspaces.length) }}
-              onDrop={(e) => { e.preventDefault(); const from = readFrom(e); if (from !== null) handleDrop(from, workspaces.length) }}
+              onDrop={(e) => { e.preventDefault(); const name = readName(e); if (name !== null) handleDrop(name, workspaces.length) }}
               className={cn('h-3 border-t-2 border-transparent', overIndex === workspaces.length && 'border-primary')}
             />
           </ul>
