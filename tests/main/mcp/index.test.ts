@@ -39,6 +39,13 @@ describe('applyConfig serialisation', () => {
     expect(getStatus().running).toBe(false)
   })
 
+  it('never starts a listener when no token has been generated', async () => {
+    const status = await applyConfig(core, { enabled: true, port: 4123, token: '' })
+
+    expect(listen).not.toHaveBeenCalled()
+    expect(status).toEqual({ running: false, error: 'No token generated yet.' })
+  })
+
   it('a rejected call does not wedge the chain for later calls', async () => {
     listen.mockImplementationOnce(async () => { throw new Error('EADDRINUSE') })
     await applyConfig(core, config(true)) // fails, caught internally as lastError — must not throw

@@ -1,34 +1,22 @@
 import React, { useEffect, useState } from 'react'
+import { Copy } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
 import { api } from '@/api'
-import type { McpConfig, McpStatus } from '@shared/ipc'
-
-// 貼り付け用の設定 JSON。Claude Code は `claude mcp add --transport http` でも登録できる。
-function clientConfig(config: McpConfig): string {
-  return JSON.stringify(
-    {
-      mcpServers: {
-        'vibing-view': {
-          type: 'http',
-          url: `http://127.0.0.1:${config.port}/mcp`,
-          headers: { Authorization: `Bearer ${config.token}` }
-        }
-      }
-    },
-    null,
-    2
-  )
-}
+import type { McpConfigView, McpStatus } from '@shared/ipc'
 
 export function McpSetting(): React.JSX.Element {
-  const [config, setConfig] = useState<McpConfig | null>(null)
+  const [config, setConfig] = useState<McpConfigView | null>(null)
   const [status, setStatus] = useState<McpStatus>({ running: false })
   const [port, setPort] = useState('')
+  // 生トークンは生成した直後だけ表示する。Radix Dialog は閉じると中身をアンマウントするので
+  // (dialog.tsx に forceMount なし)、ダイアログを閉じ直すだけでこの state は消えマスクに戻る。
+  const [rawToken, setRawToken] = useState<string | null>(null)
   // IPC round-trip is not instantaneous — disable while in flight so a double-click can't fire a
-  // second overlapping call (the main process serialises them anyway, but there's no reason to
-  // let the UI even try).
+  // second overlapping call. Token generation especially: two mints would reveal one token and
+  // leave the server honouring the other.
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
@@ -37,21 +25,22 @@ export function McpSetting(): React.JSX.Element {
       setPort(String(c.port))
     })
     void api.mcp.getStatus().then(setStatus)
-    // 起動失敗(ポート衝突など)は main から届く。
+    // A start failure (port already in use) is delivered asynchronously from main.
     return api.mcp.onStatusChanged((s) => {
       setStatus(s)
-      if (s.error) toast.error(`MCP サーバを起動できませんでした: ${s.error}`)
+      if (s.error) toast.error(`Failed to start the MCP server: ${s.error}`)
     })
   }, [])
 
-  if (!config) return <div className="text-sm font-medium">MCP サーバ</div>
+  if (!config) return <div className="text-sm font-medium">MCP server</div>
 
-  const toggle = async (): Promise<void> => {
-    const next = !config.enabled
+  const hasToken = config.maskedToken.length > 0
+
+  const toggle = async (on: boolean): Promise<void> => {
     setBusy(true)
-    setConfig({ ...config, enabled: next })
+    setConfig({ ...config, enabled: on })
     try {
-      setStatus(await api.mcp.setEnabled(next))
+      setStatus(await api.mcp.setEnabled(on))
     } finally {
       setBusy(false)
     }
@@ -60,7 +49,7 @@ export function McpSetting(): React.JSX.Element {
   const savePort = async (): Promise<void> => {
     const parsed = Number(port)
     if (!Number.isInteger(parsed) || parsed < 1024 || parsed > 65535) {
-      toast.error('ポートは 1024〜65535 の整数で指定してください')
+      toast.error('Port must be an integer between 1024 and 65535.')
       return
     }
     setBusy(true)
@@ -72,46 +61,68 @@ export function McpSetting(): React.JSX.Element {
     }
   }
 
-  const regenerate = async (): Promise<void> => {
-    if (!confirm('トークンを再生成しますか？ 登録済みのクライアント設定を貼り直す必要があります。')) return
-    setConfig(await api.mcp.regenerateToken())
-    toast.success('トークンを再生成しました')
+  const generate = async (): Promise<void> => {
+    if (hasToken && !confirm('Generate a new token? Clients registered with the current token will stop working.')) return
+    setBusy(true)
+    try {
+      const { config: next, token } = await api.mcp.generateToken()
+      setConfig(next)
+      setRawToken(token)
+      toast.success('Token generated. Copy it now — it is shown only once.')
+    } finally {
+      setBusy(false)
+    }
   }
 
-  const copyConfig = async (): Promise<void> => {
-    await navigator.clipboard.writeText(clientConfig(config))
-    toast.success('設定 JSON をコピーしました')
+  const copyToken = async (): Promise<void> => {
+    if (!rawToken) return
+    await navigator.clipboard.writeText(rawToken)
+    toast.success('Token copied')
   }
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="text-sm font-medium">MCP サーバ</div>
+      <div className="text-sm font-medium">MCP server</div>
       <div className="text-xs text-muted-foreground">
-        Claude Desktop / Claude Code からキャッシュ済みの価格データとワークスペースを読めるようにします。
-        127.0.0.1 のみで待ち受け、Bearer トークンが必要です。アプリの起動中だけ応答します。
+        Listens on 127.0.0.1 only and requires a Bearer token. Responds only while the app is running.
       </div>
       <div className="flex items-center gap-2">
-        <Button onClick={toggle} disabled={busy}>{config.enabled ? '停止する' : '有効にする'}</Button>
+        <Switch
+          checked={config.enabled}
+          onCheckedChange={toggle}
+          disabled={busy || !hasToken}
+          aria-label="Enable MCP server"
+        />
         <span className="text-xs text-muted-foreground">
-          {status.running
-            ? `起動中 — http://127.0.0.1:${config.port}/mcp`
-            : status.error
-              ? `停止中（${status.error}）`
-              : '停止中'}
+          {!hasToken
+            ? 'Generate a token to enable.'
+            : status.running
+              ? `Running — http://127.0.0.1:${config.port}/mcp`
+              : status.error
+                ? `Stopped (${status.error})`
+                : 'Stopped'}
         </span>
       </div>
       <div className="flex items-center gap-2">
-        <Input className="w-32" value={port} onChange={(e) => setPort(e.target.value)} aria-label="ポート" disabled={busy} />
-        <Button variant="secondary" onClick={savePort} disabled={busy}>
-          ポートを保存
+        <span className="flex min-w-0 flex-1 items-center gap-1">
+          <code className="truncate font-mono text-xs text-muted-foreground">
+            {rawToken ?? (hasToken ? config.maskedToken : 'Not generated')}
+          </code>
+          {/* コピーできるのは生表示のときだけ。マスク済みの値をコピーさせても意味がない。 */}
+          {rawToken && (
+            <Button variant="ghost" size="icon" className="size-7 shrink-0" onClick={copyToken} aria-label="Copy token">
+              <Copy className="size-3.5" />
+            </Button>
+          )}
+        </span>
+        <Button variant="secondary" onClick={generate} disabled={busy}>
+          Generate token
         </Button>
       </div>
       <div className="flex items-center gap-2">
-        <Button variant="secondary" onClick={copyConfig}>
-          設定 JSON をコピー
-        </Button>
-        <Button variant="secondary" onClick={regenerate}>
-          トークンを再生成
+        <Input className="w-32" value={port} onChange={(e) => setPort(e.target.value)} aria-label="Port" disabled={busy} />
+        <Button variant="secondary" onClick={savePort} disabled={busy}>
+          Save port
         </Button>
       </div>
     </div>

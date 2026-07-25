@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync } from 'fs'
+import { mkdtempSync, rmSync, existsSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 
@@ -58,6 +58,60 @@ describe('settings theme', () => {
     settings.setTheme('light')
     expect(settings.getSidebarWidth()).toBe(360)
     expect(settings.getTheme()).toBe('light')
+  })
+})
+
+describe('settings mcp', () => {
+  beforeEach(() => {
+    userDataDir = mkdtempSync(join(tmpdir(), 'settings-test-'))
+  })
+  afterEach(() => {
+    rmSync(userDataDir, { recursive: true, force: true })
+  })
+
+  it('defaults to disabled with no token', () => {
+    expect(settings.getMcpConfig()).toEqual({ enabled: false, port: 39100, token: '' })
+  })
+
+  // Reading the config used to mint and persist a token as a side effect. It must not: a fresh
+  // profile has no credential until the user asks for one.
+  it('does not write settings.json when the config is only read', () => {
+    settings.getMcpConfig()
+    settings.getMcpConfigView()
+    expect(existsSync(join(userDataDir, 'settings.json'))).toBe(false)
+  })
+
+  it('does not mint a token when enabling or changing the port', () => {
+    settings.setMcpConfig({ enabled: true })
+    settings.setMcpConfig({ port: 40000 })
+    expect(settings.getMcpConfig()).toEqual({ enabled: true, port: 40000, token: '' })
+  })
+
+  it('mints and persists a 43-char base64url token on request', () => {
+    const first = settings.generateMcpToken().token
+    expect(first).toMatch(/^[A-Za-z0-9_-]{43}$/)
+    expect(settings.getMcpConfig().token).toBe(first)
+    expect(settings.generateMcpToken().token).not.toBe(first)
+  })
+
+  it('keeps unrelated settings when generating a token', () => {
+    settings.setTheme('dark')
+    settings.generateMcpToken()
+    expect(settings.getTheme()).toBe('dark')
+  })
+
+  it('masks a token to its own length, showing the last 4 chars', () => {
+    const token = settings.generateMcpToken().token
+    const masked = settings.getMcpConfigView().maskedToken
+    expect(masked).toHaveLength(token.length)
+    expect(masked).toBe('*'.repeat(39) + token.slice(-4))
+  })
+
+  it('masks short and empty tokens whole rather than exposing them', () => {
+    expect(settings.maskMcpToken('')).toBe('')
+    expect(settings.maskMcpToken('abc')).toBe('***')
+    expect(settings.maskMcpToken('abcd')).toBe('****')
+    expect(settings.maskMcpToken('abcde')).toBe('*bcde')
   })
 })
 

@@ -10,6 +10,15 @@ describe('tokenMatches', () => {
     expect(tokenMatches('Bearer abc124', 'abc123')).toBe(false)
   })
 
+  // An ungenerated token is '' (settings.ts mints only on request). Nothing may authenticate
+  // against it — not even a bare `Bearer` with an empty value.
+  it('rejects every request when the stored token is empty', () => {
+    expect(tokenMatches('Bearer anything', '')).toBe(false)
+    expect(tokenMatches('Bearer ', '')).toBe(false)
+    expect(tokenMatches('Bearer', '')).toBe(false)
+    expect(tokenMatches(undefined, '')).toBe(false)
+  })
+
   it('rejects a token of a different length without throwing', () => {
     expect(tokenMatches('Bearer short', 'a-much-longer-token')).toBe(false)
   })

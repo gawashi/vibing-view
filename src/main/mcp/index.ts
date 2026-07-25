@@ -35,7 +35,12 @@ export function stop(): Promise<void> {
 async function applyConfigNow(core: ToolCore, config: McpConfig): Promise<McpStatus> {
   await stopNow()
   lastError = undefined
-  if (config.enabled) {
+  if (config.enabled && !config.token) {
+    // A listener with no token accepts nobody (auth.ts rejects an empty stored token for every
+    // request), so bringing it up would only occupy the port and claim to be running. Covers a
+    // hand-edited settings.json with enabled:true too.
+    lastError = 'No token generated yet.'
+  } else if (config.enabled) {
     try {
       running = await startMcpHttpServer({
         port: config.port,

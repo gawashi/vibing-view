@@ -35,7 +35,7 @@ export const CH = {
   mcpGetConfig: 'mcp:getConfig',
   mcpSetEnabled: 'mcp:setEnabled',
   mcpSetPort: 'mcp:setPort',
-  mcpRegenerateToken: 'mcp:regenerateToken',
+  mcpGenerateToken: 'mcp:generateToken',
   mcpGetStatus: 'mcp:getStatus',
   mcpStatusChanged: 'mcp:statusChanged'
 } as const
@@ -44,8 +44,11 @@ export type KeyStatus = { hasKey: boolean; encryptionAvailable: boolean; maskedK
 export type SetKeyResult = { ok: boolean; encryptionAvailable: boolean }
 export type CapabilityStatus = 'available' | 'requires-plan' | 'rate-limited' | 'unknown'
 export type Theme = 'light' | 'dark' | 'system'
-// MCP サーバ設定。token は Settings 画面のコピーボタン用に平文で渡す（M-11）。
+// MCP サーバ設定。main 内部専用の型で、生 token を持つ。token が '' なら未生成。
 export type McpConfig = { enabled: boolean; port: number; token: string }
+// renderer へ渡す形。生トークンは生成した瞬間の戻り値でしか渡さないので、ここはマスク済みだけ。
+// maskedToken が '' なら未生成。
+export type McpConfigView = { enabled: boolean; port: number; maskedToken: string }
 export type McpStatus = { running: boolean; error?: string }
 export type WorkspacesPayload = { collection: WorkspaceCollection; rev: number }
 export type ClipboardPayload = { clipboard: ClipboardCell | null; rev: number }
@@ -115,12 +118,13 @@ export interface Api {
     broadcast(p: RefreshAppliedPayload): Promise<void>
     onApplied(cb: (p: RefreshAppliedPayload) => void): () => void
   }
-  // MCP サーバ（既定 off）。token は Settings のコピーボタン用に平文で往復する（M-11）。
+  // MCP サーバ（既定 off、トークン未生成）。
   mcp: {
-    getConfig(): Promise<McpConfig>
+    getConfig(): Promise<McpConfigView>
     setEnabled(on: boolean): Promise<McpStatus>
     setPort(port: number): Promise<McpStatus>
-    regenerateToken(): Promise<McpConfig>
+    // 生トークンが renderer に渡る唯一の経路。以後 getConfig() はマスク済みしか返さない。
+    generateToken(): Promise<{ config: McpConfigView; token: string }>
     getStatus(): Promise<McpStatus>
     onStatusChanged(cb: (s: McpStatus) => void): () => void
   }

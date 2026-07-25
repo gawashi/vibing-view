@@ -2,7 +2,7 @@ import { app } from 'electron'
 import { join } from 'path'
 import { randomBytes } from 'crypto'
 import { readJsonFile, writeJsonFile } from './jsonStore'
-import type { McpConfig } from '@shared/ipc'
+import type { McpConfig, McpConfigView } from '@shared/ipc'
 
 // ponytail: one small JSON under userData, not electron-store — no dependency for one field (design doc)
 const settingsPath = (): string => join(app.getPath('userData'), 'settings.json')
@@ -63,19 +63,18 @@ export function setAutoRefresh(on: boolean): void {
 const MCP_DEFAULT_PORT = 39100
 
 // M-11: the MCP token is stored in plain text, unlike the FMP API key (D-05). It is a
-// localhost-only credential, revocable from the Settings dialog, and has to be displayed verbatim
-// so the user can paste it into a client config — safeStorage would protect nothing extra here.
+// localhost-only credential the user pastes into a client config, revocable from the Settings
+// dialog — safeStorage would protect nothing extra here.
+// It is minted only when the user asks (generateMcpToken). Reading the config never creates one,
+// so a fresh profile has no token and the server refuses to start until the user generates it.
 export function getMcpConfig(): McpConfig {
   const raw = read().mcp
   const cfg = typeof raw === 'object' && raw !== null ? (raw as Partial<McpConfig>) : {}
-  const config: McpConfig = {
+  return {
     enabled: cfg.enabled === true,
     port: typeof cfg.port === 'number' && Number.isInteger(cfg.port) ? cfg.port : MCP_DEFAULT_PORT,
-    token: typeof cfg.token === 'string' && cfg.token.length > 0 ? cfg.token : randomBytes(32).toString('base64url')
+    token: typeof cfg.token === 'string' ? cfg.token : ''
   }
-  // Persist a freshly minted token so the value shown in Settings is the one the server accepts.
-  if (config.token !== cfg.token) writeJsonFile(settingsPath(), { ...read(), mcp: config })
-  return config
 }
 
 export function setMcpConfig(patch: Partial<McpConfig>): McpConfig {
@@ -84,6 +83,18 @@ export function setMcpConfig(patch: Partial<McpConfig>): McpConfig {
   return next
 }
 
-export function regenerateMcpToken(): McpConfig {
+export function generateMcpToken(): McpConfig {
   return setMcpConfig({ token: randomBytes(32).toString('base64url') })
+}
+
+// Keeps the token's exact length so the masked field lines up with the real value (length is not a
+// secret — see mcp/auth.ts). Anything 4 chars or shorter is masked whole: a hand-edited
+// settings.json could hold a 3-char token, and slicing the last 4 off that would show it in full.
+export function maskMcpToken(token: string): string {
+  return token.length <= 4 ? '*'.repeat(token.length) : '*'.repeat(token.length - 4) + token.slice(-4)
+}
+
+export function getMcpConfigView(): McpConfigView {
+  const { enabled, port, token } = getMcpConfig()
+  return { enabled, port, maskedToken: maskMcpToken(token) }
 }

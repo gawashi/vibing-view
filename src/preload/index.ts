@@ -70,7 +70,7 @@ const api: Api = {
     getConfig: () => ipcRenderer.invoke(CH.mcpGetConfig),
     setEnabled: (on) => ipcRenderer.invoke(CH.mcpSetEnabled, on),
     setPort: (port) => ipcRenderer.invoke(CH.mcpSetPort, port),
-    regenerateToken: () => ipcRenderer.invoke(CH.mcpRegenerateToken),
+    generateToken: () => ipcRenderer.invoke(CH.mcpGenerateToken),
     getStatus: () => ipcRenderer.invoke(CH.mcpGetStatus),
     onStatusChanged: (cb) => {
       const listener = (_e: unknown, s: McpStatus): void => cb(s)

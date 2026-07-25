@@ -5,7 +5,7 @@ import { toBars, type Core } from './core'
 import {
   getLastSymbol, setLastSymbol, getSidebarOpen, setSidebarOpen, getSidebarWidth, setSidebarWidth,
   getTheme, setTheme, getAutoRefresh, setAutoRefresh, type Theme,
-  getMcpConfig, setMcpConfig, regenerateMcpToken
+  getMcpConfigView, setMcpConfig, generateMcpToken
 } from './settings'
 import * as mcp from './mcp'
 
@@ -57,13 +57,14 @@ export function registerIpc(core: Core): void {
 
   ipcMain.handle(CH.capabilitiesGet, () => core.capabilities.get())
 
-  ipcMain.handle(CH.mcpGetConfig, () => getMcpConfig())
+  ipcMain.handle(CH.mcpGetConfig, () => getMcpConfigView())
   ipcMain.handle(CH.mcpGetStatus, () => mcp.getStatus())
   ipcMain.handle(CH.mcpSetEnabled, (_e, on: boolean) => mcp.applyConfig(core, setMcpConfig({ enabled: on })))
   ipcMain.handle(CH.mcpSetPort, (_e, port: number) => mcp.applyConfig(core, setMcpConfig({ port })))
-  ipcMain.handle(CH.mcpRegenerateToken, async () => {
-    const config = regenerateMcpToken()
+  ipcMain.handle(CH.mcpGenerateToken, async () => {
+    const config = generateMcpToken()
     await mcp.applyConfig(core, config) // a live server must stop honouring the old token
-    return config
+    // 生トークンを renderer に渡すのはこの戻り値だけ。以後は getConfig() のマスク済みのみ。
+    return { config: getMcpConfigView(), token: config.token }
   })
 }
