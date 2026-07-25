@@ -49,6 +49,9 @@ function createWindow(): void {
     }
   })
   hardenWindow(win)
+  // Hide the menu bar entirely (Alt won't reveal it, since autoHideMenuBar stays false). The app
+  // menu still exists so its zoom/fullscreen/close accelerators keep working — we just don't show it.
+  win.setMenuBarVisibility(false)
   win.on('ready-to-show', () => win.show())
   // Closing the main window tears down company windows so window-all-closed fires → app quits.
   win.on('closed', () => {
@@ -79,6 +82,7 @@ function openHashWindow(map: Map<string, BrowserWindow>, key: string, width: num
     }
   })
   hardenWindow(win)
+  win.setMenuBarVisibility(false)
   map.set(key, win)
   win.on('ready-to-show', () => win.show())
   win.on('closed', () => map.delete(key))
