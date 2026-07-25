@@ -89,6 +89,10 @@ export default function App(): React.JSX.Element {
         // status 不明 → 手動は続行、auto は closed 扱いで下の判定によりスキップ。
       }
       if (!shouldRefreshData(opts.source, isOpen)) {
+        // クローズで打ち切る場合も、取得済みの market-status だけは他ウィンドウへ配る（追加 FMP なし）。
+        // これがないと enlarge 窓がクローズ後も古い open 状態のまま取り残される。
+        const marketStatus = queryClient.getQueryData<MarketStatus>(qk.marketStatus()) ?? null
+        void api.refresh.broadcast({ ohlcv: [], quotes: [], marketStatus })
         setRefreshState((s) => ({ status: 'paused-closed', lastRefreshedAt: s.lastRefreshedAt }))
         return
       }
