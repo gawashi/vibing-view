@@ -69,6 +69,9 @@ export function startMcpHttpServer(opts: {
     server.once('error', reject)
     server.listen(opts.port, '127.0.0.1', () => {
       server.removeListener('error', reject)
+      // Post-listen errors (e.g. EMFILE on the accept path) must not crash the app: an
+      // 'error' event with no listener throws. Log instead of leaving the emitter bare.
+      server.on('error', (err) => console.error('[mcp] http server error:', err))
       const address = server.address()
       const port = typeof address === 'object' && address ? address.port : opts.port
       resolve({

@@ -1,6 +1,20 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { startMcpHttpServer, type McpHttpServer } from '../../../src/main/mcp/httpServer'
 
+// McpHttpServer only exposes port()/close(), so the underlying net.Server is captured via a
+// wrapped `http.createServer` instead of widening the public API just for one test.
+const capture = vi.hoisted(() => ({ server: undefined as import('http').Server | undefined }))
+vi.mock('http', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('http')>()
+  return {
+    ...actual,
+    createServer: (...args: Parameters<typeof actual.createServer>) => {
+      capture.server = actual.createServer(...args)
+      return capture.server
+    }
+  }
+})
+
 let server: McpHttpServer | null = null
 
 afterEach(async () => {
@@ -71,6 +85,13 @@ describe('startMcpHttpServer', () => {
     })
 
     expect(res.status).toBe(404)
+  })
+
+  it('logs rather than throws on a post-listen server error (e.g. accept-path EMFILE)', async () => {
+    server = await startMcpHttpServer({ port: 0, token: 'secret', handle: vi.fn() })
+    expect(capture.server).toBeDefined()
+
+    expect(() => capture.server!.emit('error', new Error('EMFILE, too many open files'))).not.toThrow()
   })
 
   it('rejects the second listener on a busy port instead of silently moving (M-07)', async () => {
