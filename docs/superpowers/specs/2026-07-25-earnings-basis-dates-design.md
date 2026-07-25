@@ -36,6 +36,25 @@ fetch today.
 - `growth.asOfDate` ← the `date` of the `/financial-growth` row already selected by
   `opt()` (newest-first, so `[0]` is the latest annual period)
 
+**Fix `reported` while we are here.** `reported` currently selects the newest row with
+a non-null `epsActual` and applies no date bound, while `upcoming` right above it
+filters on `date >= today`. A future-dated row carrying an `epsActual` therefore
+becomes "the last report" — invisible today because only the EPS numbers are shown,
+but plainly wrong the moment we print its date. Add the symmetric bound:
+
+```ts
+const reported = (earnings ?? [])
+  .filter((e) => e.epsActual != null && e.date <= today)
+  .sort((a, b) => b.date.localeCompare(a.date))[0]
+```
+
+`lastEpsActual` / `lastEpsEstimated` keep coming from that same row, so the three
+Schedule values stay consistent with each other.
+
+`/financial-growth` ordering is not re-verified: the existing code already trusts
+newest-first for the growth values themselves, and showing `asOfDate` makes a wrong
+order visible rather than silent.
+
 `fmp.schema.ts` — add to `fmpFinancialGrowthResponse`:
 
 ```ts
@@ -99,22 +118,43 @@ Rendered in the muted style used by `Attr`'s label. Omitted entirely when
 ### Cache behaviour
 
 Rows cached before this change lack both keys, so the new date row and the Growth
-header stay hidden for that symbol until the 1-day TTL expires or the user hits the
-existing force-reload button. No migration, no cache invalidation.
+header stay hidden for that symbol until the **next successful fetch** — TTL expiry or
+the force-reload button only triggers an attempt, and `CompanyInfoService` falls back
+to the stale row when that attempt fails. No migration, no cache invalidation.
 
 ## Testing
 
 `tests/main/providers/FmpProvider.test.ts`, using the existing fixtures — both
 `fmp-earnings.json` and `fmp-financial-growth.json` already carry `date`, so no
-fixture changes:
+fixture changes.
 
-- `schedule.lastEarningsDate` equals the date of the newest row that has an
-  `epsActual`, not the newest row overall
+**Freeze the clock first.** Earnings selection reads `new Date()`, and the suite
+currently passes only because the fixture's dates happen to straddle the real today;
+it would start failing on its own once 2026-10-30 passes. Wrap the earnings
+assertions in `vi.setSystemTime(new Date('2026-07-25'))`. Fake timers in the test are
+enough — no clock injection into `FmpProvider`.
+
+Against that fixed date, `fmp-earnings.json` has rows `2026-10-30` (no actual),
+`2026-07-31` (actual 1.4, **future**), `2026-05-01` (actual 1.52):
+
+- `schedule.lastEarningsDate` is `2026-05-01` — the newest *past* reported row, not
+  the future-dated `2026-07-31` one
+- `schedule.lastEpsActual` is `1.52`, updating the existing assertion of `1.4`
+  (`FmpProvider.test.ts:190`), which encoded the pre-fix behaviour
+- `schedule.nextEarningsDate` stays `2026-10-30`
 - `growth.asOfDate` equals the newest `/financial-growth` row's `date`
-- `/earnings` with no reported row (all `epsActual` null) → `lastEarningsDate` is
-  `null` while the rest of `schedule` still populates
+- `/earnings` with no past reported row → `lastEarningsDate`, `lastEpsActual` and
+  `lastEpsEstimated` are all `null` while `nextEarningsDate` still populates
 
 ## Out of scope
 
 - Any date or annotation for PER / TTM ratios — FMP does not return one.
 - Quarterly-vs-annual selection for `/financial-growth`; we keep the current default.
+- A dedicated schema test for the new `date` field. It uses the same
+  `.catch(null)` shape as the numeric fields beside it; a test for it would be a test
+  of zod.
+- Component-render tests for the two new UI lines. `tests/renderer/` covers pure
+  functions only, and this change does not justify introducing a rendering harness.
+- Stricter `YYYY-MM-DD` validation. `Attr` already drops empty strings
+  (`value == null || value === ''`), and a malformed date would be shown as-is
+  rather than crashing.
