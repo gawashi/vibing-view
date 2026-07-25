@@ -38,6 +38,9 @@ export type KeyStatus = { hasKey: boolean; encryptionAvailable: boolean; maskedK
 export type SetKeyResult = { ok: boolean; encryptionAvailable: boolean }
 export type CapabilityStatus = 'available' | 'requires-plan' | 'rate-limited' | 'unknown'
 export type Theme = 'light' | 'dark' | 'system'
+// MCP サーバ設定。token は Settings 画面のコピーボタン用に平文で渡す（M-11）。
+export type McpConfig = { enabled: boolean; port: number; token: string }
+export type McpStatus = { running: boolean; error?: string }
 export type WorkspacesPayload = { collection: WorkspaceCollection; rev: number }
 export type ClipboardPayload = { clipboard: ClipboardCell | null; rev: number }
 export type RefreshAppliedPayload = {

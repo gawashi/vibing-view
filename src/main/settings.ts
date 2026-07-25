@@ -1,6 +1,8 @@
 import { app } from 'electron'
 import { join } from 'path'
+import { randomBytes } from 'crypto'
 import { readJsonFile, writeJsonFile } from './jsonStore'
+import type { McpConfig } from '@shared/ipc'
 
 // ponytail: one small JSON under userData, not electron-store — no dependency for one field (design doc)
 const settingsPath = (): string => join(app.getPath('userData'), 'settings.json')
@@ -56,4 +58,32 @@ export function getAutoRefresh(): boolean {
 
 export function setAutoRefresh(on: boolean): void {
   writeJsonFile(settingsPath(), { ...read(), autoRefresh: on })
+}
+
+const MCP_DEFAULT_PORT = 39100
+
+// M-11: the MCP token is stored in plain text, unlike the FMP API key (D-05). It is a
+// localhost-only credential, revocable from the Settings dialog, and has to be displayed verbatim
+// so the user can paste it into a client config — safeStorage would protect nothing extra here.
+export function getMcpConfig(): McpConfig {
+  const raw = read().mcp
+  const cfg = typeof raw === 'object' && raw !== null ? (raw as Partial<McpConfig>) : {}
+  const config: McpConfig = {
+    enabled: cfg.enabled === true,
+    port: typeof cfg.port === 'number' && Number.isInteger(cfg.port) ? cfg.port : MCP_DEFAULT_PORT,
+    token: typeof cfg.token === 'string' && cfg.token.length > 0 ? cfg.token : randomBytes(32).toString('base64url')
+  }
+  // Persist a freshly minted token so the value shown in Settings is the one the server accepts.
+  if (config.token !== cfg.token) writeJsonFile(settingsPath(), { ...read(), mcp: config })
+  return config
+}
+
+export function setMcpConfig(patch: Partial<McpConfig>): McpConfig {
+  const next = { ...getMcpConfig(), ...patch }
+  writeJsonFile(settingsPath(), { ...read(), mcp: next })
+  return next
+}
+
+export function regenerateMcpToken(): McpConfig {
+  return setMcpConfig({ token: randomBytes(32).toString('base64url') })
 }
