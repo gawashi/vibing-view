@@ -121,17 +121,20 @@ Express は追加しない。`127.0.0.1` にバインドし、パスは `/mcp`�
 `unknown`）を併せて返す。
 
 この形は現状の `barStore` では引けない。あるのは `getCoverage`（銘柄×時間足の単点）と
-`getBars` だけで、全銘柄の列挙も本数のカウントも無い。2 関数を足す。
+`getBars` だけで、全銘柄の列挙も本数のカウントも無い。1 関数を足す。集約 1 本で全銘柄の
+本数と期間が揃うので、列挙とカウントを分けない（銘柄ごとに `COUNT(*)` を撃つ N+1 を避ける）。
 
 ```ts
-// coverage 表の全行。SELECT symbol, timeframe, oldestTime, newestTime FROM coverage
-listCoverage(): { symbol: string; timeframe: Timeframe; oldestTime: number; newestTime: number }[]
-// 本数。足を全部読まずに数える。SELECT COUNT(*) ... WHERE symbol = ? AND timeframe = ?
-countBars(symbol: string, tf: Timeframe): number
+// SELECT symbol, timeframe, COUNT(*) n, MIN(time) oldest, MAX(time) newest
+// FROM bars GROUP BY symbol, timeframe
+summarizeBars(): { symbol: string; timeframe: Timeframe; count: number; oldestTime: number; newestTime: number }[]
 ```
 
-W/M（`1w` / `1M`）は `1d` から導出するだけで行を持たない（D-17）。したがって coverage 表には
-現れず、`listCoverage` にも出てこない。ツールの出力では W/M を独立の時間足として並べず、
+`coverage` 表ではなく `bars` を集約する。カバレッジ窓は union で広がるため実際に持っている
+足より広くなりうるが、`get_cache_status` が答えるべきは「今そこに何本あるか」なので実態を出す。
+
+W/M（`1w` / `1M`）は `1d` から導出するだけで行を持たない（D-17）。したがって `bars` に現れず、
+`summarizeBars` にも出てこない。ツールの出力では W/M を独立の時間足として並べず、
 `1d` の行に `derived: ['1w', '1M']` を添える。本数を出すなら `deriveWeekly` /
 `deriveMonthly` を実行して数えることになるが、それは全足の読み出しと集約を伴うので v1 では
 出さない。「`1d` のカバレッジがそのまま W/M のカバレッジ」とツール説明に書く。
@@ -221,6 +224,16 @@ renderer への影響は無い。範囲を渡す呼び出しは `Chart.tsx` の�
 要約行には**実際に返した範囲**とキャッシュのカバレッジ、消費した API 回数を出す。要求 `from` に
 届かなかった場合（プランの intraday 履歴上限）は note を添える。
 
+要求範囲を満たせないのは履歴上限だけではない。`CacheService` が埋めるのは左端だけで、右端の
+欠け（`range.to > cov.newestTime`）と窓の内側の穴は埋めない。前者は上のガードの対象外
+（`range.from < cov.oldestTime` 側に入らなければ `undefined` 取得に落ちる）、後者は coverage が
+min/max しか持たないので検出すらできない。どちらも M-15 が作る問題ではなく D-16 以来の挙動で、
+renderer は右端を `refresh` で埋めるため踏まない。MCP は任意の範囲を渡せるので踏む。
+
+取得ロジックは変えない。代わりに**返した範囲が要求範囲を満たしたかを要約行で必ず明示する**。
+満たせていなければ理由を問わず note を出し、`force` か `from`/`to` の絞り込みを促す。空配列も
+足りない範囲も、Claude に「これで全部」と読ませないことが要件。
+
 ```
 NVDA 5m — 300 of 1170 cached bars, 2026-07-18T13:30:00Z to 2026-07-24T20:00:00Z (1 API call)
 note: requested from=2026-01-01 but the oldest bar returned is 2026-07-18 — the FMP plan may not carry intraday history that far back.
@@ -296,9 +309,10 @@ API を消費する旨を書き、無差別なスキャンを抑制する。
 
 トークンは `settings.json` に平文で置く。`keystore.ts` は API キーの平文書き込みを拒否している
 （D-05）が、そこと扱いを変える。API キーは課金される外部の資格情報で漏れれば請求に直結する一方、
-このトークンは localhost に閉じたセッション資格情報で、失効はトグル 1 つ。加えて Settings 画面に
+このトークンは localhost に閉じた資格情報で、失効は `mcp:regenerateToken` で任意に行える
+（トグルを off にしてもトークンは `settings.json` に残るので、それは停止であって失効ではない）。加えて Settings 画面に
 コピーボタンで平文表示する必要があり、`safeStorage` に入れても同じプロセスが復号して表示するので
-守れる範囲が増えない。ローテーションは `mcp:regenerateToken` で任意に行える。
+守れる範囲が増えない。
 
 ポート使用中なら起動に失敗させ、トーストで通知する。別ポートへ自動的にずらすと設定ファイルと
 実態が食い違うため、ずらさない。
@@ -350,8 +364,8 @@ Claude Code は `claude mcp add --transport http` でも登録できる。
   呼び出しが 1 回で済むことを検証する。API 予算の要なのでここは必ず書く。
 - **`ipc.ts` の畳み込み** — `kind` が `out-of-plan` / `unknown-symbol` / `empty-range` の
   いずれでも renderer には `[]` が返り、既存の契約が壊れていないことを検証する。
-- **`barStore`** — `listCoverage` が全行を返すこと、`countBars` が足を読まずに数えること、
-  W/M の行が現れないこと。
+- **`barStore`** — `summarizeBars` が全銘柄×時間足の本数と期間を 1 クエリで返すこと、W/M の行が
+  現れないこと。
 - **MCP ツール層** — フェイクの core を注入し、引数検証、`limit` の丸め、CSV 整形、`force` が
   refresh 経路へ回ること、エラー写像を検証する。`from`/`to` は 5 ケース（両方 / `from` のみ →
   `to = now` / `to` のみ → `undefined` + 出力フィルタ / 両方省略 / `from > to` はエラー）で
@@ -387,12 +401,13 @@ Claude Code は `claude mcp add --transport http` でも登録できる。
   `symbol × timeframe` を要求すると FMP を 2 回叩くため。API 呼び出しの節約が最優先の方針に
   従う。
 - **M-11** MCP トークンは `settings.json` に平文で置く。API キー（D-05 で平文を拒否）とは
-  扱いを変える。localhost 限定のセッション資格情報であり、UI に平文表示する要件があるため
-  `safeStorage` に入れても守れる範囲が増えない。
+  扱いを変える。localhost 限定の資格情報であり、UI に平文表示する要件があるため
+  `safeStorage` に入れても守れる範囲が増えない。失効手段はトグルではなく
+  `mcp:regenerateToken`（トグル off はサーバ停止のみで、トークンは残る）。
 - **M-12** `Origin` ヘッダが無いリクエストは通す。Claude Desktop / Claude Code は非ブラウザ
   クライアントで `Origin` を付けない。必須にすると誰も繋がらない。
-- **M-13** `get_cache_status` に W/M の本数・期間は出さない。`1d` から導出するだけで coverage
-  行を持たず（D-17）、数えるには全足の集約が要る。`1d` の行に `derived` として添える。
+- **M-13** `get_cache_status` に W/M の本数・期間は出さない。`1d` から導出するだけで `bars` /
+  `coverage` に行を持たず（D-17）、数えるには導出の実行が要る。`1d` の行に `derived` として添える。
 - **M-14** `to` だけが与えられた場合、`from` を補わず `undefined` を渡して出力側で絞る。`from`
   に defensible な既定値が無く、epoch 0 を入れると分足で数十年分を要求するため。`from` だけの
   場合は `to = now` で補う（M-15 により実際に遡れるので嘘にならない）。
