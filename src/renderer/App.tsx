@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { PanelLeftClose, PanelLeftOpen, RefreshCw } from 'lucide-react'
+import { PanelLeftClose, PanelLeftOpen, RefreshCw, Timer, TimerOff } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { api, qk } from './api'
@@ -41,6 +41,7 @@ export default function App(): React.JSX.Element {
     void api.settings.getSidebarWidth().then((w) => {
       if (w !== null) setSidebarWidth(w)
     })
+    void api.settings.getAutoRefresh().then(setAutoRefresh)
   }, [])
 
   // ponytail: React-state (not a store subscribe) so a plain 500ms debounced effect is enough.
@@ -65,6 +66,7 @@ export default function App(): React.JSX.Element {
     status: 'idle' | 'ok' | 'failed' | 'paused-closed'
     lastRefreshedAt: number | null
   }>({ status: 'idle', lastRefreshedAt: null })
+  const [autoRefresh, setAutoRefresh] = useState(false)
 
   const reload = async (opts: { source: ReloadSource }): Promise<void> => {
     if (inFlight.current) return // 同期ガード: 手動と auto tick の二重実行を防ぐ（state のラグに依存しない）
@@ -116,6 +118,33 @@ export default function App(): React.JSX.Element {
     }
   }
 
+  const toggleAutoRefresh = (): void => {
+    setAutoRefresh((prev) => {
+      const next = !prev
+      void api.settings.setAutoRefresh(next)
+      return next
+    })
+  }
+
+  // 集中スケジューラ: タイマーはメインウィンドウ（App）にのみ存在する。ON で即 1 回 + 毎分。
+  // 非表示中(document.hidden)は tick をスキップし API を消費しない。再表示で 1 回更新。
+  useEffect(() => {
+    if (!autoRefresh) return
+    const tick = (): void => {
+      if (document.hidden) return
+      void reload({ source: 'auto' })
+    }
+    tick() // ON にした瞬間に即 1 回
+    const id = setInterval(tick, 60_000)
+    const onVisible = (): void => { if (!document.hidden) tick() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(id)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRefresh])
+
   // Per-cell capability gating (eager intraday probe, requires-plan→snap-to-daily, rate-limit
   // toast) has moved into GridHost's GridCell (D-60) — each rendered cell now gates its own row off
   // its own symbol/timeframe instead of one App-level effect tied to a single active symbol.
@@ -154,6 +183,21 @@ export default function App(): React.JSX.Element {
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Reload visible charts</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={toggleAutoRefresh}
+                  aria-label={autoRefresh ? 'Auto-refresh on' : 'Auto-refresh off'}
+                >
+                  {autoRefresh ? <Timer className="size-4" /> : <TimerOff className="size-4" />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {autoRefresh ? 'Auto-refresh: every 1 min' : 'Auto-refresh: off'}
+              </TooltipContent>
             </Tooltip>
             {refreshState.status === 'paused-closed' && (
               <span className="text-xs text-muted-foreground" title="Market closed — auto-refresh paused">
