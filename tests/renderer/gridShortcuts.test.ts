@@ -74,6 +74,12 @@ describe('handleGridShortcut', () => {
     expect(deps.copyCell).not.toHaveBeenCalled()
   })
 
+  it('ignores shortcuts when target is contentEditable', () => {
+    const r = handleGridShortcut(ev({ key: 'c', ctrlKey: true, target: { tagName: 'DIV', isContentEditable: true } }), deps)
+    expect(r).toBe(false)
+    expect(deps.copyCell).not.toHaveBeenCalled()
+  })
+
   it('ignores shortcuts inside a dialog/menu (role match via closest)', () => {
     const target = { tagName: 'BUTTON', closest: (sel: string) => (sel.includes('dialog') ? {} : null) }
     expect(handleGridShortcut(ev({ key: 'Delete', target }), deps)).toBe(false)
