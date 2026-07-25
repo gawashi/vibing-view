@@ -60,3 +60,28 @@ describe('settings theme', () => {
     expect(settings.getTheme()).toBe('light')
   })
 })
+
+describe('settings autoRefresh', () => {
+  beforeEach(() => {
+    userDataDir = mkdtempSync(join(tmpdir(), 'settings-test-'))
+  })
+  afterEach(() => {
+    rmSync(userDataDir, { recursive: true, force: true })
+  })
+
+  it('defaults to false before anything is saved', () => {
+    expect(settings.getAutoRefresh()).toBe(false)
+  })
+
+  it('round-trips through set → get', () => {
+    settings.setAutoRefresh(true)
+    expect(settings.getAutoRefresh()).toBe(true)
+  })
+
+  it('does not clobber theme when writing autoRefresh', () => {
+    settings.setTheme('dark')
+    settings.setAutoRefresh(true)
+    expect(settings.getTheme()).toBe('dark')
+    expect(settings.getAutoRefresh()).toBe(true)
+  })
+})

@@ -28,7 +28,9 @@ const api: Api = {
     getSidebarWidth: () => ipcRenderer.invoke(CH.settingsGetSidebarWidth),
     setSidebarWidth: (width) => ipcRenderer.invoke(CH.settingsSetSidebarWidth, width),
     getTheme: () => ipcRenderer.invoke(CH.settingsGetTheme),
-    setTheme: (theme) => ipcRenderer.invoke(CH.settingsSetTheme, theme)
+    setTheme: (theme) => ipcRenderer.invoke(CH.settingsSetTheme, theme),
+    getAutoRefresh: () => ipcRenderer.invoke(CH.settingsGetAutoRefresh),
+    setAutoRefresh: (on) => ipcRenderer.invoke(CH.settingsSetAutoRefresh, on)
   },
   capabilities: { get: () => ipcRenderer.invoke(CH.capabilitiesGet) },
   workspaces: {

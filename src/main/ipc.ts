@@ -6,7 +6,7 @@ import { electronHttpGetJson } from './net/httpClient'
 import { createCacheService } from './cache/CacheService'
 import * as barStore from './db/barStore'
 import { getApiKey, setApiKey, getKeyStatus, clearApiKey } from './keystore'
-import { getLastSymbol, setLastSymbol, getSidebarOpen, setSidebarOpen, getSidebarWidth, setSidebarWidth, getTheme, setTheme } from './settings'
+import { getLastSymbol, setLastSymbol, getSidebarOpen, setSidebarOpen, getSidebarWidth, setSidebarWidth, getTheme, setTheme, getAutoRefresh, setAutoRefresh } from './settings'
 import { createSearchCache } from './searchCache'
 import { classify } from './capabilityClassifier'
 import * as capabilityCache from './capabilityCache'
@@ -150,6 +150,8 @@ export function registerIpc(): void {
   ipcMain.handle(CH.settingsSetSidebarWidth, (_e, width: number) => setSidebarWidth(width))
   ipcMain.handle(CH.settingsGetTheme, () => getTheme())
   ipcMain.handle(CH.settingsSetTheme, (_e, theme: import('./settings').Theme) => setTheme(theme))
+  ipcMain.handle(CH.settingsGetAutoRefresh, () => getAutoRefresh())
+  ipcMain.handle(CH.settingsSetAutoRefresh, (_e, on: boolean) => setAutoRefresh(on))
 
   // Monotonic version stamped on each persisted workspace write. Renderers ignore stale (<= lastRev)
   // get/broadcast payloads — see the sync guard in useWorkspaceSync (ordering + startup race).

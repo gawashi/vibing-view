@@ -18,6 +18,8 @@ export const CH = {
   settingsSetSidebarWidth: 'settings:setSidebarWidth',
   settingsGetTheme: 'settings:getTheme',
   settingsSetTheme: 'settings:setTheme',
+  settingsGetAutoRefresh: 'settings:getAutoRefresh',
+  settingsSetAutoRefresh: 'settings:setAutoRefresh',
   capabilitiesGet: 'capabilities:get',
   workspacesGet: 'workspaces:get',
   workspacesSet: 'workspaces:set',
@@ -65,6 +67,9 @@ export interface Api {
     setSidebarWidth(width: number): Promise<void>
     getTheme(): Promise<Theme>
     setTheme(theme: Theme): Promise<void>
+    // 自動更新トグル（settings.json、既定 false）。sidebarOpen と同じ UI-chrome 永続化。
+    getAutoRefresh(): Promise<boolean>
+    setAutoRefresh(on: boolean): Promise<void>
   }
   capabilities: { get(): Promise<Record<Timeframe, CapabilityStatus>> }
   workspaces: {
