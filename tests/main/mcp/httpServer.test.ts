@@ -41,6 +41,11 @@ describe('startMcpHttpServer', () => {
     expect(handle.mock.calls[0][2]).toEqual({ jsonrpc: '2.0', id: 1, method: 'ping' })
   })
 
+  it('binds loopback only, never all interfaces', async () => {
+    server = await startMcpHttpServer({ port: 0, token: 'secret', handle: vi.fn() })
+    expect(server.address()).toBe('127.0.0.1')
+  })
+
   it('rejects a request with no token', async () => {
     const handle = vi.fn()
     server = await startMcpHttpServer({ port: 0, token: 'secret', handle })

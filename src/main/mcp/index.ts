@@ -16,13 +16,24 @@ export function onStatusChanged(cb: (s: McpStatus) => void): void {
   notify = cb
 }
 
-export async function stop(): Promise<void> {
+// Serialises stop()/applyConfig() so two overlapping calls (e.g. a Settings toggle double-click)
+// can never interleave — without this, call A could await `listen` after call B already decided
+// there was nothing to stop, leaving a live listener while the UI and settings.json both say
+// stopped. `fn, fn` runs `fn` on rejection too, so one failed call can't wedge the chain forever.
+let chain: Promise<unknown> = Promise.resolve()
+const serial = <T>(fn: () => Promise<T>): Promise<T> => (chain = chain.then(fn, fn) as Promise<T>)
+
+async function stopNow(): Promise<void> {
   await running?.close()
   running = null
 }
 
-export async function applyConfig(core: ToolCore, config: McpConfig): Promise<McpStatus> {
-  await stop()
+export function stop(): Promise<void> {
+  return serial(stopNow)
+}
+
+async function applyConfigNow(core: ToolCore, config: McpConfig): Promise<McpStatus> {
+  await stopNow()
   lastError = undefined
   if (config.enabled) {
     try {
@@ -56,4 +67,8 @@ export async function applyConfig(core: ToolCore, config: McpConfig): Promise<Mc
   const status = getStatus()
   notify?.(status)
   return status
+}
+
+export function applyConfig(core: ToolCore, config: McpConfig): Promise<McpStatus> {
+  return serial(() => applyConfigNow(core, config))
 }

@@ -51,9 +51,12 @@ export function unmetRangeNotes(req: { from?: string; to?: string }, full: Bar[]
   const oldest = full[0].time
   const newest = full[full.length - 1].time
   if (req.from && oldest > parseIsoToEpoch(req.from)) {
+    const reason = isIntraday(tf)
+      ? 'the FMP plan may not carry intraday history that far back'
+      : 'the cache does not go back that far'
     notes.push(
       `note: requested from=${req.from} but the oldest bar returned is ${formatEpoch(oldest, tf)} — ` +
-      'the FMP plan may not carry intraday history that far back. This is NOT the complete history for that range.'
+      `${reason}. This is NOT the complete history for that range.`
     )
   }
   if (req.to && newest < parseIsoToEpoch(req.to)) {

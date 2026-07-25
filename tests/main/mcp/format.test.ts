@@ -71,6 +71,14 @@ describe('unmetRangeNotes', () => {
     ])
   })
 
+  it('warns about the cache, not intraday history, on a daily/weekly/monthly request', () => {
+    const notes = unmetRangeNotes({ from: '1990-01-01' }, [bar(at('2020-01-01T00:00:00Z'))], '1d')
+    expect(notes).toEqual([
+      'note: requested from=1990-01-01 but the oldest bar returned is 2020-01-01 — ' +
+      'the cache does not go back that far. This is NOT the complete history for that range.'
+    ])
+  })
+
   it('warns when the newest returned bar is older than the requested to', () => {
     const notes = unmetRangeNotes({ to: '2026-07-24' }, [bar(at('2026-07-20T00:00:00Z'))], '1d')
     expect(notes).toEqual([

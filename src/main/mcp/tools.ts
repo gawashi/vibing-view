@@ -68,10 +68,15 @@ function messageForError(err: unknown, timeframe?: Timeframe): string {
 }
 
 export function buildTools(core: ToolCore, now: () => number): ToolDef[] {
+  // Shared symbol -> coverage-timeframe -> cached row lookup. W/M coverage IS the daily coverage.
+  const coverageRow = (symbol: string, timeframe: Timeframe) => {
+    const covTf = timeframe === '1w' || timeframe === '1M' ? '1d' : timeframe
+    return { covTf, row: core.cacheStatus.summarize(symbol).find((r) => r.timeframe === covTf) }
+  }
+
   // Coverage sentence reused by the empty-range paths — the model needs to know what IS there.
   const coverageSentence = (symbol: string, timeframe: Timeframe): string => {
-    const covTf = timeframe === '1w' || timeframe === '1M' ? '1d' : timeframe
-    const row = core.cacheStatus.summarize(symbol).find((r) => r.timeframe === covTf)
+    const { covTf, row } = coverageRow(symbol, timeframe)
     return row
       ? `Cached coverage is ${formatEpoch(row.oldestTime, covTf)} to ${formatEpoch(row.newestTime, covTf)}.`
       : `Nothing is cached for ${symbol} ${covTf}.`
@@ -93,9 +98,13 @@ export function buildTools(core: ToolCore, now: () => number): ToolDef[] {
     const fromSec = from ? parseIsoToEpoch(from) : undefined
     const toSec = to ? parseIsoToEpoch(to) : undefined
     // M-14: a lone `to` gets no synthetic `from` — epoch 0 on a minute series would ask FMP for
-    // decades. Fetch the cached window and filter the output instead. A lone `from` gets to=now,
-    // which the widened CacheService guard (M-15) can actually honour.
-    const range: DateRange = fromSec === undefined ? undefined : { from: fromSec, to: toSec ?? Math.floor(now() / 1000) }
+    // decades. Fetch the cached window and filter the output instead. A lone `from` gets a
+    // synthetic `to` capped at the cached newest bar (falling back to `now` only when nothing is
+    // cached yet): a right edge beyond coverage makes CacheService treat an otherwise fully-cached
+    // range as a miss and refetch the entire history (every bar is always older than `now`).
+    const range: DateRange = fromSec === undefined
+      ? undefined
+      : { from: fromSec, to: toSec ?? coverageRow(symbol, timeframe).row?.newestTime ?? Math.floor(now() / 1000) }
 
     let outcome: OhlcvOutcome
     try {

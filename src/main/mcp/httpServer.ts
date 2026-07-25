@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'http'
 import { tokenMatches, originAllowed } from './auth'
 
 export type McpRequestHandler = (req: IncomingMessage, res: ServerResponse, body: unknown) => Promise<void>
-export type McpHttpServer = { close(): Promise<void>; port(): number }
+export type McpHttpServer = { close(): Promise<void>; port(): number; address(): string }
 
 const PATH = '/mcp'
 const MAX_BODY_BYTES = 4 * 1024 * 1024
@@ -74,8 +74,10 @@ export function startMcpHttpServer(opts: {
       server.on('error', (err) => console.error('[mcp] http server error:', err))
       const address = server.address()
       const port = typeof address === 'object' && address ? address.port : opts.port
+      const host = typeof address === 'object' && address ? address.address : '127.0.0.1'
       resolve({
         port: () => port,
+        address: () => host,
         // server.close()'s callback only fires once every open socket ends on its own — an
         // in-flight or keep-alive connection can hold it open indefinitely. The quit path awaits
         // this promise, so stop accepting first, then force-close what's already open.

@@ -26,6 +26,10 @@ export function McpSetting(): React.JSX.Element {
   const [config, setConfig] = useState<McpConfig | null>(null)
   const [status, setStatus] = useState<McpStatus>({ running: false })
   const [port, setPort] = useState('')
+  // IPC round-trip is not instantaneous — disable while in flight so a double-click can't fire a
+  // second overlapping call (the main process serialises them anyway, but there's no reason to
+  // let the UI even try).
+  const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     void api.mcp.getConfig().then((c) => {
@@ -44,8 +48,13 @@ export function McpSetting(): React.JSX.Element {
 
   const toggle = async (): Promise<void> => {
     const next = !config.enabled
+    setBusy(true)
     setConfig({ ...config, enabled: next })
-    setStatus(await api.mcp.setEnabled(next))
+    try {
+      setStatus(await api.mcp.setEnabled(next))
+    } finally {
+      setBusy(false)
+    }
   }
 
   const savePort = async (): Promise<void> => {
@@ -54,8 +63,13 @@ export function McpSetting(): React.JSX.Element {
       toast.error('ポートは 1024〜65535 の整数で指定してください')
       return
     }
+    setBusy(true)
     setConfig({ ...config, port: parsed })
-    setStatus(await api.mcp.setPort(parsed))
+    try {
+      setStatus(await api.mcp.setPort(parsed))
+    } finally {
+      setBusy(false)
+    }
   }
 
   const regenerate = async (): Promise<void> => {
@@ -77,7 +91,7 @@ export function McpSetting(): React.JSX.Element {
         127.0.0.1 のみで待ち受け、Bearer トークンが必要です。アプリの起動中だけ応答します。
       </div>
       <div className="flex items-center gap-2">
-        <Button onClick={toggle}>{config.enabled ? '停止する' : '有効にする'}</Button>
+        <Button onClick={toggle} disabled={busy}>{config.enabled ? '停止する' : '有効にする'}</Button>
         <span className="text-xs text-muted-foreground">
           {status.running
             ? `起動中 — http://127.0.0.1:${config.port}/mcp`
@@ -87,8 +101,8 @@ export function McpSetting(): React.JSX.Element {
         </span>
       </div>
       <div className="flex items-center gap-2">
-        <Input className="w-32" value={port} onChange={(e) => setPort(e.target.value)} aria-label="ポート" />
-        <Button variant="secondary" onClick={savePort}>
+        <Input className="w-32" value={port} onChange={(e) => setPort(e.target.value)} aria-label="ポート" disabled={busy} />
+        <Button variant="secondary" onClick={savePort} disabled={busy}>
           ポートを保存
         </Button>
       </div>

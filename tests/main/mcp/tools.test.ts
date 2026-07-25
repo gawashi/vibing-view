@@ -50,10 +50,25 @@ describe('get_ohlcv range handling', () => {
     expect(core.ohlcv.get).toHaveBeenCalledWith('NVDA', '1d', { from: at('2026-01-01T00:00:00Z'), to: at('2026-01-05T00:00:00Z') })
   })
 
-  it('fills `to` with now when only `from` is given', async () => {
+  it('fills `to` with now when only `from` is given and nothing is cached', async () => {
     const core = fakeCore()
     await tool(core, 'get_ohlcv').handler({ symbol: 'NVDA', timeframe: '1d', from: '2026-01-01' })
     expect(core.ohlcv.get).toHaveBeenCalledWith('NVDA', '1d', { from: at('2026-01-01T00:00:00Z'), to: Math.floor(NOW / 1000) })
+  })
+
+  // A right edge beyond coverage makes CacheService treat a fully-cached range as a miss and
+  // refetch the entire history — every bar is always older than `now`, so a naive to=now would
+  // burn one FMP request on EVERY lone-`from` call against an already-cached series.
+  it('a range fully inside coverage costs zero provider calls even when `to` would be in the future', async () => {
+    const core = fakeCore({
+      cacheStatus: {
+        summarize: vi.fn(() => [
+          { symbol: 'NVDA', timeframe: '1d' as const, count: 10, oldestTime: at('2026-01-01T00:00:00Z'), newestTime: at('2026-01-10T00:00:00Z') }
+        ])
+      }
+    } as Partial<ToolCore>)
+    await tool(core, 'get_ohlcv').handler({ symbol: 'NVDA', timeframe: '1d', from: '2026-01-01' })
+    expect(core.ohlcv.get).toHaveBeenCalledWith('NVDA', '1d', { from: at('2026-01-01T00:00:00Z'), to: at('2026-01-10T00:00:00Z') })
   })
 
   it('passes undefined when only `to` is given, and filters the output instead', async () => {
