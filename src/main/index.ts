@@ -87,12 +87,15 @@ function openHashWindow(map: Map<string, BrowserWindow>, key: string, width: num
 
 // The default Electron menu binds Ctrl+R / Ctrl+Shift+R to page reload — accelerators the main
 // process dispatches, which a renderer keydown.preventDefault() cannot cancel. We install a menu
-// that keeps Edit (copy/paste), zoom, fullscreen, DevTools, and window controls but drops the
-// reload roles, so Ctrl+R falls through to the renderer's targeted chart refresh.
+// that keeps zoom, fullscreen, DevTools, and window controls but drops the reload roles, so Ctrl+R
+// falls through to the renderer's targeted chart refresh.
+// No Edit menu on purpose: its Copy/Cut/Paste accelerators (Ctrl+C/X/V) are also main-process
+// accelerators that would fire alongside — and thus collide with — the grid's own cell
+// copy/cut/paste shortcuts. Chromium handles copy/paste inside inputs/textareas natively without a
+// menu, so omitting Edit loses nothing and keeps the cell shortcuts unambiguous.
 function installMenu(): void {
   const template: MenuItemConstructorOptions[] = [
     { role: 'fileMenu' },
-    { role: 'editMenu' },
     {
       label: 'View',
       submenu: [
