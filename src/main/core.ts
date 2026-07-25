@@ -1,14 +1,22 @@
 import type {
   Bar, Timeframe, DateRange, WorkspaceCollection, SymbolResult,
-  CompanyProfileData
+  CompanyProfileData, Quote, MarketStatus, CompanyInfo, ClipboardCell
 } from '@shared/types'
 import type { CapabilityStatus, KeyStatus, SetKeyResult } from '@shared/ipc'
+import { CH } from '@shared/ipc'
 import type { FmpProvider } from './providers/FmpProvider'
 import { FmpHttpError } from './providers/FmpProvider'
 import type * as barStoreModule from './db/barStore'
+import type { BarSummary } from './db/barStore'
 import { createCacheService } from './cache/CacheService'
 import { classify } from './capabilityClassifier'
+import { createSearchCache } from './searchCache'
+import { createProfileService } from './profile/ProfileService'
+import { createCompanyInfoService } from './profile/CompanyInfoService'
 
+export type { BarSummary } from './db/barStore'
+
+const ALL_TIMEFRAMES: Timeframe[] = ['1m', '5m', '15m', '1h', '1d', '1w', '1M']
 const DERIVED_TIMEFRAMES: Timeframe[] = ['1w', '1M'] // never gated — always 'available'
 const DAILY_BACKED: Timeframe[] = ['1d', '1w', '1M'] // all served from '1d' bars
 
@@ -60,11 +68,22 @@ export type CoreDeps = {
 export type Core = ReturnType<typeof createCore>
 
 export function createCore(deps: CoreDeps) {
-  const { barStore, capabilityCache, keystore, makeProvider } = deps
+  const { barStore, capabilityCache, keystore, makeProvider, broadcast } = deps
 
   // Symbols whose '1d' EOD is not on the current plan (402/403). In-memory, cleared on key change.
   // Once known, D/W/M short-circuit instead of re-hitting FMP on every timeframe switch.
   const dailyOutOfPlan = new Set<string>()
+
+  const searchCache = createSearchCache({ ttlMs: 5 * 60 * 1000, now: () => Date.now() })
+
+  // Monotonic version stamped on each persisted workspace write. Renderers ignore stale
+  // (<= lastRev) get/broadcast payloads — see useWorkspaceSync.
+  let workspacesRev = 0
+
+  // Chart clipboard: the authoritative value lives here (in-memory, never persisted) so a window
+  // opened after a copy can still fetch it. Same rev/broadcast contract as workspaces.
+  let clipboard: ClipboardCell | null = null
+  let clipboardRev = 0
 
   // Neither CacheService nor TanStack Query dedupes across transports: the renderer's dedup is
   // per query-key and never sees an MCP call. Without this map, the UI and Claude asking for the
@@ -95,6 +114,18 @@ export function createCore(deps: CoreDeps) {
       now: deps.nowSec
     })
   }
+
+  const profileService = createProfileService({
+    store: deps.profileStore,
+    search: (query) => providerFor().searchSymbols(query)
+  })
+
+  // Company info (distinct from ProfileService/symbol resolution): TTL cache in SQLite, same
+  // provider path as search/OHLCV.
+  const companyInfoService = createCompanyInfoService({
+    store: deps.companyProfileStore,
+    fetch: (symbol) => providerFor().getCompanyProfile(symbol)
+  })
 
   // Shared bookkeeping for every real OHLCV fetch (get + refresh): short-circuit known off-plan
   // symbols, record 'available' on success, classify FmpHttpErrors, and turn the result into an
@@ -174,6 +205,84 @@ export function createCore(deps: CoreDeps) {
         keystore.clearApiKey()
         capabilityCache.clearForKeyChange()
         dailyOutOfPlan.clear()
+      }
+    },
+
+    symbols: {
+      async search(query: string): Promise<SymbolResult[]> {
+        const cached = searchCache.get(query)
+        if (cached) return cached
+        const results = await providerFor().searchSymbols(query)
+        searchCache.set(query, results)
+        // Seed the profile cache for free — every result carries name/exchange, so a symbol picked
+        // from these results resolves its header profile with zero extra API calls.
+        try {
+          for (const r of results) deps.profileStore.upsertProfile(r)
+        } catch {
+          // best-effort cache warming — never fail a search on a side effect
+        }
+        return results
+      },
+      profile: (symbol: string): Promise<SymbolResult> => profileService.getProfile(symbol)
+    },
+
+    // Quote / market status are volatile and NOT cached in SQLite (SQLite = OHLCV only), and are
+    // not timeframes, so they stay out of the capability cache.
+    quote: { get: (symbol: string): Promise<Quote> => providerFor().getQuote(symbol) },
+    market: { status: (): Promise<MarketStatus> => providerFor().getMarketStatus() },
+
+    company: {
+      info: (symbol: string, opts?: { force?: boolean }): Promise<CompanyInfo> =>
+        companyInfoService.getInfo(symbol, opts)
+    },
+
+    workspaces: {
+      get: (): { collection: WorkspaceCollection; rev: number } => ({
+        collection: deps.workspaceStore.getWorkspaces(),
+        rev: workspacesRev
+      }),
+      set(c: WorkspaceCollection, fromWebContentsId?: number): void {
+        deps.workspaceStore.setWorkspaces(c)
+        workspacesRev += 1
+        // Every OTHER window re-hydrates; the sender skips itself (its store is already current
+        // and re-applying would fight its debounce).
+        broadcast(CH.workspacesChanged, { collection: c, rev: workspacesRev }, fromWebContentsId)
+      }
+    },
+
+    clipboard: {
+      get: (): { clipboard: ClipboardCell | null; rev: number } => ({ clipboard, rev: clipboardRev }),
+      set(c: ClipboardCell | null, fromWebContentsId?: number): number {
+        clipboard = c
+        clipboardRev += 1
+        broadcast(CH.clipboardChanged, { clipboard: c, rev: clipboardRev }, fromWebContentsId)
+        // Return the authoritative rev: the sender gets no self-broadcast, so without it a startup
+        // get() that lost the race could clobber this write.
+        return clipboardRev
+      }
+    },
+
+    capabilities: {
+      get(): Record<Timeframe, CapabilityStatus> {
+        const apiKey = keystore.getApiKey()
+        const result = {} as Record<Timeframe, CapabilityStatus>
+        for (const tf of ALL_TIMEFRAMES) {
+          result[tf] = DERIVED_TIMEFRAMES.includes(tf)
+            ? 'available'
+            : apiKey
+              ? capabilityCache.getStatus(apiKey, tf)
+              : 'unknown'
+        }
+        return result
+      }
+    },
+
+    cacheStatus: {
+      summarize(symbol?: string): BarSummary[] {
+        const rows = barStore.summarizeBars()
+        if (!symbol) return rows
+        const wanted = symbol.toUpperCase()
+        return rows.filter((r) => r.symbol.toUpperCase() === wanted)
       }
     }
   }
