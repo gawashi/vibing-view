@@ -153,10 +153,7 @@ describe('FmpProvider.getMarketStatus', () => {
 describe('FmpProvider.getCompanyProfile', () => {
   // Earnings selection compares against `new Date()`; pin it so the fixture's
   // past/future rows keep their meaning as real time moves on.
-  beforeEach(() => {
-    vi.useFakeTimers({ toFake: ['Date'] })
-    vi.setSystemTime(new Date('2026-07-25T00:00:00Z'))
-  })
+  beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-07-25T00:00:00Z') }) })
   afterEach(() => { vi.useRealTimers() })
 
   // URL-routed fake: /profile + 6 optional endpoints. Mirrors the searchSymbols multi-endpoint pattern.
