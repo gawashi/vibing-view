@@ -169,7 +169,15 @@ app.on('window-all-closed', () => {
 })
 
 // The MCP server lives in main, so it answers only while the app is running. Release the port
-// before the process exits.
-app.on('before-quit', () => {
-  void mcp.stop()
+// before the process exits: defer the actual quit until mcp.stop() settles, then re-invoke
+// app.quit() — the `quitting` guard makes that second pass a no-op so the app still closes even
+// if stop() rejects (.finally, not .then) or a server never existed.
+let quitting = false
+app.on('before-quit', (e) => {
+  if (quitting) return
+  e.preventDefault()
+  void mcp.stop().finally(() => {
+    quitting = true
+    app.quit()
+  })
 })
