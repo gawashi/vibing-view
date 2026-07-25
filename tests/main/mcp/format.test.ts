@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import {
   parseIsoToEpoch, formatEpoch, clampLimit, interpretationNote, unmetRangeNotes,
-  summaryLine, toCsv, formatCacheStatus, formatWorkspaceList, formatWorkspaceDetail
+  summaryLine, toCsv, formatCacheStatus, formatWorkspaceList, formatWorkspaceDetail,
+  formatSymbolResults, formatQuote, formatCompanyInfo
 } from '../../../src/main/mcp/format'
-import type { Bar, Timeframe, WorkspaceCollection, Workspace } from '@shared/types'
+import type { Bar, Timeframe, WorkspaceCollection, Workspace, SymbolResult, Quote, CompanyInfo } from '@shared/types'
 import type { CapabilityStatus } from '@shared/ipc'
 
 const at = (iso: string): number => Math.floor(Date.parse(iso) / 1000)
@@ -166,5 +167,124 @@ describe('formatWorkspaceDetail', () => {
     expect(text).toContain('- NVDA — NVIDIA Corporation (NASDAQ)')
     expect(text).toContain('- [c1] NVDA 1d — ma(period=20)')
     expect(text).toContain('- [c2] (empty) 5m — no indicators')
+  })
+})
+
+describe('formatSymbolResults', () => {
+  it('says so when there are no matches', () => {
+    expect(formatSymbolResults([])).toBe('No matches.')
+  })
+
+  it('uses the singular for one match', () => {
+    const results: SymbolResult[] = [{ symbol: 'NVDA', name: 'NVIDIA Corporation', exchange: 'NASDAQ' }]
+    expect(formatSymbolResults(results)).toBe(
+      ['1 match:', '- NVDA — NVIDIA Corporation (NASDAQ)'].join('\n')
+    )
+  })
+
+  it('uses the plural and lists every match', () => {
+    const results: SymbolResult[] = [
+      { symbol: 'NVDA', name: 'NVIDIA Corporation', exchange: 'NASDAQ' },
+      { symbol: 'AAPL', name: 'Apple Inc.', exchange: 'NASDAQ' }
+    ]
+    expect(formatSymbolResults(results)).toBe(
+      [
+        '2 matches:',
+        '- NVDA — NVIDIA Corporation (NASDAQ)',
+        '- AAPL — Apple Inc. (NASDAQ)'
+      ].join('\n')
+    )
+  })
+})
+
+describe('formatQuote', () => {
+  const base: Quote = {
+    price: 120.5,
+    open: 118,
+    dayHigh: 121,
+    dayLow: 117.5,
+    previousClose: 119,
+    changePercentage: 1.26,
+    timestamp: at('2026-07-24T20:00:00Z'),
+    exchange: 'NASDAQ'
+  }
+
+  it('formats a normal quote with a leading + on a positive change', () => {
+    expect(formatQuote('NVDA', base)).toBe(
+      [
+        'NVDA — 120.5 (+1.26%) as of 2026-07-24T20:00:00.000Z',
+        'open 118, day high 121, day low 117.5, previous close 119',
+        'exchange: NASDAQ'
+      ].join('\n')
+    )
+  })
+
+  it('omits the + sign for a negative change', () => {
+    const q: Quote = { ...base, changePercentage: -2.5 }
+    expect(formatQuote('NVDA', q)).toBe(
+      [
+        'NVDA — 120.5 (-2.5%) as of 2026-07-24T20:00:00.000Z',
+        'open 118, day high 121, day low 117.5, previous close 119',
+        'exchange: NASDAQ'
+      ].join('\n')
+    )
+  })
+})
+
+describe('formatCompanyInfo', () => {
+  const info: CompanyInfo = {
+    symbol: 'NVDA',
+    companyName: 'NVIDIA Corporation',
+    image: null,
+    exchange: 'NASDAQ',
+    sector: 'Technology',
+    industry: 'Semiconductors',
+    country: 'US',
+    marketCap: 3_000_000_000_000,
+    ceo: 'Jensen Huang',
+    fullTimeEmployees: 29600,
+    ipoDate: '1999-01-22',
+    website: null,
+    description: null,
+    beta: 1.7,
+    range: null,
+    volume: null,
+    averageVolume: null,
+    lastDividend: null,
+    price: 120.5,
+    valuation: { peRatio: 65, pbRatio: null, psRatio: null, pegRatio: null, dividendYield: null, evToEbitda: null, earningsYield: null, fcfYield: null },
+    financials: null,
+    analyst: undefined,
+    growth: { revenueGrowth: 0.5, netIncomeGrowth: 0.6, epsGrowth: 0.4 },
+    schedule: null,
+    fetchedAt: at('2026-07-24T00:00:00Z')
+  }
+
+  it('prints a present group in full and a null group as not available, never omitted', () => {
+    const text = formatCompanyInfo(info, false)
+    expect(text).toContain('valuation: peRatio=65, pbRatio=—, psRatio=—, pegRatio=—, dividendYield=—, evToEbitda=—, earningsYield=—, fcfYield=—')
+    expect(text).toContain('financials: not available')
+  })
+
+  it('prints an undefined group as not available too', () => {
+    expect(formatCompanyInfo(info, false)).toContain('analyst: not available')
+  })
+
+  it('renders null scalars as the em-dash placeholder', () => {
+    const text = formatCompanyInfo(info, false)
+    expect(text).toContain('market cap: 3000000000000, price: 120.5, beta: 1.7, employees: 29600')
+    expect(text).toContain('sector: Technology, industry: Semiconductors, country: US')
+  })
+
+  it('prints the header and every present group', () => {
+    const text = formatCompanyInfo(info, false)
+    expect(text).toContain('NVDA — NVIDIA Corporation (as of 2026-07-24T00:00:00.000Z)')
+    expect(text).toContain('growth: revenueGrowth=0.5, netIncomeGrowth=0.6, epsGrowth=0.4')
+    expect(text).toContain('schedule: not available')
+  })
+
+  it('adds the stale line when forcedButStale is set', () => {
+    expect(formatCompanyInfo(info, false)).not.toContain('stale:')
+    expect(formatCompanyInfo(info, true)).toContain('stale: fetch failed, showing cached')
   })
 })
