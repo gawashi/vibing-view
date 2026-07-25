@@ -5,7 +5,7 @@ import { deriveWeekly, deriveMonthly } from '../aggregate'
 
 export function createCacheService(deps: {
   provider: Pick<FmpProvider, 'getOHLCV' | 'searchSymbols'>
-  store: typeof barStore
+  store: Pick<typeof barStore, 'getCoverage' | 'getBars' | 'upsertBarsAndCoverage'>
   now?: () => number // epoch SECONDS; injectable for tests
 }) {
   const { provider, store } = deps
@@ -28,13 +28,14 @@ export function createCacheService(deps: {
       if (cov && (!range || (cov.oldestTime <= range.from && cov.newestTime >= range.to))) {
         return store.getBars(symbol, tf, range)
       }
-      // Miss: coverage exists but doesn't reach the left edge of `range` → fetch ONLY the
-      // missing left sub-range (D-16), contiguous with existing coverage (§1) — never re-fetch
-      // bars already covered. Any other miss shape (no coverage at all, or a right-edge-only
-      // miss where `to < from` would result) falls back to the full initial fetch.
+      // Miss. Fetch only what's missing on the left: with coverage, the gap below `cov.oldestTime`
+      // (D-16); with NO coverage, the whole requested range. Without the `!cov` arm an intraday
+      // request for old history would fall through to the provider's recent-window default and
+      // silently return the wrong period (M-15). The renderer never hits the `!cov` arm — its only
+      // ranged call is Chart.tsx's scrollback, anchored on bars[0].time, so coverage always exists.
       const fetched =
-        cov && range && range.from < cov.oldestTime
-          ? await provider.getOHLCV(symbol, tf, { from: range.from, to: cov.oldestTime - 1 })
+        range && (!cov || range.from < cov.oldestTime)
+          ? await provider.getOHLCV(symbol, tf, { from: range.from, to: cov ? cov.oldestTime - 1 : range.to })
           : await provider.getOHLCV(symbol, tf, undefined)
       store.upsertBarsAndCoverage(symbol, tf, fetched)
       return store.getBars(symbol, tf, range)
