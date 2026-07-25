@@ -33,6 +33,33 @@ export function getBars(symbol: string, tf: Timeframe, range: DateRange): Bar[] 
   }))
 }
 
+export type BarSummary = {
+  symbol: string
+  timeframe: Timeframe
+  count: number
+  oldestTime: number
+  newestTime: number
+}
+
+// One aggregate for every symbol×timeframe — the alternative (enumerate, then COUNT(*) per series)
+// is an N+1. Aggregates `bars`, not `coverage`: a coverage window is a union and can be wider than
+// the bars actually stored, and the question this answers is "how many bars are here right now".
+// '1w'/'1M' never appear — they are derived from '1d' at read time and hold no rows (D-17).
+export function summarizeBars(): BarSummary[] {
+  const rows = getDb()
+    .select({
+      symbol: bars.symbol,
+      timeframe: bars.timeframe,
+      count: sql<number>`count(*)`,
+      oldestTime: sql<number>`min(${bars.time})`,
+      newestTime: sql<number>`max(${bars.time})`
+    })
+    .from(bars)
+    .groupBy(bars.symbol, bars.timeframe)
+    .all()
+  return rows.map((r) => ({ ...r, timeframe: r.timeframe as Timeframe }))
+}
+
 export function upsertBarsAndCoverage(symbol: string, tf: Timeframe, input: Bar[]): void {
   const cov = coverageFromBars(input)
   if (!cov) return
