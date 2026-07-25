@@ -86,6 +86,12 @@ describe('handleGridShortcut', () => {
     expect(deps.clearCell).not.toHaveBeenCalled()
   })
 
+  it('ignores shortcuts inside a listbox (Radix Select)', () => {
+    const target = { tagName: 'DIV', closest: (sel: string) => (sel.includes('listbox') ? {} : null) }
+    expect(handleGridShortcut(ev({ key: 'Delete', target }), deps)).toBe(false)
+    expect(deps.clearCell).not.toHaveBeenCalled()
+  })
+
   it('ignores extra-modifier combos (Ctrl+Shift+C)', () => {
     expect(handleGridShortcut(ev({ key: 'c', ctrlKey: true, shiftKey: true }), deps)).toBe(false)
     expect(deps.copyCell).not.toHaveBeenCalled()

@@ -32,7 +32,7 @@ function isEditableTarget(target: unknown): boolean {
   const tag = el.tagName
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
   if (el.isContentEditable) return true
-  if (typeof el.closest === 'function' && el.closest('[role="dialog"], [role="menu"]')) return true
+  if (typeof el.closest === 'function' && el.closest('[role="dialog"], [role="menu"], [role="listbox"]')) return true
   return false
 }
 

@@ -1,4 +1,5 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, Menu } from 'electron'
+import type { MenuItemConstructorOptions } from 'electron'
 import { join } from 'path'
 import { registerIpc } from './ipc'
 import { configureProxy } from './net/httpClient'
@@ -84,10 +85,36 @@ function openHashWindow(map: Map<string, BrowserWindow>, key: string, width: num
   loadRenderer(win, hash)
 }
 
+// The default Electron menu binds Ctrl+R / Ctrl+Shift+R to page reload — accelerators the main
+// process dispatches, which a renderer keydown.preventDefault() cannot cancel. We install a menu
+// that keeps Edit (copy/paste), zoom, fullscreen, DevTools, and window controls but drops the
+// reload roles, so Ctrl+R falls through to the renderer's targeted chart refresh.
+function installMenu(): void {
+  const template: MenuItemConstructorOptions[] = [
+    { role: 'fileMenu' },
+    { role: 'editMenu' },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' }
+      ]
+    },
+    { role: 'windowMenu' }
+  ]
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
 app.whenReady().then(async () => {
   // Route provider HTTP through the OS/system proxy (or HTTP(S)_PROXY) before any fetch runs —
   // corporate networks block direct egress, so an unconfigured client times out (see net/httpClient).
   await configureProxy()
+  installMenu()
   registerIpc()
   ipcMain.handle(CH.companyOpenWindow, (_e, symbol: string) => openHashWindow(companyWindows, symbol, 600, 800, buildCompanyHash(symbol)))
   ipcMain.handle(CH.chartOpenWindow, (_e, cellId: string) => openHashWindow(chartWindows, cellId, 1100, 760, buildChartHash(cellId)))
