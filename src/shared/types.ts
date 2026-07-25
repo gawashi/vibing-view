@@ -149,12 +149,17 @@ export type CompanyProfileData = {
     targetConsensus: number | null
   } | null
   growth?: {
+    // Fiscal period end of the row these figures come from; optional because blobs
+    // cached before 2026-07-25 lack the key and parse back as undefined.
+    asOfDate?: string | null
     revenueGrowth: number | null
     netIncomeGrowth: number | null
     epsGrowth: number | null
   } | null
   schedule?: {
     nextEarningsDate: string | null
+    // Optional for the same cached-blob reason as growth.asOfDate.
+    lastEarningsDate?: string | null
     lastEpsActual: number | null
     lastEpsEstimated: number | null
   } | null

@@ -240,6 +240,7 @@ export class FmpProvider {
     } : null
 
     const growth = growthRows ? {
+      asOfDate: growthRows.date ?? null,
       revenueGrowth: growthRows.revenueGrowth ?? null,
       netIncomeGrowth: growthRows.netIncomeGrowth ?? null,
       epsGrowth: growthRows.epsgrowth ?? null
@@ -251,9 +252,14 @@ export class FmpProvider {
     const upcoming = (earnings ?? [])
       .filter((e) => e.epsActual == null && e.date >= today)
       .sort((a, b) => a.date.localeCompare(b.date))[0]
-    const reported = (earnings ?? []).filter((e) => e.epsActual != null).sort((a, b) => b.date.localeCompare(a.date))[0]
+    // Bound `reported` by today for the same reason `upcoming` is: a future-dated row can
+    // carry an epsActual, and it must not be presented as the last report.
+    const reported = (earnings ?? [])
+      .filter((e) => e.epsActual != null && e.date <= today)
+      .sort((a, b) => b.date.localeCompare(a.date))[0]
     const schedule = earnings ? {
       nextEarningsDate: upcoming?.date ?? null,
+      lastEarningsDate: reported?.date ?? null,
       lastEpsActual: reported?.epsActual ?? null,
       lastEpsEstimated: reported?.epsEstimated ?? null
     } : null
