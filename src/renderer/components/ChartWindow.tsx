@@ -4,6 +4,7 @@ import { useAppStore } from '@/store'
 import { applyTheme } from '@/lib/theme'
 import { useWorkspaceSync } from '@/hooks/useWorkspaceSync'
 import { useClipboardSync } from '@/hooks/useClipboardSync'
+import { useRefreshSync } from '@/hooks/useRefreshSync'
 import { ChartPanel } from './GridHost'
 import { ChartContextMenu } from './ChartContextMenu'
 import { TooltipProvider } from './ui/tooltip'
@@ -16,6 +17,7 @@ import { Toaster } from './ui/sonner'
 export function ChartWindow({ cellId }: { cellId: string }): React.JSX.Element {
   useWorkspaceSync()
   useClipboardSync()
+  useRefreshSync()
   useEffect(() => { void api.settings.getTheme().then(applyTheme) }, [])
 
   const cell = useAppStore((s) => s.cells.find((c) => c.id === cellId))

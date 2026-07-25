@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { Timeframe, DateRange, WorkspaceCollection, ClipboardCell } from '@shared/types'
-import { CH, type Api, type WorkspacesPayload, type ClipboardPayload } from '@shared/ipc'
+import { CH, type Api, type WorkspacesPayload, type ClipboardPayload, type RefreshAppliedPayload } from '@shared/ipc'
 
 const api: Api = {
   symbols: {
@@ -57,6 +57,14 @@ const api: Api = {
   },
   chart: {
     openWindow: (cellId) => ipcRenderer.invoke(CH.chartOpenWindow, cellId)
+  },
+  refresh: {
+    broadcast: (p: RefreshAppliedPayload) => ipcRenderer.invoke(CH.refreshBroadcast, p),
+    onApplied: (cb) => {
+      const listener = (_e: unknown, p: RefreshAppliedPayload): void => cb(p)
+      ipcRenderer.on(CH.refreshApplied, listener)
+      return () => ipcRenderer.removeListener(CH.refreshApplied, listener)
+    }
   }
 }
 

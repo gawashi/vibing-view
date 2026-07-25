@@ -21,7 +21,7 @@ import { useWorkspaceSync } from './hooks/useWorkspaceSync'
 import { useClipboardSync } from './hooks/useClipboardSync'
 import { applyTheme } from './lib/theme'
 import type { CapabilityStatus } from '@shared/ipc'
-import type { Timeframe } from '@shared/types'
+import type { Timeframe, Quote, MarketStatus } from '@shared/types'
 import { shouldRefreshData, type ReloadSource } from './lib/autoRefresh'
 
 export default function App(): React.JSX.Element {
@@ -92,24 +92,32 @@ export default function App(): React.JSX.Element {
         setRefreshState((s) => ({ status: 'paused-closed', lastRefreshedAt: s.lastRefreshedAt }))
         return
       }
-      const results = await Promise.allSettled(
+      let marketStatus: MarketStatus | null = queryClient.getQueryData<MarketStatus>(qk.marketStatus()) ?? null
+      const ohlcvResults = await Promise.allSettled(
         targets.map(async (t) => {
           const bars = await api.ohlcv.refresh(t.symbol, t.timeframe)
           queryClient.setQueryData(qk.ohlcv(t.symbol, t.timeframe), bars)
+          return { symbol: t.symbol, timeframe: t.timeframe, bars }
         })
       )
+      const ohlcv = ohlcvResults.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []))
       // Capability verdicts may have changed (a refresh re-probes the fetched tf); re-gate the row.
       void queryClient.invalidateQueries({ queryKey: qk.capabilities() })
+      const quotes: { symbol: string; quote: Quote }[] = []
       if (isOpen) {
         const syms = quoteSymbols(cells, shape, watchlistSymbols)
-        await Promise.allSettled(
+        const quoteResults = await Promise.allSettled(
           syms.map(async (s) => {
             const quote = await api.quote.get(s)
             queryClient.setQueryData(qk.quote(s), quote)
+            return { symbol: s, quote }
           })
         )
+        for (const r of quoteResults) if (r.status === 'fulfilled') quotes.push(r.value)
       }
-      const failed = results.some((r) => r.status === 'rejected')
+      // 他ウィンドウ(enlarge 窓)へ配信。受信側は setQueryData のみ（追加 FMP なし）。
+      void api.refresh.broadcast({ ohlcv, quotes, marketStatus })
+      const failed = ohlcvResults.some((r) => r.status === 'rejected')
       if (failed) toast('Some charts couldn’t be refreshed. Check your connection or FMP plan.')
       setRefreshState({ status: failed ? 'failed' : 'ok', lastRefreshedAt: Date.now() })
     } finally {

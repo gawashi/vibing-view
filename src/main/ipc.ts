@@ -1,6 +1,6 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import type { Bar, Timeframe, DateRange, WorkspaceCollection, ClipboardCell } from '@shared/types'
-import { CH, type CapabilityStatus } from '@shared/ipc'
+import { CH, type CapabilityStatus, type RefreshAppliedPayload } from '@shared/ipc'
 import { FmpProvider, FmpHttpError } from './providers/FmpProvider'
 import { electronHttpGetJson } from './net/httpClient'
 import { createCacheService } from './cache/CacheService'
@@ -188,6 +188,15 @@ export function registerIpc(): void {
     // Return the authoritative rev so the sender can advance its lastRev: the sender gets no
     // self-broadcast, so without this a startup get() that lost the race could clobber this write.
     return clipboardRev
+  })
+
+  // refresh 配信: 送信元(メインウィンドウ)以外の全ウィンドウへ転送。workspaces/clipboard と同じ規約。
+  ipcMain.handle(CH.refreshBroadcast, (e, p: RefreshAppliedPayload) => {
+    for (const w of BrowserWindow.getAllWindows()) {
+      if (w.webContents.id !== e.sender.id) {
+        w.webContents.send(CH.refreshApplied, p)
+      }
+    }
   })
 
   ipcMain.handle(CH.capabilitiesGet, () => {

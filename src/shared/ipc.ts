@@ -29,7 +29,9 @@ export const CH = {
   workspacesChanged: 'workspaces:changed',
   clipboardGet: 'clipboard:get',
   clipboardSet: 'clipboard:set',
-  clipboardChanged: 'clipboard:changed'
+  clipboardChanged: 'clipboard:changed',
+  refreshBroadcast: 'refresh:broadcast',
+  refreshApplied: 'refresh:applied'
 } as const
 
 export type KeyStatus = { hasKey: boolean; encryptionAvailable: boolean; maskedKey?: string }
@@ -38,6 +40,11 @@ export type CapabilityStatus = 'available' | 'requires-plan' | 'rate-limited' | 
 export type Theme = 'light' | 'dark' | 'system'
 export type WorkspacesPayload = { collection: WorkspaceCollection; rev: number }
 export type ClipboardPayload = { clipboard: ClipboardCell | null; rev: number }
+export type RefreshAppliedPayload = {
+  ohlcv: { symbol: string; timeframe: Timeframe; bars: Bar[] }[]
+  quotes: { symbol: string; quote: Quote }[]
+  marketStatus: MarketStatus | null
+}
 
 export interface Api {
   symbols: {
@@ -92,6 +99,12 @@ export interface Api {
   }
   chart: {
     openWindow(cellId: string): Promise<void>
+  }
+  // スケジューラ（メインウィンドウ）が取得済みデータを他ウィンドウへ配信。受信側は setQueryData
+  // するだけで FMP を叩かない。workspaces と同じく main が送信元以外へ転送する。
+  refresh: {
+    broadcast(p: RefreshAppliedPayload): Promise<void>
+    onApplied(cb: (p: RefreshAppliedPayload) => void): () => void
   }
 }
 
