@@ -1,147 +1,33 @@
 import { ipcMain, BrowserWindow } from 'electron'
-import type { Bar, Timeframe, DateRange, WorkspaceCollection, ClipboardCell } from '@shared/types'
-import { CH, type CapabilityStatus, type RefreshAppliedPayload } from '@shared/ipc'
-import { FmpProvider, FmpHttpError } from './providers/FmpProvider'
-import { electronHttpGetJson } from './net/httpClient'
-import { createCacheService } from './cache/CacheService'
-import * as barStore from './db/barStore'
-import { getApiKey, setApiKey, getKeyStatus, clearApiKey } from './keystore'
-import { getLastSymbol, setLastSymbol, getSidebarOpen, setSidebarOpen, getSidebarWidth, setSidebarWidth, getTheme, setTheme, getAutoRefresh, setAutoRefresh } from './settings'
-import { createSearchCache } from './searchCache'
-import { classify } from './capabilityClassifier'
-import * as capabilityCache from './capabilityCache'
-import * as workspaceStore from './workspaceStore'
-import { createProfileService } from './profile/ProfileService'
-import * as profileStore from './db/profileStore'
-import { createCompanyInfoService } from './profile/CompanyInfoService'
-import * as companyProfileStore from './db/companyProfileStore'
+import type { Timeframe, DateRange, WorkspaceCollection, ClipboardCell } from '@shared/types'
+import { CH, type RefreshAppliedPayload } from '@shared/ipc'
+import { toBars, type Core } from './core'
+import {
+  getLastSymbol, setLastSymbol, getSidebarOpen, setSidebarOpen, getSidebarWidth, setSidebarWidth,
+  getTheme, setTheme, getAutoRefresh, setAutoRefresh, type Theme
+} from './settings'
 
-const ALL_TIMEFRAMES: Timeframe[] = ['1m', '5m', '15m', '1h', '1d', '1w', '1M']
-const DERIVED_TIMEFRAMES: Timeframe[] = ['1w', '1M'] // never gated — always 'available' (§8/§9)
-const DAILY_BACKED: Timeframe[] = ['1d', '1w', '1M'] // all served from '1d' bars (W/M derive from them)
-
-export function registerIpc(): void {
-  const searchCache = createSearchCache({ ttlMs: 5 * 60 * 1000, now: () => Date.now() })
-
-  const profileService = createProfileService({
-    store: profileStore,
-    search: (query) => {
-      const apiKey = getApiKey()
-      if (!apiKey) throw new Error('NO_API_KEY')
-      return new FmpProvider({ apiKey, httpGetJson: electronHttpGetJson }).searchSymbols(query)
-    }
-  })
-
-  // Company info (company namespace — distinct from ProfileService/symbol resolution). TTL cache in
-  // SQLite; fetch goes through the same electron net client as search/OHLCV.
-  const companyInfoService = createCompanyInfoService({
-    store: companyProfileStore,
-    fetch: (symbol) => {
-      const apiKey = getApiKey()
-      if (!apiKey) throw new Error('NO_API_KEY')
-      return new FmpProvider({ apiKey, httpGetJson: electronHttpGetJson }).getCompanyProfile(symbol)
-    }
-  })
-
-  // Symbols whose '1d' EOD is not on the current plan (402/403). In-memory, cleared on key change.
-  // Once known, D/W/M short-circuit to [] instead of re-hitting FMP for every timeframe switch —
-  // the daily fetch that W/M and D all funnel through is deterministic, so retrying it just burns
-  // API budget and spams 402s. Empty [] (not a throw) → renderer shows the coverage message quietly.
-  const dailyOutOfPlan = new Set<string>()
-
-  const cacheFor = () => {
-    const apiKey = getApiKey()
-    if (!apiKey) throw new Error('NO_API_KEY')
-    return createCacheService({ provider: new FmpProvider({ apiKey, httpGetJson: electronHttpGetJson }), store: barStore })
-  }
-
-  // Quote / market-status are volatile and NOT cached in SQLite (SQLite = OHLCV only). They call
-  // the provider directly; errors reject and the renderer's reload flow swallows them → daily-close
-  // fallback. Not recorded in the per-Timeframe capability cache (they aren't timeframes).
-  const providerFor = () => {
-    const apiKey = getApiKey()
-    if (!apiKey) throw new Error('NO_API_KEY')
-    return new FmpProvider({ apiKey, httpGetJson: electronHttpGetJson })
-  }
-
-  ipcMain.handle(CH.symbolsSearch, async (_e, query: string) => {
-    const cached = searchCache.get(query)
-    if (cached) return cached
-    const apiKey = getApiKey()
-    if (!apiKey) throw new Error('NO_API_KEY')
-    const results = await new FmpProvider({ apiKey, httpGetJson: electronHttpGetJson }).searchSymbols(query)
-    searchCache.set(query, results)
-    // Seed the profile cache for free — every result carries name/exchange, so a subsequently
-    // selected symbol resolves its header profile with zero extra API calls.
-    try {
-      for (const r of results) profileStore.upsertProfile(r)
-    } catch {
-      // Seeding the profile cache is best-effort — never fail a search on a cache-warm side effect.
-    }
-    return results
-  })
-
-  ipcMain.handle(CH.symbolsProfile, (_e, symbol: string) => profileService.getProfile(symbol))
-  ipcMain.handle(CH.companyInfo, (_e, symbol: string, opts?: { force?: boolean }) => companyInfoService.getInfo(symbol, opts))
-
-  // Shared capability bookkeeping for every real OHLCV fetch (get + refresh): short-circuit known
-  // out-of-plan daily-backed symbols, record 'available' on success, and classify FmpHttpErrors.
-  const withCapabilityTracking = async (
-    symbol: string, timeframe: Timeframe, run: () => Promise<Bar[]>
-  ): Promise<Bar[]> => {
-    // Known out-of-plan daily → don't re-hit FMP for any daily-backed timeframe.
-    if (DAILY_BACKED.includes(timeframe) && dailyOutOfPlan.has(symbol)) return []
-    try {
-      const bars = await run()
-      const apiKey = getApiKey()
-      if (apiKey && !DERIVED_TIMEFRAMES.includes(timeframe)) {
-        capabilityCache.setStatus(apiKey, timeframe, 'available')
-      }
-      return bars
-    } catch (err) {
-      // A 402/403 on any daily-backed tf means the *symbol* isn't on the plan — remember it so the
-      // next D/W/M switch short-circuits above instead of re-fetching the same failing daily.
-      if (err instanceof FmpHttpError && DAILY_BACKED.includes(timeframe) && (err.status === 402 || err.status === 403)) {
-        dailyOutOfPlan.add(symbol)
-      }
-      const apiKey = getApiKey()
-      if (apiKey && !DERIVED_TIMEFRAMES.includes(timeframe) && err instanceof FmpHttpError) {
-        const verdict = classify(err.status, err.body)
-        // Daily is a free-tier capability. A 402/403 on '1d' means the *symbol* is outside the
-        // plan's coverage, not that daily needs a paid plan — recording requires-plan here poisons
-        // the key-wide '1d' verdict and greys D for every symbol (D-graying bug). Rate-limit is
-        // transient and legitimate for any real-fetch tf, so that still records.
-        if (!(timeframe === '1d' && verdict === 'requires-plan')) {
-          capabilityCache.setStatus(apiKey, timeframe, verdict)
-        }
-      }
-      throw err
-    }
-  }
+// Thin transport layer: channel name → core method. Every behaviour (capability tracking, cache
+// decisions, rev bookkeeping) lives in core.ts so MCP gets the identical semantics.
+export function registerIpc(core: Core): void {
+  ipcMain.handle(CH.symbolsSearch, (_e, query: string) => core.symbols.search(query))
+  ipcMain.handle(CH.symbolsProfile, (_e, symbol: string) => core.symbols.profile(symbol))
+  ipcMain.handle(CH.companyInfo, (_e, symbol: string, opts?: { force?: boolean }) => core.company.info(symbol, opts))
 
   ipcMain.handle(CH.ohlcvGet, async (_e, symbol: string, timeframe: Timeframe, range: DateRange) =>
-    withCapabilityTracking(symbol, timeframe, () => cacheFor().getOHLCV(symbol, timeframe, range))
+    toBars(await core.ohlcv.get(symbol, timeframe, range))
   )
-
   ipcMain.handle(CH.ohlcvRefresh, async (_e, symbol: string, timeframe: Timeframe) =>
-    withCapabilityTracking(symbol, timeframe, () => cacheFor().refreshOHLCV(symbol, timeframe))
+    toBars(await core.ohlcv.refresh(symbol, timeframe))
   )
 
-  ipcMain.handle(CH.quoteGet, (_e, symbol: string) => providerFor().getQuote(symbol))
-  ipcMain.handle(CH.marketStatus, () => providerFor().getMarketStatus())
+  ipcMain.handle(CH.quoteGet, (_e, symbol: string) => core.quote.get(symbol))
+  ipcMain.handle(CH.marketStatus, () => core.market.status())
 
-  ipcMain.handle(CH.apikeySet, (_e, key: string) => {
-    const result = setApiKey(key)
-    capabilityCache.clearForKeyChange() // D-21: never eagerly re-probe, just drop stale verdicts
-    dailyOutOfPlan.clear() // a new key may cover previously-out-of-plan symbols — re-probe on demand
-    return result
-  })
-  ipcMain.handle(CH.apikeyStatus, () => getKeyStatus())
-  ipcMain.handle(CH.apikeyClear, () => {
-    clearApiKey()
-    capabilityCache.clearForKeyChange()
-    dailyOutOfPlan.clear()
-  })
+  ipcMain.handle(CH.apikeySet, (_e, key: string) => core.apikey.set(key))
+  ipcMain.handle(CH.apikeyStatus, () => core.apikey.status())
+  ipcMain.handle(CH.apikeyClear, () => core.apikey.clear())
+
   ipcMain.handle(CH.settingsGetLastSymbol, () => getLastSymbol())
   ipcMain.handle(CH.settingsSetLastSymbol, (_e, symbol: string) => setLastSymbol(symbol))
   ipcMain.handle(CH.settingsGetSidebarOpen, () => getSidebarOpen())
@@ -149,62 +35,23 @@ export function registerIpc(): void {
   ipcMain.handle(CH.settingsGetSidebarWidth, () => getSidebarWidth())
   ipcMain.handle(CH.settingsSetSidebarWidth, (_e, width: number) => setSidebarWidth(width))
   ipcMain.handle(CH.settingsGetTheme, () => getTheme())
-  ipcMain.handle(CH.settingsSetTheme, (_e, theme: import('./settings').Theme) => setTheme(theme))
+  ipcMain.handle(CH.settingsSetTheme, (_e, theme: Theme) => setTheme(theme))
   ipcMain.handle(CH.settingsGetAutoRefresh, () => getAutoRefresh())
   ipcMain.handle(CH.settingsSetAutoRefresh, (_e, on: boolean) => setAutoRefresh(on))
 
-  // Monotonic version stamped on each persisted workspace write. Renderers ignore stale (<= lastRev)
-  // get/broadcast payloads — see the sync guard in useWorkspaceSync (ordering + startup race).
-  let workspacesRev = 0
+  ipcMain.handle(CH.workspacesGet, () => core.workspaces.get())
+  ipcMain.handle(CH.workspacesSet, (e, c: WorkspaceCollection) => core.workspaces.set(c, e.sender.id))
 
-  ipcMain.handle(CH.workspacesGet, () => ({ collection: workspaceStore.getWorkspaces(), rev: workspacesRev }))
-  ipcMain.handle(CH.workspacesSet, (e, c: WorkspaceCollection) => {
-    workspaceStore.setWorkspaces(c)
-    workspacesRev += 1
-    // Forward the new collection to every OTHER window so it re-hydrates. The sender skips itself —
-    // its own store is already current and re-applying would fight its debounce.
-    for (const w of BrowserWindow.getAllWindows()) {
-      if (w.webContents.id !== e.sender.id) {
-        w.webContents.send(CH.workspacesChanged, { collection: c, rev: workspacesRev })
-      }
-    }
-  })
+  ipcMain.handle(CH.clipboardGet, () => core.clipboard.get())
+  ipcMain.handle(CH.clipboardSet, (e, c: ClipboardCell | null) => core.clipboard.set(c, e.sender.id))
 
-  // Chart clipboard: authoritative value lives here (in-memory, never persisted) so a window
-  // opened after a copy can fetch it via clipboard:get. Mirrors the workspaces rev/broadcast
-  // contract — renderers drop stale (<= lastRev) payloads (see useClipboardSync).
-  let clipboard: ClipboardCell | null = null
-  let clipboardRev = 0
-
-  ipcMain.handle(CH.clipboardGet, () => ({ clipboard, rev: clipboardRev }))
-  ipcMain.handle(CH.clipboardSet, (e, c: ClipboardCell | null) => {
-    clipboard = c
-    clipboardRev += 1
-    for (const w of BrowserWindow.getAllWindows()) {
-      if (w.webContents.id !== e.sender.id) {
-        w.webContents.send(CH.clipboardChanged, { clipboard: c, rev: clipboardRev })
-      }
-    }
-    // Return the authoritative rev so the sender can advance its lastRev: the sender gets no
-    // self-broadcast, so without this a startup get() that lost the race could clobber this write.
-    return clipboardRev
-  })
-
-  // refresh 配信: 送信元(メインウィンドウ)以外の全ウィンドウへ転送。workspaces/clipboard と同じ規約。
+  // refresh 配信: 送信元(メインウィンドウ)以外の全ウィンドウへ転送。純粋な転送で状態を持たないので
+  // core には置かない。
   ipcMain.handle(CH.refreshBroadcast, (e, p: RefreshAppliedPayload) => {
     for (const w of BrowserWindow.getAllWindows()) {
-      if (w.webContents.id !== e.sender.id) {
-        w.webContents.send(CH.refreshApplied, p)
-      }
+      if (w.webContents.id !== e.sender.id) w.webContents.send(CH.refreshApplied, p)
     }
   })
 
-  ipcMain.handle(CH.capabilitiesGet, () => {
-    const apiKey = getApiKey()
-    const result = {} as Record<Timeframe, CapabilityStatus>
-    for (const tf of ALL_TIMEFRAMES) {
-      result[tf] = DERIVED_TIMEFRAMES.includes(tf) ? 'available' : apiKey ? capabilityCache.getStatus(apiKey, tf) : 'unknown'
-    }
-    return result
-  })
+  ipcMain.handle(CH.capabilitiesGet, () => core.capabilities.get())
 }

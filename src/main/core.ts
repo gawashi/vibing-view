@@ -29,6 +29,12 @@ export type OhlcvOutcome =
   | { kind: 'unknown-symbol' }
   | { kind: 'empty-range' }
 
+// The renderer's Api contract predates OhlcvOutcome and still resolves to Bar[]: every non-ok kind
+// collapses to [] there, which the UI already renders as "not covered" (M-09).
+export function toBars(outcome: OhlcvOutcome): Bar[] {
+  return outcome.kind === 'ok' ? outcome.bars : []
+}
+
 export type ProviderLike = Pick<
   FmpProvider, 'getOHLCV' | 'searchSymbols' | 'getQuote' | 'getMarketStatus' | 'getCompanyProfile'
 >
