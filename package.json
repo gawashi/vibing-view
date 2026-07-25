@@ -1,6 +1,6 @@
 {
   "name": "vibing-view",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A personal, unlimited charting desktop app — a vibe-coded TradingView alternative",
   "license": "MIT",
   "main": "./out/main/index.js",
@@ -59,9 +59,15 @@
   "build": {
     "appId": "com.gawashi.vibingview",
     "productName": "Vibing View",
-    "directories": { "output": "release" },
-    "files": ["out/**/*"],
-    "win": { "target": "nsis" },
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*"
+    ],
+    "win": {
+      "target": "nsis"
+    },
     "nsis": {
       "artifactName": "${name}-setup-${version}.${ext}",
       "oneClick": false,
