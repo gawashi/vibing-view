@@ -10,5 +10,5 @@
     "skipLibCheck": true,
     "paths": { "@/*": ["./src/renderer/*"], "@shared/*": ["./src/shared/*"] }
   },
-  "include": ["src/renderer/**/*", "src/shared/**/*", "tests/renderer/companyFormat.test.ts"]
+  "include": ["src/renderer/**/*", "src/shared/**/*", "tests/renderer/companyFormat.test.ts", "tests/renderer/watchlist.test.ts"]
 }
