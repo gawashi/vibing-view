@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { Timeframe, DateRange, WorkspaceCollection, ClipboardCell } from '@shared/types'
-import { CH, type Api, type WorkspacesPayload, type ClipboardPayload } from '@shared/ipc'
+import { CH, type Api, type WorkspacesPayload, type ClipboardPayload, type RefreshAppliedPayload } from '@shared/ipc'
 
 const api: Api = {
   symbols: {
@@ -28,7 +28,9 @@ const api: Api = {
     getSidebarWidth: () => ipcRenderer.invoke(CH.settingsGetSidebarWidth),
     setSidebarWidth: (width) => ipcRenderer.invoke(CH.settingsSetSidebarWidth, width),
     getTheme: () => ipcRenderer.invoke(CH.settingsGetTheme),
-    setTheme: (theme) => ipcRenderer.invoke(CH.settingsSetTheme, theme)
+    setTheme: (theme) => ipcRenderer.invoke(CH.settingsSetTheme, theme),
+    getAutoRefresh: () => ipcRenderer.invoke(CH.settingsGetAutoRefresh),
+    setAutoRefresh: (on) => ipcRenderer.invoke(CH.settingsSetAutoRefresh, on)
   },
   capabilities: { get: () => ipcRenderer.invoke(CH.capabilitiesGet) },
   workspaces: {
@@ -55,6 +57,14 @@ const api: Api = {
   },
   chart: {
     openWindow: (cellId) => ipcRenderer.invoke(CH.chartOpenWindow, cellId)
+  },
+  refresh: {
+    broadcast: (p: RefreshAppliedPayload) => ipcRenderer.invoke(CH.refreshBroadcast, p),
+    onApplied: (cb) => {
+      const listener = (_e: unknown, p: RefreshAppliedPayload): void => cb(p)
+      ipcRenderer.on(CH.refreshApplied, listener)
+      return () => ipcRenderer.removeListener(CH.refreshApplied, listener)
+    }
   }
 }
 

@@ -48,3 +48,12 @@ export function getTheme(): Theme {
 export function setTheme(theme: Theme): void {
   writeJsonFile(settingsPath(), { ...read(), theme })
 }
+
+// 自動更新トグル (UI chrome, JSON)。既定は false（明示的にONにするまで回さない）。
+export function getAutoRefresh(): boolean {
+  return read().autoRefresh === true
+}
+
+export function setAutoRefresh(on: boolean): void {
+  writeJsonFile(settingsPath(), { ...read(), autoRefresh: on })
+}

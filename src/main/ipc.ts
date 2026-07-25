@@ -1,12 +1,12 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import type { Bar, Timeframe, DateRange, WorkspaceCollection, ClipboardCell } from '@shared/types'
-import { CH, type CapabilityStatus } from '@shared/ipc'
+import { CH, type CapabilityStatus, type RefreshAppliedPayload } from '@shared/ipc'
 import { FmpProvider, FmpHttpError } from './providers/FmpProvider'
 import { electronHttpGetJson } from './net/httpClient'
 import { createCacheService } from './cache/CacheService'
 import * as barStore from './db/barStore'
 import { getApiKey, setApiKey, getKeyStatus, clearApiKey } from './keystore'
-import { getLastSymbol, setLastSymbol, getSidebarOpen, setSidebarOpen, getSidebarWidth, setSidebarWidth, getTheme, setTheme } from './settings'
+import { getLastSymbol, setLastSymbol, getSidebarOpen, setSidebarOpen, getSidebarWidth, setSidebarWidth, getTheme, setTheme, getAutoRefresh, setAutoRefresh } from './settings'
 import { createSearchCache } from './searchCache'
 import { classify } from './capabilityClassifier'
 import * as capabilityCache from './capabilityCache'
@@ -150,6 +150,8 @@ export function registerIpc(): void {
   ipcMain.handle(CH.settingsSetSidebarWidth, (_e, width: number) => setSidebarWidth(width))
   ipcMain.handle(CH.settingsGetTheme, () => getTheme())
   ipcMain.handle(CH.settingsSetTheme, (_e, theme: import('./settings').Theme) => setTheme(theme))
+  ipcMain.handle(CH.settingsGetAutoRefresh, () => getAutoRefresh())
+  ipcMain.handle(CH.settingsSetAutoRefresh, (_e, on: boolean) => setAutoRefresh(on))
 
   // Monotonic version stamped on each persisted workspace write. Renderers ignore stale (<= lastRev)
   // get/broadcast payloads — see the sync guard in useWorkspaceSync (ordering + startup race).
@@ -186,6 +188,15 @@ export function registerIpc(): void {
     // Return the authoritative rev so the sender can advance its lastRev: the sender gets no
     // self-broadcast, so without this a startup get() that lost the race could clobber this write.
     return clipboardRev
+  })
+
+  // refresh 配信: 送信元(メインウィンドウ)以外の全ウィンドウへ転送。workspaces/clipboard と同じ規約。
+  ipcMain.handle(CH.refreshBroadcast, (e, p: RefreshAppliedPayload) => {
+    for (const w of BrowserWindow.getAllWindows()) {
+      if (w.webContents.id !== e.sender.id) {
+        w.webContents.send(CH.refreshApplied, p)
+      }
+    }
   })
 
   ipcMain.handle(CH.capabilitiesGet, () => {
