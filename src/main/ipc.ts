@@ -4,8 +4,10 @@ import { CH, type RefreshAppliedPayload } from '@shared/ipc'
 import { toBars, type Core } from './core'
 import {
   getLastSymbol, setLastSymbol, getSidebarOpen, setSidebarOpen, getSidebarWidth, setSidebarWidth,
-  getTheme, setTheme, getAutoRefresh, setAutoRefresh, type Theme
+  getTheme, setTheme, getAutoRefresh, setAutoRefresh, type Theme,
+  getMcpConfig, setMcpConfig, regenerateMcpToken
 } from './settings'
+import * as mcp from './mcp'
 
 // Thin transport layer: channel name → core method. Every behaviour (capability tracking, cache
 // decisions, rev bookkeeping) lives in core.ts so MCP gets the identical semantics.
@@ -54,4 +56,14 @@ export function registerIpc(core: Core): void {
   })
 
   ipcMain.handle(CH.capabilitiesGet, () => core.capabilities.get())
+
+  ipcMain.handle(CH.mcpGetConfig, () => getMcpConfig())
+  ipcMain.handle(CH.mcpGetStatus, () => mcp.getStatus())
+  ipcMain.handle(CH.mcpSetEnabled, (_e, on: boolean) => mcp.applyConfig(core, setMcpConfig({ enabled: on })))
+  ipcMain.handle(CH.mcpSetPort, (_e, port: number) => mcp.applyConfig(core, setMcpConfig({ port })))
+  ipcMain.handle(CH.mcpRegenerateToken, async () => {
+    const config = regenerateMcpToken()
+    await mcp.applyConfig(core, config) // a live server must stop honouring the old token
+    return config
+  })
 }

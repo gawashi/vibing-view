@@ -31,7 +31,13 @@ export const CH = {
   clipboardSet: 'clipboard:set',
   clipboardChanged: 'clipboard:changed',
   refreshBroadcast: 'refresh:broadcast',
-  refreshApplied: 'refresh:applied'
+  refreshApplied: 'refresh:applied',
+  mcpGetConfig: 'mcp:getConfig',
+  mcpSetEnabled: 'mcp:setEnabled',
+  mcpSetPort: 'mcp:setPort',
+  mcpRegenerateToken: 'mcp:regenerateToken',
+  mcpGetStatus: 'mcp:getStatus',
+  mcpStatusChanged: 'mcp:statusChanged'
 } as const
 
 export type KeyStatus = { hasKey: boolean; encryptionAvailable: boolean; maskedKey?: string }
@@ -108,6 +114,15 @@ export interface Api {
   refresh: {
     broadcast(p: RefreshAppliedPayload): Promise<void>
     onApplied(cb: (p: RefreshAppliedPayload) => void): () => void
+  }
+  // MCP サーバ（既定 off）。token は Settings のコピーボタン用に平文で往復する（M-11）。
+  mcp: {
+    getConfig(): Promise<McpConfig>
+    setEnabled(on: boolean): Promise<McpStatus>
+    setPort(port: number): Promise<McpStatus>
+    regenerateToken(): Promise<McpConfig>
+    getStatus(): Promise<McpStatus>
+    onStatusChanged(cb: (s: McpStatus) => void): () => void
   }
 }
 

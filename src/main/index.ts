@@ -15,6 +15,8 @@ import * as capabilityCache from './capabilityCache'
 import { getApiKey, setApiKey, getKeyStatus, clearApiKey } from './keystore'
 import { FmpProvider } from './providers/FmpProvider'
 import { electronHttpGetJson } from './net/httpClient'
+import * as mcp from './mcp'
+import { getMcpConfig } from './settings'
 
 // One company-info window per symbol (spec: side-by-side compare). Reopening a live symbol focuses
 // its window; a new symbol spawns another. Cleared on 'closed'.
@@ -152,6 +154,8 @@ app.whenReady().then(async () => {
   installMenu()
   const core = buildCore()
   registerIpc(core)
+  mcp.onStatusChanged((status) => broadcast(CH.mcpStatusChanged, status))
+  void mcp.applyConfig(core, getMcpConfig()) // no-op unless the user enabled it (M-06)
   ipcMain.handle(CH.companyOpenWindow, (_e, symbol: string) => openHashWindow(companyWindows, symbol, 600, 800, buildCompanyHash(symbol)))
   ipcMain.handle(CH.chartOpenWindow, (_e, cellId: string) => openHashWindow(chartWindows, cellId, 1100, 760, buildChartHash(cellId)))
   createWindow()
@@ -162,4 +166,10 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
+})
+
+// The MCP server lives in main, so it answers only while the app is running. Release the port
+// before the process exits.
+app.on('before-quit', () => {
+  void mcp.stop()
 })
