@@ -117,6 +117,7 @@ export const fmpPriceTargetConsensusResponse = z.array(z.object({
 }).passthrough())
 
 export const fmpFinancialGrowthResponse = z.array(z.object({
+  date: z.string().nullable().optional().catch(null),
   revenueGrowth: num(),
   netIncomeGrowth: num(),
   epsgrowth: num()

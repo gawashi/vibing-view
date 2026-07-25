@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { FmpProvider, FmpHttpError } from '../../../src/main/providers/FmpProvider'
@@ -151,6 +151,11 @@ describe('FmpProvider.getMarketStatus', () => {
 })
 
 describe('FmpProvider.getCompanyProfile', () => {
+  // Earnings selection compares against `new Date()`; pin it so the fixture's
+  // past/future rows keep their meaning as real time moves on.
+  beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-07-25T00:00:00Z') }) })
+  afterEach(() => { vi.useRealTimers() })
+
   // URL-routed fake: /profile + 6 optional endpoints. Mirrors the searchSymbols multi-endpoint pattern.
   const routed = (over: Record<string, unknown> = {}) => {
     const map: Record<string, string> = {
@@ -186,8 +191,23 @@ describe('FmpProvider.getCompanyProfile', () => {
     expect(c.analyst?.consensus).toBe('Buy')
     expect(c.analyst?.targetConsensus).toBe(258.4)
     expect(c.growth?.revenueGrowth).toBe(0.08) // latest (element [0]) fiscal year
+    expect(c.growth?.asOfDate).toBe('2025-09-27') // fiscal period end of element [0]
     expect(c.schedule?.nextEarningsDate).toBe('2026-10-30') // soonest row with epsActual == null
-    expect(c.schedule?.lastEpsActual).toBe(1.4) // most recent row with epsActual != null
+    // 2026-07-31 also carries an epsActual but is in the future, so 2026-05-01 is the last report.
+    expect(c.schedule?.lastEarningsDate).toBe('2026-05-01')
+    expect(c.schedule?.lastEpsActual).toBe(1.52)
+    expect(c.schedule?.lastEpsEstimated).toBe(1.5)
+  })
+
+  it('nulls the whole last-report trio when no earnings row is both reported and past', async () => {
+    const c = await routed({ 'earnings': [
+      { date: '2026-10-30', epsActual: null, epsEstimated: 1.55 },
+      { date: '2026-07-31', epsActual: 1.4, epsEstimated: 1.35 }
+    ] }).getCompanyProfile('AAPL')
+    expect(c.schedule?.lastEarningsDate).toBeNull()
+    expect(c.schedule?.lastEpsActual).toBeNull()
+    expect(c.schedule?.lastEpsEstimated).toBeNull()
+    expect(c.schedule?.nextEarningsDate).toBe('2026-10-30') // upcoming still resolves
   })
 
   it('keeps a partial valuation from key-metrics when ratios-ttm fails, but nulls financials', async () => {

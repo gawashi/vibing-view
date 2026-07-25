@@ -227,6 +227,7 @@ function GrowthTab({ c }: { c: CompanyInfo }): React.JSX.Element {
   if (g == null) return <NotAvailable />
   return (
     <div className="flex flex-col gap-3">
+      {g.asOfDate && <div className="text-xs text-muted-foreground">Fiscal period end · {g.asOfDate}</div>}
       <GrowthBar label="Revenue growth" value={g.revenueGrowth} />
       <GrowthBar label="Net income growth" value={g.netIncomeGrowth} />
       <GrowthBar label="EPS growth" value={g.epsGrowth} />
@@ -239,6 +240,7 @@ function ScheduleTab({ c }: { c: CompanyInfo }): React.JSX.Element {
   if (s == null) return <NotAvailable />
   return (
     <Grid>
+      <Attr label="Last earnings date" value={s.lastEarningsDate} />
       <Attr label="Next earnings date" value={s.nextEarningsDate} />
       <Attr label="Last EPS (actual)" value={fmtRatio(s.lastEpsActual)} />
       <Attr label="Last EPS (estimate)" value={fmtRatio(s.lastEpsEstimated)} />
