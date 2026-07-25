@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { ThemeSetting } from './settings/ThemeSetting'
 import { ApiKeySetting } from './settings/ApiKeySetting'
+import { McpSetting } from './settings/McpSetting'
 
 export function SettingsDialog(): React.JSX.Element {
   const [open, setOpen] = useState(false)
@@ -31,6 +32,7 @@ export function SettingsDialog(): React.JSX.Element {
         <div className="flex flex-col gap-6">
           <ThemeSetting />
           <ApiKeySetting />
+          <McpSetting />
         </div>
       </DialogContent>
     </Dialog>
