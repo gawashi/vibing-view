@@ -22,7 +22,7 @@ import { useClipboardSync } from './hooks/useClipboardSync'
 import { applyTheme } from './lib/theme'
 import type { CapabilityStatus } from '@shared/ipc'
 import type { Timeframe, Quote, MarketStatus } from '@shared/types'
-import { shouldRefreshData, type ReloadSource } from './lib/autoRefresh'
+import type { ReloadSource } from './lib/autoRefresh'
 
 export default function App(): React.JSX.Element {
   // Sidebar open/closed (D-63) — UI chrome, persisted separately from the Workspace/named-layout
@@ -98,7 +98,8 @@ export default function App(): React.JSX.Element {
       } catch {
         // status 不明 → 手動は続行、auto は closed 扱いで下の判定によりスキップ。
       }
-      if (!shouldRefreshData(opts.source, isOpen)) {
+      // 手動は常に進む（クローズ後の確定日足を取りに行く）。auto はクローズ中は進まない（API 節約）。
+      if (opts.source === 'auto' && !isOpen) {
         // クローズで打ち切る場合も、取得済みの market-status だけは他ウィンドウへ配る（追加 FMP なし）。
         // これがないと enlarge 窓がクローズ後も古い open 状態のまま取り残される。
         const marketStatus = queryClient.getQueryData<MarketStatus>(qk.marketStatus()) ?? null
@@ -185,6 +186,7 @@ export default function App(): React.JSX.Element {
   // toast) has moved into GridHost's GridCell (D-60) — each rendered cell now gates its own row off
   // its own symbol/timeframe instead of one App-level effect tied to a single active symbol.
 
+  const AutoIcon = autoRefresh ? Timer : TimerOff
   // ドット=市場状態のみ。失敗はドットではなく、失敗したリロードのアイコン(下)で赤表示する。
   const statusMeta = {
     idle: { dot: 'bg-muted-foreground/40', text: 'Not refreshed yet' },
@@ -256,10 +258,7 @@ export default function App(): React.JSX.Element {
                     onClick={toggleAutoRefresh}
                     aria-label={autoRefresh ? 'Auto-refresh on' : 'Auto-refresh off'}
                   >
-                    {(() => {
-                      const cls = cn('size-4', refreshState.errorSource === 'auto' && 'text-destructive')
-                      return autoRefresh ? <Timer className={cls} /> : <TimerOff className={cls} />
-                    })()}
+                    <AutoIcon className={cn('size-4', refreshState.errorSource === 'auto' && 'text-destructive')} />
                     <span className="text-xs tabular-nums">{autoRefresh ? '1m' : 'Off'}</span>
                     <span className={cn('size-2 rounded-full', statusMeta.dot)} aria-hidden />
                   </Button>
