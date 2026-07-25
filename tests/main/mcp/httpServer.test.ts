@@ -100,4 +100,20 @@ describe('startMcpHttpServer', () => {
       startMcpHttpServer({ port: server.port(), token: 'secret', handle: vi.fn() })
     ).rejects.toThrow()
   })
+
+  it('close() resolves even with a request in flight, instead of waiting on it forever', async () => {
+    // The handler never responds, so the connection stays open. server.close()'s callback alone
+    // would wait for it forever — close() must force it closed instead.
+    let handling: () => void = () => {}
+    const handlerEntered = new Promise<void>((resolve) => { handling = resolve })
+    server = await startMcpHttpServer({
+      port: 0, token: 'secret',
+      handle: () => { handling(); return new Promise(() => {}) }
+    })
+    void post(server.port(), { authorization: 'Bearer secret' }).catch(() => {})
+    await handlerEntered
+
+    await expect(server.close()).resolves.toBeUndefined()
+    server = null
+  }, 2000)
 })

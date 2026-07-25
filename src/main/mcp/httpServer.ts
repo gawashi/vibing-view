@@ -76,7 +76,13 @@ export function startMcpHttpServer(opts: {
       const port = typeof address === 'object' && address ? address.port : opts.port
       resolve({
         port: () => port,
-        close: () => new Promise<void>((done) => { server.close(() => done()) })
+        // server.close()'s callback only fires once every open socket ends on its own — an
+        // in-flight or keep-alive connection can hold it open indefinitely. The quit path awaits
+        // this promise, so stop accepting first, then force-close what's already open.
+        close: () => new Promise<void>((done) => {
+          server.close(() => done())
+          server.closeAllConnections()
+        })
       })
     })
   })

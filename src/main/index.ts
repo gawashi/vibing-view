@@ -171,12 +171,17 @@ app.on('window-all-closed', () => {
 // The MCP server lives in main, so it answers only while the app is running. Release the port
 // before the process exits: defer the actual quit until mcp.stop() settles, then re-invoke
 // app.quit() — the `quitting` guard makes that second pass a no-op so the app still closes even
-// if stop() rejects (.finally, not .then) or a server never existed.
+// if stop() rejects (.finally, not .then) or a server never existed. Bounded by a timeout too: a
+// stuck close() must degrade to "port not cleanly released", never to "the app cannot close".
 let quitting = false
 app.on('before-quit', (e) => {
   if (quitting) return
   e.preventDefault()
-  void mcp.stop().finally(() => {
+  const timeout = new Promise<void>((resolve) => {
+    const t = setTimeout(resolve, 3000)
+    t.unref()
+  })
+  void Promise.race([mcp.stop(), timeout]).finally(() => {
     quitting = true
     app.quit()
   })
