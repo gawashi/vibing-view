@@ -1,4 +1,5 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, Menu } from 'electron'
+import type { MenuItemConstructorOptions } from 'electron'
 import { join } from 'path'
 import { registerIpc } from './ipc'
 import { configureProxy } from './net/httpClient'
@@ -48,6 +49,7 @@ function createWindow(): void {
     }
   })
   hardenWindow(win)
+  win.setMenuBarVisibility(false) // hide the top menu bar; accelerators (zoom/fullscreen/close) still fire from the app menu
   win.on('ready-to-show', () => win.show())
   // Closing the main window tears down company windows so window-all-closed fires → app quits.
   win.on('closed', () => {
@@ -78,16 +80,46 @@ function openHashWindow(map: Map<string, BrowserWindow>, key: string, width: num
     }
   })
   hardenWindow(win)
+  win.setMenuBarVisibility(false)
   map.set(key, win)
   win.on('ready-to-show', () => win.show())
   win.on('closed', () => map.delete(key))
   loadRenderer(win, hash)
 }
 
+// The default Electron menu binds Ctrl+R / Ctrl+Shift+R to page reload — accelerators the main
+// process dispatches, which a renderer keydown.preventDefault() cannot cancel. We install a menu
+// that keeps zoom, fullscreen, DevTools, and window controls but drops the reload roles, so Ctrl+R
+// falls through to the renderer's targeted chart refresh.
+// No Edit menu on purpose: its Copy/Cut/Paste accelerators (Ctrl+C/X/V) are also main-process
+// accelerators that would fire alongside — and thus collide with — the grid's own cell
+// copy/cut/paste shortcuts. Chromium handles copy/paste inside inputs/textareas natively without a
+// menu, so omitting Edit loses nothing and keeps the cell shortcuts unambiguous.
+function installMenu(): void {
+  const template: MenuItemConstructorOptions[] = [
+    { role: 'fileMenu' },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' }
+      ]
+    },
+    { role: 'windowMenu' }
+  ]
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
 app.whenReady().then(async () => {
   // Route provider HTTP through the OS/system proxy (or HTTP(S)_PROXY) before any fetch runs —
   // corporate networks block direct egress, so an unconfigured client times out (see net/httpClient).
   await configureProxy()
+  installMenu()
   registerIpc()
   ipcMain.handle(CH.companyOpenWindow, (_e, symbol: string) => openHashWindow(companyWindows, symbol, 600, 800, buildCompanyHash(symbol)))
   ipcMain.handle(CH.chartOpenWindow, (_e, cellId: string) => openHashWindow(chartWindows, cellId, 1100, 760, buildChartHash(cellId)))

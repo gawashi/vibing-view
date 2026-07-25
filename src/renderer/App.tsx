@@ -19,6 +19,7 @@ import { Watchlist } from './components/Watchlist'
 import { useAppStore, selectActiveItems } from './store'
 import { useWorkspaceSync } from './hooks/useWorkspaceSync'
 import { useClipboardSync } from './hooks/useClipboardSync'
+import { useGridShortcuts } from '@/hooks/useGridShortcuts'
 import { applyTheme } from './lib/theme'
 import type { CapabilityStatus } from '@shared/ipc'
 import type { Timeframe, Quote, MarketStatus } from '@shared/types'
@@ -181,6 +182,8 @@ export default function App(): React.JSX.Element {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoRefresh])
+
+  useGridShortcuts(() => void reload({ source: 'manual' }))
 
   // Per-cell capability gating (eager intraday probe, requires-plan→snap-to-daily, rate-limit
   // toast) has moved into GridHost's GridCell (D-60) — each rendered cell now gates its own row off

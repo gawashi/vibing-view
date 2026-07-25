@@ -10,5 +10,5 @@
     "paths": { "@/*": ["./src/renderer/*"], "@shared/*": ["./src/shared/*"] }
   },
   "include": ["src/main/**/*", "src/preload/**/*", "src/shared/**/*", "src/renderer/indicators/**/*", "src/renderer/lib/**/*", "src/renderer/workspace.ts", "src/renderer/store.ts", "tests/**/*", "*.config.ts"],
-  "exclude": ["tests/renderer/companyFormat.test.ts"]
+  "exclude": ["tests/renderer/companyFormat.test.ts", "tests/renderer/watchlist.test.ts", "src/renderer/lib/watchlist.ts"]
 }

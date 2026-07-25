@@ -13,6 +13,7 @@ import { TimeframeRow, TF_LABELS } from './TimeframeRow'
 import { ChartContextMenu } from './ChartContextMenu'
 import { cn } from '@/lib/utils'
 import { latestPriceChange } from '@/lib/priceChange'
+import { toggleWatchlist } from '@/lib/watchlist'
 import type { Bar, Cell, MarketStatus, Quote, Timeframe, SymbolResult } from '@shared/types'
 
 // Module-level (shared across every cell, not per-cell state): the rate-limited-tf toast guard.
@@ -176,9 +177,7 @@ function SymbolLabel({ symbol, timeframe }: { symbol: string; timeframe: Timefra
 // 状態は常に一致。プロファイルは SymbolLabel と同じ qk.profile(symbol) を使うため追加フェッチなし。
 function FavoriteStar({ symbol }: { symbol: string }): React.JSX.Element {
   const watched = useAppStore((s) => selectActiveItems(s).some((w) => w.symbol === symbol))
-  const addToWatchlist = useAppStore((s) => s.addToWatchlist)
-  const removeFromWatchlist = useAppStore((s) => s.removeFromWatchlist)
-  const profileQ = useProfile(symbol)
+  const queryClient = useQueryClient()
 
   return (
     <Tooltip>
@@ -187,12 +186,7 @@ function FavoriteStar({ symbol }: { symbol: string }): React.JSX.Element {
           type="button"
           onClick={(e) => {
             e.stopPropagation()
-            if (watched) {
-              removeFromWatchlist(symbol)
-            } else {
-              const p = profileQ.data
-              addToWatchlist({ symbol, name: p?.name ?? symbol, exchange: p?.exchange ?? '' })
-            }
+            toggleWatchlist(symbol, queryClient)
           }}
           aria-label={watched ? 'Remove from watchlist' : 'Add to watchlist'}
           className={cn(
