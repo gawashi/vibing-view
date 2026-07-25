@@ -10,7 +10,7 @@ reporting period they came from.
 
 Two gaps, both of them data we already fetch and then discard:
 
-1. **前回の決算報告日** — `FmpProvider.fetchCompanyProfile` computes `reported`
+1. **前回の決算報告日** — `FmpProvider.getCompanyProfile` computes `reported`
    (`FmpProvider.ts:254`, the newest `/earnings` row with a non-null `epsActual`) and
    surfaces `lastEpsActual` / `lastEpsEstimated` from it, but throws away
    `reported.date`. The Schedule tab shows the *next* earnings date and last EPS
@@ -30,7 +30,7 @@ fetch today.
 
 ### Data layer
 
-`FmpProvider.fetchCompanyProfile`:
+`FmpProvider.getCompanyProfile`:
 
 - `schedule.lastEarningsDate` ← `reported?.date ?? null`
 - `growth.asOfDate` ← the `date` of the `/financial-growth` row already selected by
@@ -130,9 +130,13 @@ fixture changes.
 
 **Freeze the clock first.** Earnings selection reads `new Date()`, and the suite
 currently passes only because the fixture's dates happen to straddle the real today;
-it would start failing on its own once 2026-10-30 passes. Wrap the earnings
-assertions in `vi.setSystemTime(new Date('2026-07-25'))`. Fake timers in the test are
+it would start failing on its own once 2026-10-30 passes. Fake timers in the test are
 enough — no clock injection into `FmpProvider`.
+
+`vitest.config.ts:9` registers `setupFiles` for the renderer project only, so the main
+tests have no shared timer setup and each test owns its clock: `vi.useFakeTimers()`
+then `vi.setSystemTime(new Date('2026-07-25'))` before the call, `vi.useRealTimers()`
+in a `finally`/`afterEach` so the fake clock cannot leak into the rest of the file.
 
 Against that fixed date, `fmp-earnings.json` has rows `2026-10-30` (no actual),
 `2026-07-31` (actual 1.4, **future**), `2026-05-01` (actual 1.52):
