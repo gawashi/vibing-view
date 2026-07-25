@@ -1,6 +1,6 @@
 {
   "name": "vibing-view",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A personal, unlimited charting desktop app — a vibe-coded TradingView alternative",
   "license": "MIT",
   "main": "./out/main/index.js",
@@ -16,8 +16,10 @@
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
+    "@radix-ui/react-context-menu": "^2.3.4",
     "@radix-ui/react-dialog": "^1.1.19",
     "@radix-ui/react-dropdown-menu": "^2.1.21",
+    "@radix-ui/react-popover": "^1.1.20",
     "@radix-ui/react-slot": "^1.3.0",
     "@radix-ui/react-toggle": "^1.1.14",
     "@radix-ui/react-toggle-group": "^1.1.15",
@@ -57,9 +59,15 @@
   "build": {
     "appId": "com.gawashi.vibingview",
     "productName": "Vibing View",
-    "directories": { "output": "release" },
-    "files": ["out/**/*"],
-    "win": { "target": "nsis" },
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*"
+    ],
+    "win": {
+      "target": "nsis"
+    },
     "nsis": {
       "artifactName": "${name}-setup-${version}.${ext}",
       "oneClick": false,

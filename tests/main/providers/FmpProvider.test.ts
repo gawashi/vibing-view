@@ -1,8 +1,9 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { FmpProvider, FmpHttpError } from '../../../src/main/providers/FmpProvider'
 import { classify } from '../../../src/main/capabilityClassifier'
+import { fmpQuoteResponse, fmpMarketHoursResponse } from '../../../src/main/providers/fmp.schema'
 
 const fx = (name: string) => JSON.parse(readFileSync(join(__dirname, '../../fixtures', name), 'utf8'))
 const provider = (payload: unknown) =>
@@ -76,5 +77,156 @@ describe('FmpProvider.searchSymbols', () => {
     const results = await provider(fx('fmp-search.json')).searchSymbols('AAPL')
     expect(results[0]).toEqual({ symbol: 'AAPL', name: 'Apple Inc.', exchange: 'NASDAQ' })
     expect(results).toHaveLength(2)
+  })
+
+  it('queries both search-symbol and search-name, merging and deduping by symbol', async () => {
+    const httpGetJson = vi.fn(async (url: string) => {
+      if (url.includes('search-symbol')) return [{ symbol: 'AAPL', name: 'Apple Inc.', exchange: 'NASDAQ' }]
+      if (url.includes('search-name')) return [
+        { symbol: 'AAPL', name: 'Apple Inc. (dup)', exchange: 'NASDAQ' }, // dup — search-symbol wins
+        { symbol: 'APLE', name: 'Apple Hospitality REIT', exchange: 'NYSE' }
+      ]
+      throw new Error(`unexpected url ${url}`)
+    })
+    const results = await new FmpProvider({ apiKey: 'k', httpGetJson }).searchSymbols('apple')
+    expect(httpGetJson).toHaveBeenCalledTimes(2)
+    expect(httpGetJson.mock.calls.some((c) => c[0].includes('search-symbol'))).toBe(true)
+    expect(httpGetJson.mock.calls.some((c) => c[0].includes('search-name'))).toBe(true)
+    expect(results.map((r) => r.symbol)).toEqual(['AAPL', 'APLE'])
+    expect(results[0].name).toBe('Apple Inc.') // search-symbol wins the dup
+  })
+
+  it('requests limit=50 on both endpoints', async () => {
+    const httpGetJson = vi.fn(async (_url: string) => [])
+    await new FmpProvider({ apiKey: 'k', httpGetJson }).searchSymbols('x')
+    expect(httpGetJson.mock.calls.every((c) => c[0].includes('limit=50'))).toBe(true)
+  })
+
+  it('returns the surviving endpoint results when the other fails', async () => {
+    const httpGetJson = vi.fn(async (url: string) => {
+      if (url.includes('search-symbol')) throw new Error('rate limited')
+      return [{ symbol: 'APLE', name: 'Apple Hospitality REIT', exchange: 'NYSE' }]
+    })
+    const results = await new FmpProvider({ apiKey: 'k', httpGetJson }).searchSymbols('apple')
+    expect(results.map((r) => r.symbol)).toEqual(['APLE'])
+  })
+
+  it('throws only when both endpoints fail', async () => {
+    const httpGetJson = vi.fn(async (_url: string) => { throw new Error('down') })
+    await expect(new FmpProvider({ apiKey: 'k', httpGetJson }).searchSymbols('apple')).rejects.toThrow()
+  })
+})
+
+describe('FmpProvider.getQuote', () => {
+  it('maps the first quote row to a Quote', async () => {
+    const q = await provider(fx('fmp-quote.json')).getQuote('AAPL')
+    expect(q).toEqual({
+      price: 326.59, open: 333.025, dayHigh: 333.71, dayLow: 323.7,
+      previousClose: 333.74, changePercentage: -2.14239, timestamp: 1784577600, exchange: 'NASDAQ'
+    })
+  })
+  it('calls /stable/quote with the symbol', async () => {
+    const httpGetJson = vi.fn(async (_url: string) => fx('fmp-quote.json'))
+    await new FmpProvider({ apiKey: 'k', httpGetJson }).getQuote('AAPL')
+    expect(httpGetJson.mock.calls[0][0]).toContain('/quote?symbol=AAPL')
+  })
+  it('wraps an error-shaped 200 payload as FmpHttpError(200) so it classifies to requires-plan', async () => {
+    let caught: unknown
+    try { await provider(fx('fmp-error.json')).getQuote('AAPL') } catch (e) { caught = e }
+    expect(caught).toBeInstanceOf(FmpHttpError)
+    expect(classify((caught as FmpHttpError).status, (caught as FmpHttpError).body)).toBe('requires-plan')
+  })
+})
+
+describe('FmpProvider.getMarketStatus', () => {
+  it('reads isMarketOpen from the first row', async () => {
+    const s = await provider(fx('fmp-market-hours.json')).getMarketStatus()
+    expect(s).toEqual({ isOpen: false })
+  })
+  it('defaults to the NASDAQ exchange', async () => {
+    const httpGetJson = vi.fn(async (_url: string) => fx('fmp-market-hours.json'))
+    await new FmpProvider({ apiKey: 'k', httpGetJson }).getMarketStatus()
+    expect(httpGetJson.mock.calls[0][0]).toContain('exchange-market-hours?exchange=NASDAQ')
+  })
+})
+
+describe('FmpProvider.getCompanyProfile', () => {
+  // Earnings selection compares against `new Date()`; pin it so the fixture's
+  // past/future rows keep their meaning as real time moves on.
+  beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-07-25T00:00:00Z') }) })
+  afterEach(() => { vi.useRealTimers() })
+
+  // URL-routed fake: /profile + 6 optional endpoints. Mirrors the searchSymbols multi-endpoint pattern.
+  const routed = (over: Record<string, unknown> = {}) => {
+    const map: Record<string, string> = {
+      '/profile': 'fmp-profile.json',
+      'ratios-ttm': 'fmp-ratios-ttm.json',
+      'key-metrics-ttm': 'fmp-key-metrics-ttm.json',
+      'grades-consensus': 'fmp-grades-consensus.json',
+      'price-target-consensus': 'fmp-price-target-consensus.json',
+      'financial-growth': 'fmp-financial-growth.json',
+      'earnings': 'fmp-earnings.json'
+    }
+    return new FmpProvider({ apiKey: 'k', httpGetJson: async (url: string) => {
+      for (const key of Object.keys(over)) if (url.includes(key)) {
+        const v = over[key]
+        if (v instanceof Error) throw v
+        return v
+      }
+      for (const [key, file] of Object.entries(map)) if (url.includes(key)) return fx(file)
+      throw new Error(`unexpected url ${url}`)
+    } })
+  }
+
+  it('merges profile + all six optional groups on the happy path', async () => {
+    const c = await routed().getCompanyProfile('AAPL')
+    expect(c.symbol).toBe('AAPL')
+    expect(c.price).toBe(245.5)
+    expect(c.valuation?.peRatio).toBe(24.31)
+    expect(c.valuation?.dividendYield).toBe(0.0045)
+    expect(c.valuation?.evToEbitda).toBe(26.4)
+    expect(c.financials?.roe).toBe(1.47)
+    expect(c.financials?.debtToEquity).toBe(1.87)
+    expect(c.analyst?.buy).toBe(21)
+    expect(c.analyst?.consensus).toBe('Buy')
+    expect(c.analyst?.targetConsensus).toBe(258.4)
+    expect(c.growth?.revenueGrowth).toBe(0.08) // latest (element [0]) fiscal year
+    expect(c.growth?.asOfDate).toBe('2025-09-27') // fiscal period end of element [0]
+    expect(c.schedule?.nextEarningsDate).toBe('2026-10-30') // soonest row with epsActual == null
+    // 2026-07-31 also carries an epsActual but is in the future, so 2026-05-01 is the last report.
+    expect(c.schedule?.lastEarningsDate).toBe('2026-05-01')
+    expect(c.schedule?.lastEpsActual).toBe(1.52)
+    expect(c.schedule?.lastEpsEstimated).toBe(1.5)
+  })
+
+  it('nulls the whole last-report trio when no earnings row is both reported and past', async () => {
+    const c = await routed({ 'earnings': [
+      { date: '2026-10-30', epsActual: null, epsEstimated: 1.55 },
+      { date: '2026-07-31', epsActual: 1.4, epsEstimated: 1.35 }
+    ] }).getCompanyProfile('AAPL')
+    expect(c.schedule?.lastEarningsDate).toBeNull()
+    expect(c.schedule?.lastEpsActual).toBeNull()
+    expect(c.schedule?.lastEpsEstimated).toBeNull()
+    expect(c.schedule?.nextEarningsDate).toBe('2026-10-30') // upcoming still resolves
+  })
+
+  it('keeps a partial valuation from key-metrics when ratios-ttm fails, but nulls financials', async () => {
+    const c = await routed({ 'ratios-ttm': new Error('rate limited') }).getCompanyProfile('AAPL')
+    expect(c.valuation).not.toBeNull()
+    expect(c.valuation?.peRatio).toBeNull() // ratios source failed
+    expect(c.valuation?.evToEbitda).toBe(26.4) // key-metrics source succeeded
+    expect(c.financials).toBeNull() // financials has no key-metrics source
+    expect(c.analyst?.buy).toBe(21) // unaffected
+    expect(c.symbol).toBe('AAPL')
+  })
+
+  it('still throws when /profile itself fails (no partial anchor)', async () => {
+    await expect(routed({ '/profile': [] }).getCompanyProfile('AAPL')).rejects.toBeInstanceOf(FmpHttpError)
+  })
+
+  it('calls /stable/profile with the symbol', async () => {
+    const httpGetJson = vi.fn(async (url: string) => (url.includes('/profile') ? fx('fmp-profile.json') : []))
+    await new FmpProvider({ apiKey: 'k', httpGetJson }).getCompanyProfile('AAPL')
+    expect(httpGetJson.mock.calls.some((cc) => cc[0].includes('/profile?symbol=AAPL'))).toBe(true)
   })
 })

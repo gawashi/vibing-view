@@ -6,8 +6,10 @@ import { deriveWeekly, deriveMonthly } from '../aggregate'
 export function createCacheService(deps: {
   provider: Pick<FmpProvider, 'getOHLCV' | 'searchSymbols'>
   store: typeof barStore
+  now?: () => number // epoch SECONDS; injectable for tests
 }) {
   const { provider, store } = deps
+  const now = deps.now ?? (() => Math.floor(Date.now() / 1000))
   return {
     async getOHLCV(symbol: string, tf: Timeframe, range: DateRange): Promise<Bar[]> {
       // W/M are derived from cached daily bars, never fetched/cached themselves (D-17): their
@@ -36,6 +38,23 @@ export function createCacheService(deps: {
           : await provider.getOHLCV(symbol, tf, undefined)
       store.upsertBarsAndCoverage(symbol, tf, fetched)
       return store.getBars(symbol, tf, range)
+    },
+
+    // Right-edge differential (reload): advance the cached newest bar up to `now`. W/M re-derive
+    // from a refreshed daily. Never re-fetches already-cached older history (API-call budget).
+    async refreshOHLCV(symbol: string, tf: Timeframe): Promise<Bar[]> {
+      if (tf === '1w' || tf === '1M') {
+        const daily = await this.refreshOHLCV(symbol, '1d')
+        return tf === '1w' ? deriveWeekly(daily) : deriveMonthly(daily)
+      }
+      const cov = store.getCoverage(symbol, tf)
+      // Nothing cached → behave like a first fetch. (`1d` ignores range and returns full history;
+      // intraday fetches only newestTime→now.)
+      const fetched = cov
+        ? await provider.getOHLCV(symbol, tf, { from: cov.newestTime, to: now() })
+        : await provider.getOHLCV(symbol, tf, undefined)
+      store.upsertBarsAndCoverage(symbol, tf, fetched)
+      return store.getBars(symbol, tf, undefined)
     }
   }
 }

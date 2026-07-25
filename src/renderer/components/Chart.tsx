@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { applyQuote } from '@/lib/applyQuote'
 import {
   createChart,
   CandlestickSeries,
@@ -21,9 +22,39 @@ import { IndicatorLegend } from './IndicatorLegend'
 import { useAppStore } from '@/store'
 import type { CrosshairValues } from '@/store'
 import type { HistPoint, LineData } from '@/indicators/types'
-import type { Bar, Timeframe } from '@shared/types'
+import type { Bar, Timeframe, Quote, MarketStatus } from '@shared/types'
+import { initialLogicalRange } from '@/lib/initialRange'
 
 type PaneLegend = { paneIndex: number; top: number; left: number; instanceIds: string[] }
+
+// Read a theme CSS var (e.g. "210 24% 6%") and return a usable CSS color string. Lets the chart
+// track the light/dark palette instead of the old hardcoded dark hexes (#0B0E11 / #151920).
+function cssHsl(name: string, alpha?: number): string {
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  if (!v) return ''
+  return alpha === undefined ? `hsl(${v})` : `hsl(${v} / ${alpha})`
+}
+
+// Chart layout/grid/border colors derived from the current theme. Re-read on theme change so a
+// Light/Dark toggle recolors the canvas. Candle up/down colors stay fixed (readable on both).
+function chartThemeOptions(): {
+  layout: { background: { color: string }; textColor: string; panes: { separatorColor: string; separatorHoverColor: string } }
+  grid: { vertLines: { color: string }; horzLines: { color: string } }
+  timeScale: { borderColor: string }
+  rightPriceScale: { borderColor: string }
+} {
+  const grid = cssHsl('--border')
+  return {
+    layout: {
+      background: { color: cssHsl('--background') },
+      textColor: cssHsl('--muted-foreground'),
+      panes: { separatorColor: cssHsl('--muted-foreground', 0.25), separatorHoverColor: cssHsl('--muted-foreground', 0.2) }
+    },
+    grid: { vertLines: { color: grid }, horzLines: { color: grid } },
+    timeScale: { borderColor: grid },
+    rightPriceScale: { borderColor: grid }
+  }
+}
 
 export function Chart({ cellId, symbol, timeframe }: { cellId: string; symbol: string; timeframe: Timeframe }): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -69,25 +100,45 @@ export function Chart({ cellId, symbol, timeframe }: { cellId: string; symbol: s
     queryFn: () => api.ohlcv.get(symbol, timeframe, undefined)
   })
 
+  // Populated by the global reload only (enabled:false → read cache, re-render on setQueryData).
+  const { data: marketStatus } = useQuery<MarketStatus>({
+    queryKey: qk.marketStatus(),
+    queryFn: () => api.market.status(),
+    enabled: false
+  })
+  const { data: quote } = useQuery<Quote>({
+    queryKey: qk.quote(symbol),
+    queryFn: () => api.quote.get(symbol),
+    enabled: false
+  })
+  // Trailing-candle overlay: quote.price replaces the last bar's close (or appends today's forming
+  // daily bar) during market hours. Pure/derived — never written back into the ohlcv query cache.
+  const displayBars = useMemo(
+    () => applyQuote(q.data ?? [], quote, marketStatus?.isOpen ?? false, timeframe),
+    [q.data, quote, marketStatus, timeframe]
+  )
+
   // Create the chart once.
   useEffect(() => {
     if (!containerRef.current) return
+    const themeOpts = chartThemeOptions()
     const chart = createChart(containerRef.current, {
       layout: {
-        background: { color: '#0B0E11' },
-        textColor: '#8B92A0',
+        ...themeOpts.layout,
         // Hide the on-canvas TradingView logo — it would repeat in every grid cell (up to 4 in 2x2).
         // Optional mark; Apache-2.0 attribution is satisfied by the repo NOTICE, not this overlay.
-        attributionLogo: false,
-        // D-32/RESEARCH Q6: pane separator — グリッド色(#151920)だと境目が見えないため、
-        // グリッドとテキスト色の中間(#2A2F3A)にしてペイン境界をはっきり見せる。
-        panes: { separatorColor: '#2A2F3A', separatorHoverColor: 'rgba(139, 146, 160, 0.2)' }
+        attributionLogo: false
       },
-      grid: { vertLines: { color: '#151920' }, horzLines: { color: '#151920' } },
+      grid: themeOpts.grid,
       autoSize: true,
-      timeScale: { borderColor: '#151920' },
-      rightPriceScale: { borderColor: '#151920' }
+      timeScale: themeOpts.timeScale,
+      rightPriceScale: themeOpts.rightPriceScale
     })
+
+    // Recolor the canvas when the theme toggles (.dark class flips on <html>).
+    const applyChartTheme = (): void => chart.applyOptions(chartThemeOptions())
+    const themeObserver = new MutationObserver(applyChartTheme)
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
     // ponytail: assign directly from addSeries's return value — avoids the fragile
     // panes()[0].getSeries()[0] lookup; typechecks cleanly against installed 5.2 typings.
     const series = chart.addSeries(CandlestickSeries, {
@@ -204,6 +255,7 @@ export function Chart({ cellId, symbol, timeframe }: { cellId: string; symbol: s
     chart.subscribeCrosshairMove(onCrosshairMove)
 
     return () => {
+      themeObserver.disconnect()
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(onVisibleLogicalRangeChange)
       if (debounceRef.current) clearTimeout(debounceRef.current)
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current)
@@ -225,19 +277,21 @@ export function Chart({ cellId, symbol, timeframe }: { cellId: string; symbol: s
     // On a symbol/timeframe switch the new key's data is undefined until it resolves (and stays
     // undefined if it errors — e.g. an out-of-plan symbol's 402). Clear to [] rather than bailing,
     // so the previous symbol's candles don't linger under the new header while loading/errored.
-    const bars = q.data ?? []
+    const bars = displayBars
     seriesRef.current.setData(
       bars.map((b) => ({ time: b.time as UTCTimestamp, open: b.open, high: b.high, low: b.low, close: b.close }))
     )
     barsRef.current = bars
-    // Only reset the view (D-11) on a genuine symbol/timeframe switch — a gap-fetch merge updates
-    // q.data for the *same* key and must NOT jump the user's pan position (§5).
+    // Only reset the view (D-11) on a genuine symbol/timeframe switch — a gap-fetch merge or a
+    // quote overlay updates displayBars for the *same* key and must NOT jump the user's pan position (§5).
     const key = `${symbol}:${timeframe}`
     if (lastKeyRef.current !== key) {
       lastKeyRef.current = key
-      chartRef.current?.timeScale().fitContent()
+      const range = initialLogicalRange(timeframe, bars.length)
+      if (range) chartRef.current?.timeScale().setVisibleLogicalRange(range)
+      else chartRef.current?.timeScale().fitContent() // 本数不足時は全表示
     }
-  }, [q.data, symbol, timeframe])
+  }, [displayBars, symbol, timeframe])
 
   // Reconcile indicator overlay series against `indicators` state. A NEW effect alongside the
   // create-once and data-push effects above (both left untouched) — reads the same barsRef so a
@@ -405,7 +459,7 @@ export function Chart({ cellId, symbol, timeframe }: { cellId: string; symbol: s
     latestValuesRef.current = latest
     // Seed every pane's legend with the latest-bar values so they read correctly before any hover.
     useAppStore.getState().setCrosshair(cellId, latest)
-  }, [indicators, q.data, timeframe, cellId])
+  }, [indicators, displayBars, timeframe, cellId])
 
   // Position one legend per pane at its top-left. No lightweight-charts "pane resized" event exists
   // (Landmine #2), so measure each pane's <tr> via getBoundingClientRect and observe it for drag/
@@ -456,7 +510,7 @@ export function Chart({ cellId, symbol, timeframe }: { cellId: string; symbol: s
     reposition()
 
     return () => { for (const ro of observers) ro.disconnect() }
-  }, [indicators, q.data, timeframe])
+  }, [indicators, displayBars, timeframe])
 
   // A symbol outside the current FMP plan's coverage manifests two ways on this key: a 402/403
   // ("FMP HTTP 40x" survives IPC serialization in the rejected error's message) OR a plain empty

@@ -1,39 +1,52 @@
-import React, { useEffect, useState } from 'react'
-import { PanelLeftClose, PanelLeftOpen } from 'lucide-react'
-import { api } from './api'
+import React, { useEffect, useRef, useState } from 'react'
+import { PanelLeftClose, PanelLeftOpen, RefreshCw, Timer, TimerOff } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
+import { api, qk } from './api'
 import { Button } from './components/ui/button'
 import { GridHost } from './components/GridHost'
-import { GridShapeRow } from './components/GridShapeRow'
-import { LayoutMenu } from './components/LayoutMenu'
+import { GridShapePicker } from './components/GridShapePicker'
+import { ApplyToAllToolbar } from './components/ApplyToAllToolbar'
+import { WorkspaceSwitcher } from './components/WorkspaceSwitcher'
+import { quoteSymbols } from './lib/quoteTargets'
+import { refreshTargets } from './lib/refreshTargets'
+import { cn } from './lib/utils'
 import { SearchBar } from './components/SearchBar'
 import { SettingsDialog } from './components/SettingsDialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './components/ui/tooltip'
 import { Toaster } from './components/ui/sonner'
 import { Watchlist } from './components/Watchlist'
-import { useAppStore } from './store'
-import { parseWorkspace } from './workspace'
+import { useAppStore, selectActiveItems } from './store'
+import { useWorkspaceSync } from './hooks/useWorkspaceSync'
+import { useClipboardSync } from './hooks/useClipboardSync'
+import { useGridShortcuts } from '@/hooks/useGridShortcuts'
+import { applyTheme } from './lib/theme'
+import type { CapabilityStatus } from '@shared/ipc'
+import type { Timeframe, Quote, MarketStatus } from '@shared/types'
+import type { ReloadSource } from './lib/autoRefresh'
 
 export default function App(): React.JSX.Element {
   // Sidebar open/closed (D-63) — UI chrome, persisted separately from the Workspace/named-layout
   // model via settings.json (see api.settings.get/setSidebarOpen), NOT via layout.setCurrent.
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  // auto tick の reload closure は effect 生成時の値を握るので、最新の sidebarOpen を ref 経由で読む
+  // (cells/shape を useAppStore.getState() で読むのと同じ思想)。これがないと開閉後に古い可視状態で走る。
+  const sidebarOpenRef = useRef(sidebarOpen)
+  sidebarOpenRef.current = sidebarOpen
   const [sidebarWidth, setSidebarWidth] = useState(240)
 
-  // One-time startup restore (D-59/LAYOUT-04): replaces the old getLastSymbol restore. main is a
-  // dumb persister — parseWorkspace owns the trust boundary and never throws (T-05-01). A null
-  // result (first-ever launch or corrupt file) leaves the store's own default (1x1 + AAPL).
+  useWorkspaceSync()
+  useClipboardSync()
+
   useEffect(() => {
-    void api.layout.getCurrent().then((raw) => {
-      const ws = parseWorkspace(raw)
-      if (ws) useAppStore.getState().hydrate(ws)
-    })
-    void api.watchlist.get().then((c) => useAppStore.getState().hydrateWatchlists(c))
+    void api.settings.getTheme().then(applyTheme)
     void api.settings.getSidebarOpen().then((open) => {
       if (open !== null) setSidebarOpen(open)
     })
     void api.settings.getSidebarWidth().then((w) => {
       if (w !== null) setSidebarWidth(w)
     })
+    void api.settings.getAutoRefresh().then(setAutoRefresh)
   }, [])
 
   // ponytail: React-state (not a store subscribe) so a plain 500ms debounced effect is enough.
@@ -43,25 +56,6 @@ export default function App(): React.JSX.Element {
     return () => clearTimeout(t)
   }, [sidebarWidth])
 
-  // Persist-on-change for watchlists (debounced). Serializes the whole collection into watchlist.json.
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | null = null
-    const unsubscribe = useAppStore.subscribe(
-      (s) => [s.watchlists, s.activeWatchlist] as const,
-      ([watchlists, activeWatchlist]) => {
-        if (timer) clearTimeout(timer)
-        timer = setTimeout(() => {
-          void api.watchlist.set({ version: 2, active: activeWatchlist, lists: watchlists })
-        }, 500)
-      },
-      { equalityFn: (a, b) => a[0] === b[0] && a[1] === b[1] }
-    )
-    return () => {
-      if (timer) clearTimeout(timer)
-      unsubscribe()
-    }
-  }, [])
-
   const toggleSidebar = (): void => {
     setSidebarOpen((prev) => {
       const next = !prev
@@ -70,34 +64,143 @@ export default function App(): React.JSX.Element {
     })
   }
 
-  // Debounced auto-save (~500ms, ponytail: avoids write-thrash on rapid param edits) — persists
-  // only the serializable workspace fields, NEVER crosshair (that stays session-only, D-60).
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | null = null
-    const unsubscribe = useAppStore.subscribe(
-      (s) => [s.cells, s.shape, s.activeCellId] as const, // never crosshairByCell (D-60)
-      () => {
-        if (timer) clearTimeout(timer)
-        timer = setTimeout(() => {
-          // Single source of truth for workspace serialization (store.currentWorkspace) — reused
-          // by switchToLayout/saveLayoutAs so there is never a second, divergent serialization.
-          void api.layout.setCurrent(useAppStore.getState().currentWorkspace())
-        }, 500)
-      },
-      // Default equalityFn is Object.is on the whole tuple, which is a fresh array every call —
-      // without this, a crosshair-only update (rAF-throttled mousemove) would still reset the
-      // debounce timer on every hover tick. Compare the three fields by reference instead.
-      { equalityFn: (a, b) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2] }
-    )
-    return () => {
-      if (timer) clearTimeout(timer)
-      unsubscribe()
+  const queryClient = useQueryClient()
+  const [reloading, setReloading] = useState(false)
+  const inFlight = useRef(false)
+  // 2軸を分離: status=市場/スケジューラ状態(ドット), errorSource=どのリロードが失敗したか(アイコン)。
+  // これで「閉鎖中の手動成功で緑になる」も「auto の失敗が手動ボタンを赤くする」も起きない。
+  const [refreshState, setRefreshState] = useState<{
+    status: 'idle' | 'ok' | 'paused-closed'
+    errorSource: ReloadSource | null
+    lastRefreshedAt: number | null
+  }>({ status: 'idle', errorSource: null, lastRefreshedAt: null })
+  const [autoRefresh, setAutoRefresh] = useState(false)
+
+  const reload = async (opts: { source: ReloadSource }): Promise<void> => {
+    if (inFlight.current) return // 同期ガード: 手動と auto tick の二重実行を防ぐ（state のラグに依存しない）
+    const state = useAppStore.getState()
+    const { cells, shape } = state
+    const caps = queryClient.getQueryData<Record<Timeframe, CapabilityStatus>>(qk.capabilities())
+    const watchlistSymbols = sidebarOpenRef.current ? selectActiveItems(state).map((w) => w.symbol) : []
+    const targets = refreshTargets(cells, shape, caps, watchlistSymbols)
+
+    inFlight.current = true
+    setReloading(true)
+    try {
+      // market status を先に取得。auto はクローズ中フェッチを打ち切る（API 節約）。
+      // statusOk で「取得成功して閉場」と「回線エラーで不明」を区別する（後者は auto 失敗として赤に）。
+      let isOpen = false
+      let statusOk = false
+      try {
+        const status = await api.market.status()
+        queryClient.setQueryData(qk.marketStatus(), status)
+        isOpen = status.isOpen
+        statusOk = true
+      } catch {
+        // status 不明 → 手動は続行、auto は closed 扱いで下の判定によりスキップ。
+      }
+      // 手動は常に進む（クローズ後の確定日足を取りに行く）。auto はクローズ中は進まない（API 節約）。
+      if (opts.source === 'auto' && !isOpen) {
+        // クローズで打ち切る場合も、取得済みの market-status だけは他ウィンドウへ配る（追加 FMP なし）。
+        // これがないと enlarge 窓がクローズ後も古い open 状態のまま取り残される。
+        const marketStatus = queryClient.getQueryData<MarketStatus>(qk.marketStatus()) ?? null
+        void api.refresh.broadcast({ ohlcv: [], quotes: [], marketStatus })
+        // 状態取得成功なら通常の閉場ポーズ(琥珀・エラー無し)。回線エラー(statusOk=false)なら
+        // 閉場と丸めず市場状態は据え置き、auto 失敗として ⏱ を赤くする。
+        setRefreshState((s) => ({
+          ...s,
+          status: statusOk ? 'paused-closed' : s.status,
+          errorSource: statusOk ? null : 'auto',
+        }))
+        return
+      }
+      let marketStatus: MarketStatus | null = queryClient.getQueryData<MarketStatus>(qk.marketStatus()) ?? null
+      const ohlcvResults = await Promise.allSettled(
+        targets.map(async (t) => {
+          const bars = await api.ohlcv.refresh(t.symbol, t.timeframe)
+          queryClient.setQueryData(qk.ohlcv(t.symbol, t.timeframe), bars)
+          return { symbol: t.symbol, timeframe: t.timeframe, bars }
+        })
+      )
+      const ohlcv = ohlcvResults.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []))
+      // Capability verdicts may have changed (a refresh re-probes the fetched tf); re-gate the row.
+      void queryClient.invalidateQueries({ queryKey: qk.capabilities() })
+      const quotes: { symbol: string; quote: Quote }[] = []
+      if (isOpen) {
+        const syms = quoteSymbols(cells, shape, watchlistSymbols)
+        const quoteResults = await Promise.allSettled(
+          syms.map(async (s) => {
+            const quote = await api.quote.get(s)
+            queryClient.setQueryData(qk.quote(s), quote)
+            return { symbol: s, quote }
+          })
+        )
+        for (const r of quoteResults) if (r.status === 'fulfilled') quotes.push(r.value)
+      }
+      // 他ウィンドウ(enlarge 窓)へ配信。受信側は setQueryData のみ（追加 FMP なし）。
+      void api.refresh.broadcast({ ohlcv, quotes, marketStatus })
+      const failed = ohlcvResults.some((r) => r.status === 'rejected')
+      if (failed) toast('Some charts couldn’t be refreshed. Check your connection or FMP plan.')
+      // ドットは市場状態(開場=緑/閉鎖=琥珀)。失敗は起こしたソースを errorSource に記録し、
+      // 成功はソースに関わらずクリア(データが最新になったので)。
+      // status 取得失敗(statusOk=false)時は市場状態が不明なので閉場と丸めず据え置き、
+      // 取得失敗自体を errorSource に記録する(上の閉場スキップ分岐と同じ扱い)。
+      setRefreshState((s) => ({
+        status: statusOk ? (isOpen ? 'ok' : 'paused-closed') : s.status,
+        errorSource: failed || !statusOk ? opts.source : null,
+        lastRefreshedAt: Date.now(),
+      }))
+    } finally {
+      inFlight.current = false
+      setReloading(false)
     }
-  }, [])
+  }
+
+  const toggleAutoRefresh = (): void => {
+    setAutoRefresh((prev) => {
+      const next = !prev
+      void api.settings.setAutoRefresh(next)
+      return next
+    })
+  }
+
+  // 集中スケジューラ: タイマーはメインウィンドウ（App）にのみ存在する。ON で即 1 回 + 毎分。
+  // 非表示中(document.hidden)は tick をスキップし API を消費しない。再表示で 1 回更新。
+  useEffect(() => {
+    if (!autoRefresh) return
+    const tick = (): void => {
+      if (document.hidden) return
+      void reload({ source: 'auto' })
+    }
+    tick() // ON にした瞬間に即 1 回
+    const id = setInterval(tick, 60_000)
+    const onVisible = (): void => { if (!document.hidden) tick() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      clearInterval(id)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRefresh])
+
+  useGridShortcuts(() => void reload({ source: 'manual' }))
 
   // Per-cell capability gating (eager intraday probe, requires-plan→snap-to-daily, rate-limit
   // toast) has moved into GridHost's GridCell (D-60) — each rendered cell now gates its own row off
   // its own symbol/timeframe instead of one App-level effect tied to a single active symbol.
+
+  const AutoIcon = autoRefresh ? Timer : TimerOff
+  // ドット=市場状態のみ。失敗はドットではなく、失敗したリロードのアイコン(下)で赤表示する。
+  const statusMeta = {
+    idle: { dot: 'bg-muted-foreground/40', text: 'Not refreshed yet' },
+    ok: {
+      dot: 'bg-green-500',
+      text: refreshState.lastRefreshedAt
+        ? `Market open — updated ${new Date(refreshState.lastRefreshedAt).toLocaleTimeString()}`
+        : 'Market open',
+    },
+    'paused-closed': { dot: 'bg-amber-500', text: 'Market closed — auto-refresh paused' },
+  }[refreshState.status]
 
   return (
     <TooltipProvider>
@@ -116,9 +219,60 @@ export default function App(): React.JSX.Element {
             </TooltipTrigger>
             <TooltipContent>{sidebarOpen ? 'Hide watchlist' : 'Show watchlist'}</TooltipContent>
           </Tooltip>
-          <GridShapeRow />
-          <LayoutMenu />
+          <GridShapePicker />
+          <ApplyToAllToolbar />
+          <WorkspaceSwitcher />
           <div className="ml-auto flex items-center gap-4">
+            {/* Reload + auto-refresh を1枠に連結。ステータスは固定幅の色ドットで表し、
+                可変長の "Updated HH:MM:SS" 等はツールチップへ退避してヘッダーの幅ズレを防ぐ。 */}
+            <div className="flex items-center rounded-md border border-border">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="rounded-r-none"
+                    onClick={() => void reload({ source: 'manual' })}
+                    disabled={reloading}
+                    aria-label="Reload visible charts"
+                  >
+                    <RefreshCw
+                      className={cn(
+                        'size-4',
+                        reloading && 'animate-spin',
+                        refreshState.errorSource === 'manual' && 'text-destructive',
+                      )}
+                    />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {refreshState.errorSource === 'manual'
+                    ? 'Reload failed — click to retry'
+                    : 'Reload visible charts'}
+                </TooltipContent>
+              </Tooltip>
+              <div className="h-6 w-px bg-border" />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="gap-1.5 rounded-l-none"
+                    onClick={toggleAutoRefresh}
+                    aria-label={autoRefresh ? 'Auto-refresh on' : 'Auto-refresh off'}
+                  >
+                    <AutoIcon className={cn('size-4', refreshState.errorSource === 'auto' && 'text-destructive')} />
+                    <span className="text-xs tabular-nums">{autoRefresh ? '1m' : 'Off'}</span>
+                    <span className={cn('size-2 rounded-full', statusMeta.dot)} aria-hidden />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {(autoRefresh ? 'Auto-refresh: every 1 min' : 'Auto-refresh: off') +
+                    ` — ${statusMeta.text}` +
+                    (refreshState.errorSource === 'auto' ? ' (last auto-refresh failed)' : '')}
+                </TooltipContent>
+              </Tooltip>
+            </div>
             <SearchBar />
             <SettingsDialog />
           </div>

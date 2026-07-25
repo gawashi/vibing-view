@@ -1,8 +1,12 @@
-import type { Bar, SymbolResult, Timeframe, DateRange, Workspace, WatchlistCollection } from './types'
+import type { Bar, SymbolResult, Timeframe, DateRange, WorkspaceCollection, Quote, MarketStatus, CompanyInfo, ClipboardCell } from './types'
 
 export const CH = {
   symbolsSearch: 'symbols:search',
+  symbolsProfile: 'symbols:profile',
   ohlcvGet: 'ohlcv:get',
+  ohlcvRefresh: 'ohlcv:refresh',
+  quoteGet: 'quote:get',
+  marketStatus: 'market:status',
   apikeySet: 'apikey:set',
   apikeyStatus: 'apikey:status',
   apikeyClear: 'apikey:clear',
@@ -12,25 +16,48 @@ export const CH = {
   settingsSetSidebarOpen: 'settings:setSidebarOpen',
   settingsGetSidebarWidth: 'settings:getSidebarWidth',
   settingsSetSidebarWidth: 'settings:setSidebarWidth',
+  settingsGetTheme: 'settings:getTheme',
+  settingsSetTheme: 'settings:setTheme',
+  settingsGetAutoRefresh: 'settings:getAutoRefresh',
+  settingsSetAutoRefresh: 'settings:setAutoRefresh',
   capabilitiesGet: 'capabilities:get',
-  layoutGetCurrent: 'layout:getCurrent',
-  layoutSetCurrent: 'layout:setCurrent',
-  layoutList: 'layout:list',
-  layoutGet: 'layout:get',
-  layoutSave: 'layout:save',
-  layoutDelete: 'layout:delete',
-  layoutRename: 'layout:rename',
-  watchlistGet: 'watchlist:get',
-  watchlistSet: 'watchlist:set'
+  workspacesGet: 'workspaces:get',
+  workspacesSet: 'workspaces:set',
+  companyInfo: 'company:info',
+  companyOpenWindow: 'company:openWindow',
+  chartOpenWindow: 'chart:openWindow',
+  workspacesChanged: 'workspaces:changed',
+  clipboardGet: 'clipboard:get',
+  clipboardSet: 'clipboard:set',
+  clipboardChanged: 'clipboard:changed',
+  refreshBroadcast: 'refresh:broadcast',
+  refreshApplied: 'refresh:applied'
 } as const
 
-export type KeyStatus = { hasKey: boolean; encryptionAvailable: boolean }
+export type KeyStatus = { hasKey: boolean; encryptionAvailable: boolean; maskedKey?: string }
 export type SetKeyResult = { ok: boolean; encryptionAvailable: boolean }
 export type CapabilityStatus = 'available' | 'requires-plan' | 'rate-limited' | 'unknown'
+export type Theme = 'light' | 'dark' | 'system'
+export type WorkspacesPayload = { collection: WorkspaceCollection; rev: number }
+export type ClipboardPayload = { clipboard: ClipboardCell | null; rev: number }
+export type RefreshAppliedPayload = {
+  ohlcv: { symbol: string; timeframe: Timeframe; bars: Bar[] }[]
+  quotes: { symbol: string; quote: Quote }[]
+  marketStatus: MarketStatus | null
+}
 
 export interface Api {
-  symbols: { search(query: string): Promise<SymbolResult[]> }
-  ohlcv: { get(symbol: string, timeframe: Timeframe, range: DateRange): Promise<Bar[]> }
+  symbols: {
+    search(query: string): Promise<SymbolResult[]>
+    profile(symbol: string): Promise<SymbolResult>
+  }
+  ohlcv: {
+    get(symbol: string, timeframe: Timeframe, range: DateRange): Promise<Bar[]>
+    // Reload: fetch only the new bars (cached newest → now) and return the merged series.
+    refresh(symbol: string, timeframe: Timeframe): Promise<Bar[]>
+  }
+  quote: { get(symbol: string): Promise<Quote> }
+  market: { status(): Promise<MarketStatus> }
   apikey: {
     set(key: string): Promise<SetKeyResult>
     status(): Promise<KeyStatus>
@@ -45,20 +72,39 @@ export interface Api {
     setSidebarOpen(open: boolean): Promise<void>
     getSidebarWidth(): Promise<number | null>
     setSidebarWidth(width: number): Promise<void>
+    getTheme(): Promise<Theme>
+    setTheme(theme: Theme): Promise<void>
+    // 自動更新トグル（settings.json、既定 false）。sidebarOpen と同じ UI-chrome 永続化。
+    getAutoRefresh(): Promise<boolean>
+    setAutoRefresh(on: boolean): Promise<void>
   }
   capabilities: { get(): Promise<Record<Timeframe, CapabilityStatus>> }
-  layout: {
-    getCurrent(): Promise<Workspace | null>
-    setCurrent(ws: Workspace): Promise<void>
-    list(): Promise<string[]>
-    get(name: string): Promise<Workspace | null>
-    save(name: string, ws: Workspace): Promise<void>
-    delete(name: string): Promise<void>
-    rename(from: string, to: string): Promise<void>
+  workspaces: {
+    // rev: monotonic version stamped by main. Renderers ignore any get/onChanged payload whose rev
+    // is <= the last one they applied (drops out-of-order broadcasts and the startup get-vs-broadcast race).
+    get(): Promise<WorkspacesPayload>
+    set(c: WorkspaceCollection): Promise<void>
+    onChanged(cb: (p: WorkspacesPayload) => void): () => void
   }
-  watchlist: {
-    get(): Promise<WatchlistCollection>
-    set(c: WatchlistCollection): Promise<void>
+  // Chart clipboard: main holds the value + a monotonic rev; renderers ignore stale (<= lastRev)
+  // payloads. Same ordering contract as workspaces so a window opened after a copy still sees it.
+  clipboard: {
+    get(): Promise<ClipboardPayload>
+    set(c: ClipboardCell | null): Promise<number> // resolves to the authoritative rev main assigned
+    onChanged(cb: (p: ClipboardPayload) => void): () => void
+  }
+  company: {
+    info(symbol: string, opts?: { force?: boolean }): Promise<CompanyInfo>
+    openWindow(symbol: string): Promise<void>
+  }
+  chart: {
+    openWindow(cellId: string): Promise<void>
+  }
+  // スケジューラ（メインウィンドウ）が取得済みデータを他ウィンドウへ配信。受信側は setQueryData
+  // するだけで FMP を叩かない。workspaces と同じく main が送信元以外へ転送する。
+  refresh: {
+    broadcast(p: RefreshAppliedPayload): Promise<void>
+    onApplied(cb: (p: RefreshAppliedPayload) => void): () => void
   }
 }
 

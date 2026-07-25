@@ -1,9 +1,8 @@
 import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
-import { toast } from 'sonner'
 import { registry } from './indicators/registry'
-import { defaultWorkspace, duplicateCell, parseWorkspace, SCHEMA_VERSION, VISIBLE_COUNT } from './workspace'
-import type { Cell, GridShape, IndicatorInstance, Params, Timeframe, Workspace, WatchlistItem, NamedWatchlist, WatchlistCollection } from '@shared/types'
+import { defaultLayout, newCellSeed, SCHEMA_VERSION, cellCount } from '@shared/workspace'
+import type { Cell, GridShape, IndicatorInstance, Params, Timeframe, Layout, WatchlistItem, Workspace, WorkspaceCollection, ClipboardCell } from '@shared/types'
 
 // Crosshair readout injected into each pane's legend (D-38/39/40). Keyed by instance id for
 // per-output indicator values (keyed by draw-output key), plus a reserved `price` key holding the
@@ -27,7 +26,7 @@ const bumpId = (id: string): number => {
   return Number.isFinite(n) ? n + 1 : nextId
 }
 
-type AppState = {
+export type AppState = {
   cells: Cell[]
   activeCellId: string
   shape: GridShape
@@ -39,71 +38,142 @@ type AppState = {
   // non-active cell's own TimeframeRow (or an automatic gating effect) can set it directly without
   // depending on click-event ordering to focus the cell first.
   setCellTimeframe: (cellId: string, tf: Timeframe) => void
+  // ドラッグ&ドロップ用の純粋ミューテーション。swap は cells 配列内で 2 セルを id ごと入替える
+  // (activeCellId は id 参照なのでリングは中身に追従)。
+  swapCells: (idA: string, idB: string) => void
+  // 対象セルの symbol のみ差し替え(timeframe/indicators 維持)。空セルを埋める用途も兼ねる。
+  // 不明 id・同値 symbol は state 不変(不要な永続化を避ける)。
+  setCellSymbol: (cellId: string, symbol: string) => void
+  // Bulk (apply-to-all) variants — act on the visible slice cells[0..cellCount(shape)-1].
+  setAllTimeframes: (tf: Timeframe) => void
+  addIndicatorToAll: (type: string, params: Params) => void
   // チャート削除: 対象セルを空(symbol=null)に戻す。ユーザー追加の指標は消すが、常時表示の
   // 固定指標(Volume, fixed:true)は残す — 再検索で銘柄を入れ直したとき出来高が消えないように。
   // そのセルの crosshair も破棄。
   clearCell: (cellId: string) => void
+  // Bulk delete — mirror of setAllTimeframes/addIndicatorToAll, but act on ALL cells of the active
+  // workspace (visible + hidden): "clear all" means all. Fixed Volume is kept (see clearCell).
+  clearAllCells: () => void
+  removeAllIndicators: () => void
   addIndicator: (type: string, cellId?: string) => void
   removeIndicator: (id: string) => void
   toggleVisible: (id: string) => void
   updateParams: (id: string, patch: Params) => void
   setColor: (id: string, outputKey: string, color: string) => void
-  hydrate: (ws: Workspace) => void
+  hydrate: (ws: Layout) => void
   // Keyed by cellId so each grid cell's crosshair readout is isolated (05-02 grid).
   crosshairByCell: Record<string, CrosshairValues>
   setCrosshair: (cellId: string, values: CrosshairValues) => void
 
-  // Named-layout orchestration (05-03/D-56/D-58). `activeLayoutName` is null when the current
-  // workspace has never been saved under a name (or was switched away from one) — Rename/overwrite
-  // Save both key off this.
-  activeLayoutName: string | null
-  currentWorkspace: () => Workspace
-  saveLayoutAs: (name: string) => Promise<{ ok: true } | { ok: false; error: string }>
-  saveActiveLayout: () => Promise<void>
-  renameActiveLayout: (to: string) => Promise<{ ok: true } | { ok: false; error: string }>
-  deleteLayout: (name: string) => Promise<void>
-  switchToLayout: (name: string) => Promise<void>
+  // Chart config clipboard (copy/cut/paste). In-memory only, synced across windows by
+  // useClipboardSync — never persisted. Pure actions (no IPC) so they stay unit-testable.
+  chartClipboard: ClipboardCell | null
+  copyCell: (cellId: string) => void
+  cutCell: (cellId: string) => void
+  pasteCell: (cellId: string) => void
+  setClipboard: (clip: ClipboardCell | null) => void
 
-  // Persistent multi-watchlist (D-62). All actions act on the ACTIVE list; App wires
-  // load-on-startup and persist-on-change. Pure state mutations (no IPC) so they're unit-testable.
-  watchlists: NamedWatchlist[]
-  activeWatchlist: string
+  // Unified Workspace model (= watchlist items + grid layout under one name). All actions act on
+  // the ACTIVE workspace; App wires load-on-startup and persist-on-change. Pure state mutations
+  // (no IPC) so they're unit-testable. Switch/create/duplicate/delete snapshot the hot grid into
+  // the active workspace first so in-flight edits aren't lost.
+  currentLayout: () => Layout
+  // Whole persisted collection with the hot grid folded into the active workspace's layout. App's
+  // debounced auto-save serializes this verbatim — the fold lives here, not in the effect.
+  collectionSnapshot: () => WorkspaceCollection
+  workspaces: Workspace[]
+  activeWorkspace: string
   addToWatchlist: (item: WatchlistItem) => void
   removeFromWatchlist: (symbol: string) => void
   reorderWatchlist: (from: number, to: number) => void
-  createWatchlist: (name: string) => WatchlistActionResult
-  renameWatchlist: (from: string, to: string) => WatchlistActionResult
-  deleteWatchlist: (name: string) => void
-  switchWatchlist: (name: string) => void
-  hydrateWatchlists: (collection: WatchlistCollection) => void
+  reorderWorkspaces: (from: number, to: number) => WatchlistActionResult
+  createWorkspace: (name: string) => WatchlistActionResult
+  duplicateWorkspace: (newName: string, sourceName?: string) => WatchlistActionResult
+  renameWorkspace: (from: string, to: string) => WatchlistActionResult
+  deleteWorkspace: (name: string) => void
+  switchWorkspace: (name: string) => void
+  hydrateWorkspaces: (collection: WorkspaceCollection) => void
 }
 
-// アクティブリストの items。見つからなければ空配列。found 時は items 参照が安定（再描画churn防止）。
+// アクティブ Workspace の items。見つからなければ空配列。found 時は items 参照が安定（再描画churn防止）。
 export const selectActiveItems = (s: AppState): WatchlistItem[] =>
-  s.watchlists.find((w) => w.name === s.activeWatchlist)?.items ?? []
+  s.workspaces.find((w) => w.name === s.activeWorkspace)?.items ?? []
 
-const initialWorkspace = defaultWorkspace(String(nextId++), String(nextId++))
+const initialLayout = defaultLayout(String(nextId++), String(nextId++))
 
-export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) => ({
-  cells: initialWorkspace.cells,
-  activeCellId: initialWorkspace.activeCellId,
-  shape: initialWorkspace.shape,
+export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) => {
+  // アクティブ Workspace の layout を現在のホットなグリッドで差し替えた配列を返す（純粋）。
+  // 切替/作成/削除の直前に呼び、編集中のグリッドを取りこぼさない。
+  const snapshotActive = (): Workspace[] => {
+    const { workspaces, activeWorkspace } = get()
+    const layout = get().currentLayout()
+    return workspaces.map((w) => (w.name === activeWorkspace ? { ...w, layout } : w))
+  }
+  // Fresh ids for every cell + indicator in a layout (used when duplicating a workspace so the copy
+  // never shares an id with its source — collection-wide uniqueness, see workspace.ts dedupe).
+  const remintLayout = (layout: Layout): Layout => {
+    let activeCellId = layout.activeCellId
+    const cells = layout.cells.map((c) => {
+      const id = String(nextId++)
+      if (c.id === layout.activeCellId) activeCellId = id
+      return { ...c, id, indicators: c.indicators.map((i) => ({ ...i, id: String(nextId++) })) }
+    })
+    return { ...layout, cells, activeCellId }
+  }
+  // Make `name` the active workspace and hydrate its layout into the hot grid. Callers pass the
+  // already-snapshotted array so the outgoing grid isn't lost. Single owner of the set-active +
+  // hydrate pairing — create/duplicate/delete/switch all end here (keeps the nextId reseed in hydrate
+  // on every activation path, see the collision note in hydrate below).
+  const activate = (workspaces: Workspace[], name: string): void => {
+    const layout = (workspaces.find((w) => w.name === name) ?? workspaces[0]).layout
+    set({ workspaces, activeWorkspace: name })
+    get().hydrate(layout)
+  }
+  // Build one IndicatorInstance with palette-assigned colors. Extracted from addIndicator so the
+  // bulk addIndicatorToAll shares the exact color/id logic. `base` = the target cell's current
+  // indicator count (palette is round-robin by add order). Returns null for an unknown type.
+  const makeInstance = (type: string, params: Params, base: number): IndicatorInstance | null => {
+    const module = registry[type]
+    if (!module) return null
+    const colors: Record<string, string> = {}
+    const lineCount = module.outputs.filter((o) => o.kind === 'line').length
+    const hasBand = module.outputs.some((o) => o.kind === 'band')
+    if (lineCount > 1 && !hasBand) {
+      let n = 0
+      for (const output of module.outputs) {
+        colors[output.key] =
+          output.kind === 'line' ? PALETTE[(base + n++) % PALETTE.length] : PALETTE[base % PALETTE.length]
+      }
+    } else {
+      const color = PALETTE[base % PALETTE.length]
+      for (const output of module.outputs) colors[output.key] = color
+    }
+    return { id: String(nextId++), type, params: { ...params }, colors, visible: true }
+  }
+  // Shallow params equality — same type ⇒ same key set, so key-count + per-key value compare suffices.
+  const sameParams = (a: Params, b: Params): boolean => {
+    const ak = Object.keys(a)
+    return ak.length === Object.keys(b).length && ak.every((k) => a[k] === b[k])
+  }
+  return {
+  cells: initialLayout.cells,
+  activeCellId: initialLayout.activeCellId,
+  shape: initialLayout.shape,
 
   crosshairByCell: {},
+  chartClipboard: null,
   setCrosshair: (cellId, values) => set((state) => ({
     crosshairByCell: { ...state.crosshairByCell, [cellId]: values }
   })),
 
   setActiveCell: (id) => set({ activeCellId: id }),
   setShape: (shape) => set((state) => {
-    const target = VISIBLE_COUNT[shape]
+    const target = cellCount(shape)
     let cells = state.cells
     if (target > cells.length) {
-      const activeCell = cells.find((c) => c.id === state.activeCellId) ?? cells[0]
       const added: Cell[] = []
       for (let i = cells.length; i < target; i++) {
-        const newIndicatorIds = activeCell.indicators.map(() => String(nextId++))
-        added.push(duplicateCell(activeCell, String(nextId++), newIndicatorIds))
+        added.push(newCellSeed(String(nextId++), String(nextId++)))
       }
       cells = [...cells, ...added]
     }
@@ -123,6 +193,37 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
   setCellTimeframe: (cellId, tf) => set((state) => ({
     cells: state.cells.map((c) => (c.id === cellId ? { ...c, timeframe: tf } : c))
   })),
+  swapCells: (idA, idB) => set((state) => {
+    if (idA === idB) return state
+    const ia = state.cells.findIndex((c) => c.id === idA)
+    const ib = state.cells.findIndex((c) => c.id === idB)
+    if (ia === -1 || ib === -1) return state
+    const cells = state.cells.slice()
+    ;[cells[ia], cells[ib]] = [cells[ib], cells[ia]]
+    return { cells }
+  }),
+  setCellSymbol: (cellId, symbol) => set((state) => {
+    const cell = state.cells.find((c) => c.id === cellId)
+    if (!cell || cell.symbol === symbol) return state
+    return { cells: state.cells.map((c) => (c.id === cellId ? { ...c, symbol } : c)) }
+  }),
+  setAllTimeframes: (tf) => set((state) => {
+    const visible = cellCount(state.shape)
+    return { cells: state.cells.map((c, i) => (i < visible ? { ...c, timeframe: tf } : c)) }
+  }),
+  addIndicatorToAll: (type, params) => {
+    if (!registry[type]) return
+    set((state) => {
+      const visible = cellCount(state.shape)
+      return {
+        cells: state.cells.map((c, i) => {
+          if (i >= visible) return c
+          if (c.indicators.some((ind) => ind.type === type && sameParams(ind.params, params))) return c
+          return { ...c, indicators: [...c.indicators, makeInstance(type, params, c.indicators.length)!] }
+        })
+      }
+    })
+  },
   clearCell: (cellId) => set((state) => {
     const { [cellId]: _removed, ...crosshairByCell } = state.crosshairByCell
     return {
@@ -133,37 +234,53 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
       crosshairByCell
     }
   }),
+  copyCell: (cellId) => {
+    const cell = get().cells.find((c) => c.id === cellId)
+    if (!cell || !cell.symbol) return // nothing to copy from an empty cell
+    set({
+      chartClipboard: {
+        symbol: cell.symbol,
+        timeframe: cell.timeframe,
+        // deep clone so later edits to the source cell (or the clipboard) don't alias each other
+        indicators: cell.indicators.map((i) => ({ ...i, params: { ...i.params }, colors: { ...i.colors } }))
+      }
+    })
+  },
+  cutCell: (cellId) => {
+    const cell = get().cells.find((c) => c.id === cellId)
+    if (!cell || !cell.symbol) return
+    // ponytail: clipboard broadcasts immediately but the source clear rides useWorkspaceSync's 500ms
+    // debounce, so cut-here-then-paste-there-within-500ms across windows can drop the paste. Accepted
+    // (rare, non-destructive — worst case is an undone paste). Flush workspace on cut/paste if it bites.
+    get().copyCell(cellId)
+    get().clearCell(cellId)
+  },
+  pasteCell: (cellId) => {
+    const src = get().chartClipboard
+    if (!src) return
+    if (!get().cells.some((c) => c.id === cellId)) return
+    // Re-mint every indicator id (collection-wide uniqueness). The clipboard is only ever written
+    // from copyCell/cutCell, so src already carries exactly one fixed Volume at index 0 — no
+    // normalization needed.
+    const indicators = src.indicators.map((i) => ({ ...i, id: String(nextId++), params: { ...i.params }, colors: { ...i.colors } }))
+    set((state) => {
+      const { [cellId]: _removed, ...crosshairByCell } = state.crosshairByCell
+      return {
+        cells: state.cells.map((c) =>
+          c.id === cellId ? { ...c, symbol: src.symbol, timeframe: src.timeframe, indicators } : c
+        ),
+        crosshairByCell
+      }
+    })
+  },
+  setClipboard: (clip) => set({ chartClipboard: clip }),
   addIndicator: (type, cellId) => {
+    const targetId = cellId ?? get().activeCellId
+    const cell = get().cells.find((c) => c.id === targetId)
+    if (!cell) return
     const module = registry[type]
     if (!module) return
-    const targetId = cellId ?? get().activeCellId
-    const activeCell = get().cells.find((c) => c.id === targetId)
-    if (!activeCell) return
-    const base = activeCell.indicators.length
-    const colors: Record<string, string> = {}
-    // Multi-line-no-band modules (MACD: macd+signal, no band) get CONSECUTIVE hues so the two lines
-    // are distinguishable; derived from outputs structure, never inst.type. ma/rsi (single line) and
-    // bb (has a band) keep the single-hue path. Non-line outputs (histogram) get a placeholder — its
-    // real per-bar colors come from compute, so the palette value is unused.
-    const lineCount = module.outputs.filter((o) => o.kind === 'line').length
-    const hasBand = module.outputs.some((o) => o.kind === 'band')
-    if (lineCount > 1 && !hasBand) {
-      let n = 0
-      for (const output of module.outputs) {
-        colors[output.key] =
-          output.kind === 'line' ? PALETTE[(base + n++) % PALETTE.length] : PALETTE[base % PALETTE.length]
-      }
-    } else {
-      const color = PALETTE[base % PALETTE.length]
-      for (const output of module.outputs) colors[output.key] = color
-    }
-    const instance: IndicatorInstance = {
-      id: String(nextId++),
-      type,
-      params: { ...module.defaults },
-      colors,
-      visible: true
-    }
+    const instance = makeInstance(type, { ...module.defaults }, cell.indicators.length)!
     set((state) => ({
       cells: state.cells.map((c) =>
         c.id === targetId ? { ...c, indicators: [...c.indicators, instance] } : c
@@ -175,6 +292,13 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
       ...c,
       indicators: c.indicators.filter((i) => i.id !== id || i.fixed)
     }))
+  })),
+  clearAllCells: () => set((state) => ({
+    cells: state.cells.map((c) => ({ ...c, symbol: null, indicators: c.indicators.filter((i) => i.fixed) })),
+    crosshairByCell: {}
+  })),
+  removeAllIndicators: () => set((state) => ({
+    cells: state.cells.map((c) => ({ ...c, indicators: c.indicators.filter((i) => i.fixed) }))
   })),
   toggleVisible: (id) => set((state) => ({
     cells: state.cells.map((c) => ({
@@ -198,7 +322,7 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
   })),
   hydrate: (ws) => {
     // Reseed the module-level id counter past every id in the loaded workspace — otherwise ids
-    // minted post-hydrate (addIndicator/setShape/duplicateCell) can collide with restored ids
+    // minted post-hydrate (addIndicator/setShape) can collide with restored ids
     // from a prior session's counter (see Phase 5 review: nextId collision bug).
     for (const cell of ws.cells) {
       nextId = Math.max(nextId, bumpId(cell.id))
@@ -221,136 +345,118 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
     set({ cells, shape: ws.shape, activeCellId: ws.activeCellId })
   },
 
-  // Named-layout actions call `window.api.*` directly (NOT the `./api` wrapper) on purpose:
-  // importing `./api` touches `window` at module-load time, which breaks the node-env vitest
-  // run (store.test.ts imports store.ts with no DOM) and `tsc -p tsconfig.node.json` (api.ts
-  // isn't in that project's include). Do not "clean this up" to use `./api`.
-  activeLayoutName: null,
-  currentWorkspace: () => {
+  currentLayout: () => {
     const { cells, shape, activeCellId } = get()
     return { schemaVersion: SCHEMA_VERSION, cells, shape, activeCellId }
   },
-  saveLayoutAs: async (name) => {
-    const existing = await window.api.layout.list()
-    if (existing.includes(name)) {
-      return { ok: false, error: `A layout named "${name}" already exists.` }
-    }
-    try {
-      await window.api.layout.save(name, get().currentWorkspace())
-      set({ activeLayoutName: name })
-      return { ok: true }
-    } catch {
-      toast("Couldn't save layout. Try again.")
-      return { ok: false, error: "Couldn't save layout. Try again." }
-    }
-  },
-  saveActiveLayout: async () => {
-    const name = get().activeLayoutName
-    if (!name) return
-    try {
-      await window.api.layout.save(name, get().currentWorkspace())
-    } catch {
-      toast("Couldn't save layout. Try again.")
-    }
-  },
-  renameActiveLayout: async (to) => {
-    const from = get().activeLayoutName
-    if (!from) return { ok: false, error: "No active layout to rename." }
-    if (to !== from) {
-      const existing = await window.api.layout.list()
-      if (existing.includes(to)) {
-        return { ok: false, error: `A layout named "${to}" already exists.` }
-      }
-    }
-    try {
-      await window.api.layout.rename(from, to)
-      set({ activeLayoutName: to })
-      return { ok: true }
-    } catch {
-      toast("Couldn't save layout. Try again.")
-      return { ok: false, error: "Couldn't save layout. Try again." }
-    }
-  },
-  deleteLayout: async (name) => {
-    try {
-      await window.api.layout.delete(name)
-      if (get().activeLayoutName === name) set({ activeLayoutName: null })
-    } catch {
-      toast("Couldn't save layout. Try again.")
-    }
-  },
-  switchToLayout: async (name) => {
-    try {
-      // D-58: auto-save current state before switching away, no confirmation.
-      await window.api.layout.setCurrent(get().currentWorkspace())
-      const raw = await window.api.layout.get(name)
-      const ws = parseWorkspace(raw)
-      // Corrupt/unparseable stored layout — abort the switch, keep current state (never wipe it).
-      if (!ws) return
-      get().hydrate(ws)
-      set({ activeLayoutName: name })
-    } catch {
-      toast("Couldn't save layout. Try again.")
-    }
-  },
+  collectionSnapshot: () => ({ version: 3, active: get().activeWorkspace, workspaces: snapshotActive() }),
 
-  watchlists: [{ name: 'Watchlist', items: [] }],
-  activeWatchlist: 'Watchlist',
+  workspaces: [{ name: 'Workspace 1', items: [], layout: initialLayout }],
+  activeWorkspace: 'Workspace 1',
+
   addToWatchlist: (item) => set((state) => ({
-    watchlists: state.watchlists.map((w) =>
-      w.name === state.activeWatchlist
+    workspaces: state.workspaces.map((w) =>
+      w.name === state.activeWorkspace
         ? (w.items.some((i) => i.symbol === item.symbol) ? w : { ...w, items: [...w.items, item] })
         : w
     )
   })),
   removeFromWatchlist: (symbol) => set((state) => ({
-    watchlists: state.watchlists.map((w) =>
-      w.name === state.activeWatchlist ? { ...w, items: w.items.filter((i) => i.symbol !== symbol) } : w
+    workspaces: state.workspaces.map((w) =>
+      w.name === state.activeWorkspace ? { ...w, items: w.items.filter((i) => i.symbol !== symbol) } : w
     )
   })),
   // ずれ修正: from を抜いた後の座標系に合わせ、下方向(from<to)は挿入位置を1つ詰める。
   // これでマーカー(行上端=その行の前)と実挿入位置が上下両方向で一致する。
   reorderWatchlist: (from, to) => set((state) => ({
-    watchlists: state.watchlists.map((w) => {
-      if (w.name !== state.activeWatchlist) return w
+    workspaces: state.workspaces.map((w) => {
+      if (w.name !== state.activeWorkspace) return w
       const items = [...w.items]
       const [moved] = items.splice(from, 1)
       items.splice(from < to ? to - 1 : to, 0, moved)
       return { ...w, items }
     })
   })),
-  createWatchlist: (name) => {
-    const trimmed = name.trim()
-    if (trimmed.length === 0) return { ok: false, error: 'Name cannot be empty.' }
-    if (get().watchlists.some((w) => w.name === trimmed)) {
-      return { ok: false, error: `A watchlist named "${trimmed}" already exists.` }
-    }
-    set((state) => ({ watchlists: [...state.watchlists, { name: trimmed, items: [] }], activeWatchlist: trimmed }))
+  reorderWorkspaces: (from, to) => {
+    const n = get().workspaces.length
+    if (from < 0 || from >= n || to < 0 || to >= n || from === to) return { ok: false, error: 'Invalid index.' }
+    set((state) => {
+      const list = [...state.workspaces]
+      const [moved] = list.splice(from, 1)
+      list.splice(to, 0, moved)
+      return { workspaces: list }
+    })
     return { ok: true }
   },
-  renameWatchlist: (from, to) => {
+  createWorkspace: (name) => {
+    const trimmed = name.trim()
+    if (trimmed.length === 0) return { ok: false, error: 'Name cannot be empty.' }
+    if (get().workspaces.some((w) => w.name === trimmed)) {
+      return { ok: false, error: `A workspace named "${trimmed}" already exists.` }
+    }
+    const layout = defaultLayout(String(nextId++), String(nextId++))
+    activate([...snapshotActive(), { name: trimmed, items: [], layout }], trimmed)
+    return { ok: true }
+  },
+  duplicateWorkspace: (newName, sourceName) => {
+    const trimmed = newName.trim()
+    if (trimmed.length === 0) return { ok: false, error: 'Name cannot be empty.' }
+    if (get().workspaces.some((w) => w.name === trimmed)) {
+      return { ok: false, error: `A workspace named "${trimmed}" already exists.` }
+    }
+    // snapshotActive() でアクティブのホットなグリッドを取り込んでから layout を読む。
+    // これでコピー元がアクティブ自身でも編集中の内容を取りこぼさない。
+    const snapshot = snapshotActive()
+    const source = sourceName ?? get().activeWorkspace
+    const src = snapshot.find((w) => w.name === source)
+    if (!src) return { ok: false, error: `Workspace "${source}" not found.` }
+    const layout = remintLayout(src.layout)
+    const items = src.items.map((i) => ({ ...i }))
+    const next = [...snapshot, { name: trimmed, items, layout }]
+    // sourceName 省略 = 従来「現在の複製」: コピーへ切替。指定時 = 管理操作: アクティブ据え置き。
+    if (sourceName === undefined) activate(next, trimmed)
+    else set({ workspaces: next })
+    return { ok: true }
+  },
+  renameWorkspace: (from, to) => {
     const trimmed = to.trim()
     if (trimmed.length === 0) return { ok: false, error: 'Name cannot be empty.' }
-    if (trimmed !== from && get().watchlists.some((w) => w.name === trimmed)) {
-      return { ok: false, error: `A watchlist named "${trimmed}" already exists.` }
+    if (trimmed !== from && get().workspaces.some((w) => w.name === trimmed)) {
+      return { ok: false, error: `A workspace named "${trimmed}" already exists.` }
     }
     set((state) => ({
-      watchlists: state.watchlists.map((w) => (w.name === from ? { ...w, name: trimmed } : w)),
-      activeWatchlist: state.activeWatchlist === from ? trimmed : state.activeWatchlist
+      workspaces: state.workspaces.map((w) => (w.name === from ? { ...w, name: trimmed } : w)),
+      activeWorkspace: state.activeWorkspace === from ? trimmed : state.activeWorkspace
     }))
     return { ok: true }
   },
-  deleteWatchlist: (name) => set((state) => {
-    if (state.watchlists.length <= 1) return state // 最後の1リストは削除不可
-    const watchlists = state.watchlists.filter((w) => w.name !== name)
-    const activeWatchlist = state.activeWatchlist === name ? watchlists[0].name : state.activeWatchlist
-    return { watchlists, activeWatchlist }
-  }),
-  switchWatchlist: (name) => set((state) =>
-    state.watchlists.some((w) => w.name === name) ? { activeWatchlist: name } : state
-  ),
-  hydrateWatchlists: (collection) => set({
-    watchlists: collection.lists,
-    activeWatchlist: collection.active
-  })
-})))
+  deleteWorkspace: (name) => {
+    const state = get()
+    if (state.workspaces.length <= 1) return
+    const remaining = snapshotActive().filter((w) => w.name !== name)
+    if (state.activeWorkspace === name) {
+      activate(remaining, remaining[0].name)
+    } else {
+      set({ workspaces: remaining })
+    }
+  },
+  switchWorkspace: (name) => {
+    const state = get()
+    if (name === state.activeWorkspace) return
+    const target = state.workspaces.find((w) => w.name === name)
+    if (!target) return
+    activate(snapshotActive(), name)
+  },
+  hydrateWorkspaces: (collection) => {
+    // Reseed nextId past every id in EVERY workspace (not just the active one activate() hydrates),
+    // so a runtime-minted id can't collide with a non-active workspace's cell/indicator id.
+    for (const w of collection.workspaces) {
+      for (const cell of w.layout.cells) {
+        nextId = Math.max(nextId, bumpId(cell.id))
+        for (const inst of cell.indicators) nextId = Math.max(nextId, bumpId(inst.id))
+      }
+    }
+    activate(collection.workspaces, collection.active)
+  }
+  }
+}))

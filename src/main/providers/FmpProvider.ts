@@ -1,7 +1,11 @@
 import { subDays, subMonths, subYears } from 'date-fns'
 import { fromZonedTime } from 'date-fns-tz'
-import type { Bar, SymbolResult, Timeframe, DateRange } from '@shared/types'
-import { fmpHistoricalResponse, fmpSearchResponse } from './fmp.schema'
+import type { Bar, SymbolResult, Timeframe, DateRange, Quote, MarketStatus, CompanyProfileData } from '@shared/types'
+import {
+  fmpHistoricalResponse, fmpSearchResponse, fmpQuoteResponse, fmpMarketHoursResponse, fmpProfileResponse,
+  fmpRatiosTtmResponse, fmpKeyMetricsTtmResponse, fmpGradesConsensusResponse,
+  fmpPriceTargetConsensusResponse, fmpFinancialGrowthResponse, fmpEarningsResponse
+} from './fmp.schema'
 
 // FMP migrated off /api/v3 (now returns 403 for current keys) to the /stable surface.
 const BASE = 'https://financialmodelingprep.com/stable'
@@ -10,7 +14,7 @@ const INTRADAY_PATH: Record<'1m' | '5m' | '15m' | '1h', string> = {
   '1m': '1min', '5m': '5min', '15m': '15min', '1h': '1hour'
 }
 
-type HttpGetJson = (url: string) => Promise<unknown>
+export type HttpGetJson = (url: string) => Promise<unknown>
 
 // Carries the HTTP status + response body of a non-2xx FMP response so the capability
 // classifier can tell 403 (requires-plan) from 429 (rate-limited) instead of a discarded message.
@@ -82,14 +86,37 @@ export class FmpProvider {
   }
 
   async searchSymbols(query: string): Promise<SymbolResult[]> {
-    const url = `${BASE}/search-symbol?query=${encodeURIComponent(query)}&limit=8&apikey=${this.apiKey}`
-    // zod .parse throws on error-shaped payloads → never surfaces bad data
-    const rows = fmpSearchResponse.parse(await this.httpGetJson(url))
-    return rows.map((r) => ({
-      symbol: r.symbol,
-      name: r.name ?? r.symbol,
-      exchange: r.exchange ?? r.exchangeFullName ?? ''
-    }))
+    const q = encodeURIComponent(query)
+    const fetchEndpoint = async (endpoint: 'search-symbol' | 'search-name'): Promise<SymbolResult[]> => {
+      const url = `${BASE}/${endpoint}?query=${q}&limit=50&apikey=${this.apiKey}`
+      // zod .parse throws on error-shaped payloads → never surfaces bad data
+      const rows = fmpSearchResponse.parse(await this.httpGetJson(url))
+      return rows.map((r) => ({
+        symbol: r.symbol,
+        name: r.name ?? r.symbol,
+        exchange: r.exchange ?? r.exchangeFullName ?? ''
+      }))
+    }
+
+    // search-symbol (ticker) first so exact-ticker matches sort above name matches; dedup by symbol
+    // with the earlier (search-symbol) entry winning. Tolerate one endpoint failing (rate-limit etc).
+    const [bySymbol, byName] = await Promise.allSettled([
+      fetchEndpoint('search-symbol'),
+      fetchEndpoint('search-name')
+    ])
+    if (bySymbol.status === 'rejected' && byName.status === 'rejected') throw bySymbol.reason
+
+    const seen = new Set<string>()
+    const merged: SymbolResult[] = []
+    for (const settled of [bySymbol, byName]) {
+      if (settled.status !== 'fulfilled') continue
+      for (const r of settled.value) {
+        if (seen.has(r.symbol)) continue
+        seen.add(r.symbol)
+        merged.push(r)
+      }
+    }
+    return merged
   }
 
   async getOHLCV(symbol: string, timeframe: Timeframe, range: DateRange): Promise<Bar[]> {
@@ -123,5 +150,140 @@ export class FmpProvider {
         open: r.open, high: r.high, low: r.low, close: r.close, volume: r.volume
       }))
       .sort((a, b) => a.time - b.time) // FMP returns newest-first; charts need ascending
+  }
+
+  async getQuote(symbol: string): Promise<Quote> {
+    const url = `${BASE}/quote?symbol=${encodeURIComponent(symbol)}&apikey=${this.apiKey}`
+    const rows = this.parseOrThrowHttpError(fmpQuoteResponse, await this.httpGetJson(url))
+    const r = rows[0]
+    if (!r) throw new FmpHttpError(200, rows)
+    return {
+      price: r.price, open: r.open, dayHigh: r.dayHigh, dayLow: r.dayLow,
+      previousClose: r.previousClose, changePercentage: r.changePercentage,
+      timestamp: r.timestamp, exchange: r.exchange
+    }
+  }
+
+  async getMarketStatus(exchange = 'NASDAQ'): Promise<MarketStatus> {
+    const url = `${BASE}/exchange-market-hours?exchange=${encodeURIComponent(exchange)}&apikey=${this.apiKey}`
+    const rows = this.parseOrThrowHttpError(fmpMarketHoursResponse, await this.httpGetJson(url))
+    const r = rows[0]
+    if (!r) throw new FmpHttpError(200, rows)
+    return { isOpen: r.isMarketOpen }
+  }
+
+  async getCompanyProfile(symbol: string): Promise<CompanyProfileData> {
+    const sym = encodeURIComponent(symbol)
+    // Required anchor: throws (FmpHttpError) on failure/empty → existing not-covered / error path.
+    const profileRows = this.parseOrThrowHttpError(fmpProfileResponse, await this.httpGetJson(`${BASE}/profile?symbol=${sym}&apikey=${this.apiKey}`))
+    const r = profileRows[0]
+    if (!r) throw new FmpHttpError(200, profileRows)
+
+    // Optional groups: fetch in parallel, never let one failure sink another. A rejected fetch,
+    // an empty array, or a parse miss all collapse to a null group (→ "Not available" tab).
+    const opt = async <T>(path: string, schema: { parse(v: unknown): T[] }): Promise<T | null> => {
+      try {
+        const rows = schema.parse(await this.httpGetJson(`${BASE}/${path}?symbol=${sym}&apikey=${this.apiKey}`))
+        return rows[0] ?? null
+      } catch {
+        return null
+      }
+    }
+
+    const [ratios, keyMetrics, grades, targets, growthRows, earnings] = await Promise.all([
+      opt('ratios-ttm', fmpRatiosTtmResponse),
+      opt('key-metrics-ttm', fmpKeyMetricsTtmResponse),
+      opt('grades-consensus', fmpGradesConsensusResponse),
+      opt('price-target-consensus', fmpPriceTargetConsensusResponse),
+      // financial-growth returns newest-first; opt() already takes [0] = latest annual period.
+      opt('financial-growth', fmpFinancialGrowthResponse),
+      // earnings needs the whole array (next vs last), so fetch it raw and pick below.
+      (async () => {
+        try { return fmpEarningsResponse.parse(await this.httpGetJson(`${BASE}/earnings?symbol=${sym}&apikey=${this.apiKey}`)) }
+        catch { return null }
+      })()
+    ])
+
+    const valuation = ratios || keyMetrics ? {
+      peRatio: ratios?.priceToEarningsRatioTTM ?? null,
+      pbRatio: ratios?.priceToBookRatioTTM ?? null,
+      psRatio: ratios?.priceToSalesRatioTTM ?? null,
+      pegRatio: ratios?.priceToEarningsGrowthRatioTTM ?? null,
+      dividendYield: ratios?.dividendYieldTTM ?? null,
+      evToEbitda: keyMetrics?.evToEBITDATTM ?? null,
+      earningsYield: keyMetrics?.earningsYieldTTM ?? null,
+      fcfYield: keyMetrics?.freeCashFlowYieldTTM ?? null
+    } : null
+
+    const financials = ratios ? {
+      roe: ratios.returnOnEquityTTM ?? null,
+      roa: ratios.returnOnAssetsTTM ?? null,
+      netMargin: ratios.netProfitMarginTTM ?? null,
+      operatingMargin: ratios.operatingProfitMarginTTM ?? null,
+      grossMargin: ratios.grossProfitMarginTTM ?? null,
+      debtToEquity: ratios.debtToEquityRatioTTM ?? null,
+      currentRatio: ratios.currentRatioTTM ?? null,
+      quickRatio: ratios.quickRatioTTM ?? null
+    } : null
+
+    const analyst = grades || targets ? {
+      strongBuy: grades?.strongBuy ?? null,
+      buy: grades?.buy ?? null,
+      hold: grades?.hold ?? null,
+      sell: grades?.sell ?? null,
+      strongSell: grades?.strongSell ?? null,
+      consensus: grades?.consensus ?? null,
+      targetHigh: targets?.targetHigh ?? null,
+      targetLow: targets?.targetLow ?? null,
+      targetMedian: targets?.targetMedian ?? null,
+      targetConsensus: targets?.targetConsensus ?? null
+    } : null
+
+    const growth = growthRows ? {
+      asOfDate: growthRows.date ?? null,
+      revenueGrowth: growthRows.revenueGrowth ?? null,
+      netIncomeGrowth: growthRows.netIncomeGrowth ?? null,
+      epsGrowth: growthRows.epsgrowth ?? null
+    } : null
+
+    // Upcoming earnings carry epsActual === null, but historical rows can too (FMP gaps),
+    // so require the date to be today or later before treating it as the next event.
+    const today = new Date().toISOString().slice(0, 10)
+    const upcoming = (earnings ?? [])
+      .filter((e) => e.epsActual == null && e.date >= today)
+      .sort((a, b) => a.date.localeCompare(b.date))[0]
+    // Future-dated rows can carry epsActual too — bound by today so they aren't shown as the last report.
+    const reported = (earnings ?? [])
+      .filter((e) => e.epsActual != null && e.date <= today)
+      .sort((a, b) => b.date.localeCompare(a.date))[0]
+    const schedule = earnings ? {
+      nextEarningsDate: upcoming?.date ?? null,
+      lastEarningsDate: reported?.date ?? null,
+      lastEpsActual: reported?.epsActual ?? null,
+      lastEpsEstimated: reported?.epsEstimated ?? null
+    } : null
+
+    return {
+      symbol: r.symbol,
+      companyName: r.companyName,
+      image: r.image ?? null,
+      exchange: r.exchange ?? null,
+      sector: r.sector ?? null,
+      industry: r.industry ?? null,
+      country: r.country ?? null,
+      marketCap: r.marketCap ?? null,
+      ceo: r.ceo ?? null,
+      fullTimeEmployees: r.fullTimeEmployees ?? null,
+      ipoDate: r.ipoDate ?? null,
+      website: r.website ?? null,
+      description: r.description ?? null,
+      beta: r.beta ?? null,
+      range: r.range ?? null,
+      volume: r.volume ?? null,
+      averageVolume: r.averageVolume ?? null,
+      lastDividend: r.lastDividend ?? null,
+      price: r.price ?? null,
+      valuation, financials, analyst, growth, schedule
+    }
   }
 }

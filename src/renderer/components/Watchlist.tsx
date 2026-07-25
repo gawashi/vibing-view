@@ -3,10 +3,30 @@ import { useQuery } from '@tanstack/react-query'
 import { GripVertical, X } from 'lucide-react'
 import { api, qk } from '@/api'
 import { useAppStore, selectActiveItems } from '@/store'
+import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } from './ui/context-menu'
 import { cn } from '@/lib/utils'
-import { computeChange } from '@/lib/priceChange'
-import { WatchlistSwitcher } from './WatchlistSwitcher'
-import type { Bar, WatchlistItem } from '@shared/types'
+import { latestPriceChange } from '@/lib/priceChange'
+import type { Bar, WatchlistItem, Quote, MarketStatus } from '@shared/types'
+
+// Reorder drop handlers, shared by each Row and the tail dropzone. Only watchlist reorders carry
+// text/plain (grid-cell drags don't) → ignore others so no marker/drop fires. Guard empty raw before
+// Number(): Number('') === 0 would silently move item 0.
+function reorderDropHandlers(toIndex: number, setOverIndex: (i: number | null) => void) {
+  return {
+    onDragOver: (e: React.DragEvent) => {
+      if (!e.dataTransfer.types.includes('text/plain')) return
+      e.preventDefault(); setOverIndex(toIndex)
+    },
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault()
+      const raw = e.dataTransfer.getData('text/plain')
+      if (raw === '') { setOverIndex(null); return }
+      const from = Number(raw)
+      if (!Number.isNaN(from)) useAppStore.getState().reorderWatchlist(from, toIndex)
+      setOverIndex(null)
+    }
+  }
+}
 
 function Row({
   item,
@@ -30,10 +50,24 @@ function Row({
     queryFn: () => api.ohlcv.get(item.symbol, '1d', undefined),
     staleTime: Infinity
   })
-  // 前日比（日足基準）: price=bars[-1].close, pct= (price - bars[-2].close)/bars[-2].close。
-  const change = computeChange(bars, '1d', undefined)
+  // Quote + market status are populated by the global reload only (enabled:false → never fetch on
+  // mount, just read cache and re-render when reload calls setQueryData). Open → live quote; closed
+  // or not-yet-loaded → daily-close change (computeChange fallback lives inside latestPriceChange).
+  const { data: marketStatus } = useQuery<MarketStatus>({
+    queryKey: qk.marketStatus(),
+    queryFn: () => api.market.status(),
+    enabled: false
+  })
+  const { data: quote } = useQuery<Quote>({
+    queryKey: qk.quote(item.symbol),
+    queryFn: () => api.quote.get(item.symbol),
+    enabled: false
+  })
+  const change = latestPriceChange(bars, quote, marketStatus?.isOpen ?? false)
 
   return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
     <li
       role="button"
       tabIndex={0}
@@ -41,13 +75,7 @@ function Row({
       onKeyDown={(e) => { if (e.key === 'Enter') setActiveSymbol(item.symbol) }}
       // Whole row is the drop target — dragOver must preventDefault or the browser shows the
       // not-allowed cursor and never fires drop. Drag is only *initiated* from the grip (D-66).
-      onDragOver={(e) => { e.preventDefault(); setOverIndex(index) }}
-      onDrop={(e) => {
-        e.preventDefault()
-        const from = Number(e.dataTransfer.getData('text/plain'))
-        if (!Number.isNaN(from) && index >= 0) useAppStore.getState().reorderWatchlist(from, index)
-        setOverIndex(null)
-      }}
+      {...reorderDropHandlers(index, setOverIndex)}
       // border-t-2 always reserved (transparent) so the accent insertion marker never shifts layout.
       className={cn(
         'group flex items-center gap-1 border-t-2 border-transparent px-2 py-2 hover:bg-secondary',
@@ -60,6 +88,7 @@ function Row({
           e.stopPropagation()
           const from = selectActiveItems(useAppStore.getState()).findIndex((w) => w.symbol === item.symbol)
           e.dataTransfer.setData('text/plain', String(from))
+          e.dataTransfer.setData('application/x-vv-symbol', item.symbol)
         }}
         onDragEnd={() => setOverIndex(null)}
         onClick={(e) => e.stopPropagation()}
@@ -70,13 +99,20 @@ function Row({
       </span>
       <span className="font-semibold">{item.symbol}</span>
       <span className="truncate text-xs text-muted-foreground" title={item.name}>{item.name}</span>
-      <span
-        className={cn(
-          'ml-auto shrink-0 text-sm',
-          change?.pct != null && (change.pct >= 0 ? 'text-green-500' : 'text-red-500')
+      <span className="ml-auto flex shrink-0 flex-col items-end gap-0.5 leading-tight">
+        <span className="text-sm font-bold text-foreground">{change ? change.price.toFixed(2) : ''}</span>
+        {change?.pct != null && (
+          <span
+            className={cn(
+              'rounded border px-1 py-0.5 text-xs tabular-nums',
+              change.pct >= 0
+                ? 'border-green-500/40 bg-green-500/10 text-green-500'
+                : 'border-red-500/40 bg-red-500/10 text-red-500'
+            )}
+          >
+            {change.pct >= 0 ? '+' : ''}{change.pct.toFixed(2)}%
+          </span>
         )}
-      >
-        {change ? change.price.toFixed(2) : ''}
       </span>
       <button
         onClick={(e) => {
@@ -89,6 +125,13 @@ function Row({
         <X className="size-4" />
       </button>
     </li>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onSelect={() => void api.company.openWindow(item.symbol)}>
+          Show company info
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   )
 }
 
@@ -115,9 +158,6 @@ export function Watchlist({
       )}
     >
       <div className="h-full overflow-y-auto" style={{ width }}>
-        <div className="border-b border-border p-2">
-          <WatchlistSwitcher />
-        </div>
         {watchlist.length === 0
           ? (
             <div className="p-2 text-sm text-muted-foreground">
@@ -138,13 +178,7 @@ export function Watchlist({
               {/* 末尾ドロップゾーン: 最終行の下へ落とすと末尾へ移動。marker(border-t)= 最終行の下端。
                   reorder(from, length) は from<length で to-1=末尾スロットに挿入。 */}
               <li
-                onDragOver={(e) => { e.preventDefault(); setOverIndex(watchlist.length) }}
-                onDrop={(e) => {
-                  e.preventDefault()
-                  const from = Number(e.dataTransfer.getData('text/plain'))
-                  if (!Number.isNaN(from)) useAppStore.getState().reorderWatchlist(from, watchlist.length)
-                  setOverIndex(null)
-                }}
+                {...reorderDropHandlers(watchlist.length, setOverIndex)}
                 className={cn('h-8 border-t-2 border-transparent', overIndex === watchlist.length && 'border-primary')}
               />
             </ul>

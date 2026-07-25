@@ -21,6 +21,12 @@ function fakeStore(initialBars: Bar[] = [], cov: { oldestTime: number; newestTim
       bars.length === 0
         ? null
         : { oldestTime: Math.min(...bars.map((b) => b.time)), newestTime: Math.max(...bars.map((b) => b.time)) }
+    ),
+    unionCoverage: vi.fn(
+      (
+        a: { oldestTime: number; newestTime: number },
+        b: { oldestTime: number; newestTime: number }
+      ) => ({ oldestTime: Math.min(a.oldestTime, b.oldestTime), newestTime: Math.max(a.newestTime, b.newestTime) })
     )
   }
 }
@@ -126,6 +132,45 @@ describe('CacheService.getOHLCV', () => {
 
     expect(provider.getOHLCV).toHaveBeenCalledOnce()
     expect(provider.getOHLCV).toHaveBeenCalledWith('AAPL', '1d', undefined)
+    expect(bars).toEqual(deriveWeekly(dailyBars))
+  })
+})
+
+describe('CacheService.refreshOHLCV', () => {
+  it('fetches only the right-edge differential (newestTime → now) when cached', async () => {
+    const store = fakeStore([bar(100), bar(200)], { oldestTime: 100, newestTime: 200 })
+    const provider = { getOHLCV: vi.fn(async () => [bar(200), bar(260)]), searchSymbols: vi.fn() }
+    const svc = createCacheService({ provider, store, now: () => 300 })
+
+    await svc.refreshOHLCV('AAPL', '5m')
+
+    expect(provider.getOHLCV).toHaveBeenCalledOnce()
+    expect(provider.getOHLCV).toHaveBeenCalledWith('AAPL', '5m', { from: 200, to: 300 })
+  })
+
+  it('falls back to a full fetch when nothing is cached yet', async () => {
+    const store = fakeStore() // no coverage
+    const provider = { getOHLCV: vi.fn(async () => [bar(100), bar(200)]), searchSymbols: vi.fn() }
+    const svc = createCacheService({ provider, store, now: () => 300 })
+
+    const bars = await svc.refreshOHLCV('AAPL', '5m')
+
+    expect(provider.getOHLCV).toHaveBeenCalledWith('AAPL', '5m', undefined)
+    expect(bars.map((b) => b.time)).toEqual([100, 200])
+  })
+
+  it('refreshes the underlying daily and re-derives for \'1w\'', async () => {
+    const dailyBars = [
+      { time: day('2024-01-01'), open: 10, high: 12, low: 9, close: 11, volume: 100 },
+      { time: day('2024-01-05'), open: 9, high: 16, low: 6, close: 18, volume: 500 }
+    ]
+    const store = fakeStore(dailyBars, { oldestTime: dailyBars[0].time, newestTime: dailyBars[1].time })
+    const provider = { getOHLCV: vi.fn(async () => dailyBars), searchSymbols: vi.fn() }
+    const svc = createCacheService({ provider, store, now: () => day('2024-02-01') })
+
+    const bars = await svc.refreshOHLCV('AAPL', '1w')
+
+    expect(provider.getOHLCV).toHaveBeenCalledWith('AAPL', '1d', { from: dailyBars[1].time, to: day('2024-02-01') })
     expect(bars).toEqual(deriveWeekly(dailyBars))
   })
 })

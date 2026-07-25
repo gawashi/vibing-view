@@ -1,16 +1,20 @@
-import { ipcMain } from 'electron'
-import type { Timeframe, DateRange, Workspace, WatchlistCollection } from '@shared/types'
-import { CH, type CapabilityStatus } from '@shared/ipc'
+import { ipcMain, BrowserWindow } from 'electron'
+import type { Bar, Timeframe, DateRange, WorkspaceCollection, ClipboardCell } from '@shared/types'
+import { CH, type CapabilityStatus, type RefreshAppliedPayload } from '@shared/ipc'
 import { FmpProvider, FmpHttpError } from './providers/FmpProvider'
+import { electronHttpGetJson } from './net/httpClient'
 import { createCacheService } from './cache/CacheService'
 import * as barStore from './db/barStore'
 import { getApiKey, setApiKey, getKeyStatus, clearApiKey } from './keystore'
-import { getLastSymbol, setLastSymbol, getSidebarOpen, setSidebarOpen, getSidebarWidth, setSidebarWidth } from './settings'
+import { getLastSymbol, setLastSymbol, getSidebarOpen, setSidebarOpen, getSidebarWidth, setSidebarWidth, getTheme, setTheme, getAutoRefresh, setAutoRefresh } from './settings'
 import { createSearchCache } from './searchCache'
 import { classify } from './capabilityClassifier'
 import * as capabilityCache from './capabilityCache'
-import * as layoutStore from './layoutStore'
-import * as watchlistStore from './watchlistStore'
+import * as workspaceStore from './workspaceStore'
+import { createProfileService } from './profile/ProfileService'
+import * as profileStore from './db/profileStore'
+import { createCompanyInfoService } from './profile/CompanyInfoService'
+import * as companyProfileStore from './db/companyProfileStore'
 
 const ALL_TIMEFRAMES: Timeframe[] = ['1m', '5m', '15m', '1h', '1d', '1w', '1M']
 const DERIVED_TIMEFRAMES: Timeframe[] = ['1w', '1M'] // never gated — always 'available' (§8/§9)
@@ -18,6 +22,26 @@ const DAILY_BACKED: Timeframe[] = ['1d', '1w', '1M'] // all served from '1d' bar
 
 export function registerIpc(): void {
   const searchCache = createSearchCache({ ttlMs: 5 * 60 * 1000, now: () => Date.now() })
+
+  const profileService = createProfileService({
+    store: profileStore,
+    search: (query) => {
+      const apiKey = getApiKey()
+      if (!apiKey) throw new Error('NO_API_KEY')
+      return new FmpProvider({ apiKey, httpGetJson: electronHttpGetJson }).searchSymbols(query)
+    }
+  })
+
+  // Company info (company namespace — distinct from ProfileService/symbol resolution). TTL cache in
+  // SQLite; fetch goes through the same electron net client as search/OHLCV.
+  const companyInfoService = createCompanyInfoService({
+    store: companyProfileStore,
+    fetch: (symbol) => {
+      const apiKey = getApiKey()
+      if (!apiKey) throw new Error('NO_API_KEY')
+      return new FmpProvider({ apiKey, httpGetJson: electronHttpGetJson }).getCompanyProfile(symbol)
+    }
+  })
 
   // Symbols whose '1d' EOD is not on the current plan (402/403). In-memory, cleared on key change.
   // Once known, D/W/M short-circuit to [] instead of re-hitting FMP for every timeframe switch —
@@ -28,7 +52,16 @@ export function registerIpc(): void {
   const cacheFor = () => {
     const apiKey = getApiKey()
     if (!apiKey) throw new Error('NO_API_KEY')
-    return createCacheService({ provider: new FmpProvider({ apiKey }), store: barStore })
+    return createCacheService({ provider: new FmpProvider({ apiKey, httpGetJson: electronHttpGetJson }), store: barStore })
+  }
+
+  // Quote / market-status are volatile and NOT cached in SQLite (SQLite = OHLCV only). They call
+  // the provider directly; errors reject and the renderer's reload flow swallows them → daily-close
+  // fallback. Not recorded in the per-Timeframe capability cache (they aren't timeframes).
+  const providerFor = () => {
+    const apiKey = getApiKey()
+    if (!apiKey) throw new Error('NO_API_KEY')
+    return new FmpProvider({ apiKey, httpGetJson: electronHttpGetJson })
   }
 
   ipcMain.handle(CH.symbolsSearch, async (_e, query: string) => {
@@ -36,16 +69,30 @@ export function registerIpc(): void {
     if (cached) return cached
     const apiKey = getApiKey()
     if (!apiKey) throw new Error('NO_API_KEY')
-    const results = await new FmpProvider({ apiKey }).searchSymbols(query)
+    const results = await new FmpProvider({ apiKey, httpGetJson: electronHttpGetJson }).searchSymbols(query)
     searchCache.set(query, results)
+    // Seed the profile cache for free — every result carries name/exchange, so a subsequently
+    // selected symbol resolves its header profile with zero extra API calls.
+    try {
+      for (const r of results) profileStore.upsertProfile(r)
+    } catch {
+      // Seeding the profile cache is best-effort — never fail a search on a cache-warm side effect.
+    }
     return results
   })
 
-  ipcMain.handle(CH.ohlcvGet, async (_e, symbol: string, timeframe: Timeframe, range: DateRange) => {
+  ipcMain.handle(CH.symbolsProfile, (_e, symbol: string) => profileService.getProfile(symbol))
+  ipcMain.handle(CH.companyInfo, (_e, symbol: string, opts?: { force?: boolean }) => companyInfoService.getInfo(symbol, opts))
+
+  // Shared capability bookkeeping for every real OHLCV fetch (get + refresh): short-circuit known
+  // out-of-plan daily-backed symbols, record 'available' on success, and classify FmpHttpErrors.
+  const withCapabilityTracking = async (
+    symbol: string, timeframe: Timeframe, run: () => Promise<Bar[]>
+  ): Promise<Bar[]> => {
     // Known out-of-plan daily → don't re-hit FMP for any daily-backed timeframe.
     if (DAILY_BACKED.includes(timeframe) && dailyOutOfPlan.has(symbol)) return []
     try {
-      const bars = await cacheFor().getOHLCV(symbol, timeframe, range)
+      const bars = await run()
       const apiKey = getApiKey()
       if (apiKey && !DERIVED_TIMEFRAMES.includes(timeframe)) {
         capabilityCache.setStatus(apiKey, timeframe, 'available')
@@ -70,7 +117,18 @@ export function registerIpc(): void {
       }
       throw err
     }
-  })
+  }
+
+  ipcMain.handle(CH.ohlcvGet, async (_e, symbol: string, timeframe: Timeframe, range: DateRange) =>
+    withCapabilityTracking(symbol, timeframe, () => cacheFor().getOHLCV(symbol, timeframe, range))
+  )
+
+  ipcMain.handle(CH.ohlcvRefresh, async (_e, symbol: string, timeframe: Timeframe) =>
+    withCapabilityTracking(symbol, timeframe, () => cacheFor().refreshOHLCV(symbol, timeframe))
+  )
+
+  ipcMain.handle(CH.quoteGet, (_e, symbol: string) => providerFor().getQuote(symbol))
+  ipcMain.handle(CH.marketStatus, () => providerFor().getMarketStatus())
 
   ipcMain.handle(CH.apikeySet, (_e, key: string) => {
     const result = setApiKey(key)
@@ -90,15 +148,56 @@ export function registerIpc(): void {
   ipcMain.handle(CH.settingsSetSidebarOpen, (_e, open: boolean) => setSidebarOpen(open))
   ipcMain.handle(CH.settingsGetSidebarWidth, () => getSidebarWidth())
   ipcMain.handle(CH.settingsSetSidebarWidth, (_e, width: number) => setSidebarWidth(width))
-  ipcMain.handle(CH.layoutGetCurrent, () => layoutStore.getCurrent())
-  ipcMain.handle(CH.layoutSetCurrent, (_e, ws: Workspace) => layoutStore.setCurrent(ws))
-  ipcMain.handle(CH.layoutList, () => layoutStore.listLayouts())
-  ipcMain.handle(CH.layoutGet, (_e, name: string) => layoutStore.getLayout(name))
-  ipcMain.handle(CH.layoutSave, (_e, name: string, ws: Workspace) => layoutStore.saveLayout(name, ws))
-  ipcMain.handle(CH.layoutDelete, (_e, name: string) => layoutStore.deleteLayout(name))
-  ipcMain.handle(CH.layoutRename, (_e, from: string, to: string) => layoutStore.renameLayout(from, to))
-  ipcMain.handle(CH.watchlistGet, () => watchlistStore.getWatchlists())
-  ipcMain.handle(CH.watchlistSet, (_e, c: WatchlistCollection) => watchlistStore.setWatchlists(c))
+  ipcMain.handle(CH.settingsGetTheme, () => getTheme())
+  ipcMain.handle(CH.settingsSetTheme, (_e, theme: import('./settings').Theme) => setTheme(theme))
+  ipcMain.handle(CH.settingsGetAutoRefresh, () => getAutoRefresh())
+  ipcMain.handle(CH.settingsSetAutoRefresh, (_e, on: boolean) => setAutoRefresh(on))
+
+  // Monotonic version stamped on each persisted workspace write. Renderers ignore stale (<= lastRev)
+  // get/broadcast payloads — see the sync guard in useWorkspaceSync (ordering + startup race).
+  let workspacesRev = 0
+
+  ipcMain.handle(CH.workspacesGet, () => ({ collection: workspaceStore.getWorkspaces(), rev: workspacesRev }))
+  ipcMain.handle(CH.workspacesSet, (e, c: WorkspaceCollection) => {
+    workspaceStore.setWorkspaces(c)
+    workspacesRev += 1
+    // Forward the new collection to every OTHER window so it re-hydrates. The sender skips itself —
+    // its own store is already current and re-applying would fight its debounce.
+    for (const w of BrowserWindow.getAllWindows()) {
+      if (w.webContents.id !== e.sender.id) {
+        w.webContents.send(CH.workspacesChanged, { collection: c, rev: workspacesRev })
+      }
+    }
+  })
+
+  // Chart clipboard: authoritative value lives here (in-memory, never persisted) so a window
+  // opened after a copy can fetch it via clipboard:get. Mirrors the workspaces rev/broadcast
+  // contract — renderers drop stale (<= lastRev) payloads (see useClipboardSync).
+  let clipboard: ClipboardCell | null = null
+  let clipboardRev = 0
+
+  ipcMain.handle(CH.clipboardGet, () => ({ clipboard, rev: clipboardRev }))
+  ipcMain.handle(CH.clipboardSet, (e, c: ClipboardCell | null) => {
+    clipboard = c
+    clipboardRev += 1
+    for (const w of BrowserWindow.getAllWindows()) {
+      if (w.webContents.id !== e.sender.id) {
+        w.webContents.send(CH.clipboardChanged, { clipboard: c, rev: clipboardRev })
+      }
+    }
+    // Return the authoritative rev so the sender can advance its lastRev: the sender gets no
+    // self-broadcast, so without this a startup get() that lost the race could clobber this write.
+    return clipboardRev
+  })
+
+  // refresh 配信: 送信元(メインウィンドウ)以外の全ウィンドウへ転送。workspaces/clipboard と同じ規約。
+  ipcMain.handle(CH.refreshBroadcast, (e, p: RefreshAppliedPayload) => {
+    for (const w of BrowserWindow.getAllWindows()) {
+      if (w.webContents.id !== e.sender.id) {
+        w.webContents.send(CH.refreshApplied, p)
+      }
+    }
+  })
 
   ipcMain.handle(CH.capabilitiesGet, () => {
     const apiKey = getApiKey()

@@ -5,6 +5,13 @@ import { join } from 'path'
 const keyPath = (): string => join(app.getPath('userData'), 'apikey.enc')
 let cached: string | null = null
 
+// Mask a saved key for display: last 4 chars real, rest dotted, total length == key length.
+// (This intentionally leaks the key's length — accepted trade-off so the user can identify which
+// key is set.)
+export function maskKey(key: string): string {
+  return key.length > 4 ? '•'.repeat(key.length - 4) + key.slice(-4) : '•'.repeat(key.length)
+}
+
 export function setApiKey(key: string): { ok: boolean; encryptionAvailable: boolean } {
   const encryptionAvailable = safeStorage.isEncryptionAvailable()
   if (!encryptionAvailable) {
@@ -24,10 +31,13 @@ export function getApiKey(): string | null {
   return cached
 }
 
-export function getKeyStatus(): { hasKey: boolean; encryptionAvailable: boolean } {
+export function getKeyStatus(): { hasKey: boolean; encryptionAvailable: boolean; maskedKey?: string } {
   const encryptionAvailable = safeStorage.isEncryptionAvailable()
   const hasKey = cached !== null || existsSync(keyPath())
-  return { hasKey, encryptionAvailable }
+  // Only include a preview when we can actually read the key back. If it's saved but undecryptable
+  // (encryption unavailable / unreadable file), omit maskedKey → UI falls back to "saved" only.
+  const key = hasKey ? getApiKey() : null
+  return key !== null ? { hasKey, encryptionAvailable, maskedKey: maskKey(key) } : { hasKey, encryptionAvailable }
 }
 
 export function clearApiKey(): void {

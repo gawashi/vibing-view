@@ -25,3 +25,17 @@ export const coverage = sqliteTable(
   },
   (t) => ({ pk: primaryKey({ columns: [t.symbol, t.timeframe] }) })
 )
+
+export const symbolProfiles = sqliteTable('symbol_profiles', {
+  symbol: text('symbol').primaryKey(),
+  name: text('name').notNull(),
+  exchange: text('exchange').notNull()
+})
+
+// 会社情報キャッシュ。data は CompanyProfileData(fetchedAt 除く) の JSON blob 一本 —
+// フィールド追加時のマイグレーションを不要にする。fetched_at は TTL 判定用の列。
+export const companyProfiles = sqliteTable('company_profiles', {
+  symbol: text('symbol').primaryKey(),
+  data: text('data').notNull(),
+  fetchedAt: integer('fetched_at').notNull()
+})
