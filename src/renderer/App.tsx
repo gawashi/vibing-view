@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { PanelLeftClose, PanelLeftOpen, RefreshCw } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -22,6 +22,7 @@ import { useClipboardSync } from './hooks/useClipboardSync'
 import { applyTheme } from './lib/theme'
 import type { CapabilityStatus } from '@shared/ipc'
 import type { Timeframe } from '@shared/types'
+import { shouldRefreshData, type ReloadSource } from './lib/autoRefresh'
 
 export default function App(): React.JSX.Element {
   // Sidebar open/closed (D-63) — UI chrome, persisted separately from the Workspace/named-layout
@@ -59,19 +60,36 @@ export default function App(): React.JSX.Element {
 
   const queryClient = useQueryClient()
   const [reloading, setReloading] = useState(false)
+  const inFlight = useRef(false)
+  const [refreshState, setRefreshState] = useState<{
+    status: 'idle' | 'ok' | 'failed' | 'paused-closed'
+    lastRefreshedAt: number | null
+  }>({ status: 'idle', lastRefreshedAt: null })
 
-  const handleReload = async (): Promise<void> => {
+  const reload = async (opts: { source: ReloadSource }): Promise<void> => {
+    if (inFlight.current) return // 同期ガード: 手動と auto tick の二重実行を防ぐ（state のラグに依存しない）
     const state = useAppStore.getState()
     const { cells, shape } = state
     const caps = queryClient.getQueryData<Record<Timeframe, CapabilityStatus>>(qk.capabilities())
-    // Also refresh the active watchlist's '1d' — but only when the sidebar is open, since those are
-    // the rows actually on screen (and the only ones with a live query to update). de-dup + gating
-    // are handled inside refreshTargets.
     const watchlistSymbols = sidebarOpen ? selectActiveItems(state).map((w) => w.symbol) : []
     const targets = refreshTargets(cells, shape, caps, watchlistSymbols)
-    if (targets.length === 0) return
+
+    inFlight.current = true
     setReloading(true)
     try {
+      // market status を先に取得。auto はクローズ中フェッチを打ち切る（API 節約）。
+      let isOpen = false
+      try {
+        const status = await api.market.status()
+        queryClient.setQueryData(qk.marketStatus(), status)
+        isOpen = status.isOpen
+      } catch {
+        // status 不明 → 手動は続行、auto は closed 扱いで下の判定によりスキップ。
+      }
+      if (!shouldRefreshData(opts.source, isOpen)) {
+        setRefreshState((s) => ({ status: 'paused-closed', lastRefreshedAt: s.lastRefreshedAt }))
+        return
+      }
       const results = await Promise.allSettled(
         targets.map(async (t) => {
           const bars = await api.ohlcv.refresh(t.symbol, t.timeframe)
@@ -80,28 +98,20 @@ export default function App(): React.JSX.Element {
       )
       // Capability verdicts may have changed (a refresh re-probes the fetched tf); re-gate the row.
       void queryClient.invalidateQueries({ queryKey: qk.capabilities() })
-      // Latest-price: fetch market status once; only when open, one quote per visible/watchlist
-      // symbol. Closed → skip quotes entirely (consumers fall back to daily close). A gated/failed
-      // quote or market-status is swallowed here so it never blocks the OHLCV reload.
-      try {
-        const status = await api.market.status()
-        queryClient.setQueryData(qk.marketStatus(), status)
-        if (status.isOpen) {
-          const syms = quoteSymbols(cells, shape, watchlistSymbols)
-          await Promise.allSettled(
-            syms.map(async (s) => {
-              const quote = await api.quote.get(s)
-              queryClient.setQueryData(qk.quote(s), quote)
-            })
-          )
-        }
-      } catch {
-        // market-status unavailable (e.g. plan-gated) → leave consumers on the daily-close fallback.
+      if (isOpen) {
+        const syms = quoteSymbols(cells, shape, watchlistSymbols)
+        await Promise.allSettled(
+          syms.map(async (s) => {
+            const quote = await api.quote.get(s)
+            queryClient.setQueryData(qk.quote(s), quote)
+          })
+        )
       }
-      if (results.some((r) => r.status === 'rejected')) {
-        toast('Some charts couldn’t be refreshed. Check your connection or FMP plan.')
-      }
+      const failed = results.some((r) => r.status === 'rejected')
+      if (failed) toast('Some charts couldn’t be refreshed. Check your connection or FMP plan.')
+      setRefreshState({ status: failed ? 'failed' : 'ok', lastRefreshedAt: Date.now() })
     } finally {
+      inFlight.current = false
       setReloading(false)
     }
   }
@@ -136,7 +146,7 @@ export default function App(): React.JSX.Element {
                 <Button
                   variant="ghost"
                   size="icon"
-                  onClick={handleReload}
+                  onClick={() => void reload({ source: 'manual' })}
                   disabled={reloading}
                   aria-label="Reload visible charts"
                 >
@@ -145,6 +155,21 @@ export default function App(): React.JSX.Element {
               </TooltipTrigger>
               <TooltipContent>Reload visible charts</TooltipContent>
             </Tooltip>
+            {refreshState.status === 'paused-closed' && (
+              <span className="text-xs text-muted-foreground" title="Market closed — auto-refresh paused">
+                Paused
+              </span>
+            )}
+            {refreshState.status === 'failed' && (
+              <span className="text-xs text-red-500" title="Some charts couldn’t be refreshed">
+                Update failed
+              </span>
+            )}
+            {refreshState.status === 'ok' && refreshState.lastRefreshedAt && (
+              <span className="text-xs text-muted-foreground">
+                Updated {new Date(refreshState.lastRefreshedAt).toLocaleTimeString()}
+              </span>
+            )}
             <SearchBar />
             <SettingsDialog />
           </div>
