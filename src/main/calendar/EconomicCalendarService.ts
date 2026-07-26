@@ -43,6 +43,7 @@ export function createEconomicCalendarService(deps: {
   return {
     async getRange(from: string, to: string, opts?: { force?: boolean }): Promise<EconomicRange> {
       const days = enumerateDays(from, to)
+      if (days.length === 0) throw new Error(`invalid economic calendar range: ${from}..${to}`)
       const cached = new Map(store.getDays(days).map((r) => [r.date, r]))
       // force は確定/TTL を無視して必要日を全部取り直す（company.info と同じ）。
       const missing = opts?.force ? days : days.filter((d) => {
@@ -51,16 +52,17 @@ export function createEconomicCalendarService(deps: {
       })
 
       if (missing.length > 0) {
-        // 欠け日が飛んでいても min..max の 1 リクエストに畳む（EC-07）。範囲内の fresh な日も
-        // 上書きされるが、新しいデータなので無害。
+        // 欠け日が飛んでいても min..max の 1 リクエストに畳む（EC-07）。ただし書き込むのは
+        // missing の日だけ — 範囲内の確定済みの日まで書き換えると、レスポンスがその日を
+        // 含んでいなかった場合に '[]' 確定で上書きしてしまい、穴が恒久化する。
         const lo = missing[0]
         const hi = missing[missing.length - 1]
         try {
           const events = await fetch(lo, hi)
           const fetchedAt = now()
-          // 要求範囲の全日に行を書く。返ってこなかった日は '[]'（EC-08）— 省くと土日祝が毎回ミス
+          // missing の全日に行を書く。返ってこなかった日は '[]'（EC-08）— 省くと土日祝が毎回ミス
           // 判定になり、その週を開くたびに API を空撃ちする。
-          const byDay = new Map(enumerateDays(lo, hi).map((d) => [d, [] as EconomicEvent[]]))
+          const byDay = new Map(missing.map((d) => [d, [] as EconomicEvent[]]))
           for (const e of events) byDay.get(utcYmd(e.time))?.push(e) // 範囲外の日は捨てる
           const rows = [...byDay].map(([date, evs]) => ({ date, events: evs, fetchedAt }))
           store.upsertDays(rows)

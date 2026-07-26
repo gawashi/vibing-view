@@ -72,7 +72,7 @@ describe('EconomicCalendarService.getRange — 確定判定 (EC-06)', () => {
 
 describe('EconomicCalendarService.getRange — 欠け範囲 (EC-07)', () => {
   it('folds non-contiguous missing days into a single min..max request', async () => {
-    // Mon と Fri だけ欠け → Mon..Fri の 1 リクエスト（間の fresh な日も上書きされるが無害）
+    // Mon と Fri だけ欠け → Mon..Fri の 1 リクエストに畳むが、書き込むのは Mon/Fri だけ
     const rows = filled(DAY0 + 5 * 86400).filter((r) => r.date !== ymd(0) && r.date !== ymd(4))
     const store = fakeStore(rows)
     const fetch = vi.fn(async () => [])
@@ -89,6 +89,41 @@ describe('EconomicCalendarService.getRange — 欠け範囲 (EC-07)', () => {
     await svc.getRange(FROM, TO)
     expect(fetch).toHaveBeenCalledExactlyOnceWith(FROM, TO)
   })
+
+  it('does not overwrite a confirmed day sitting between two missing days when the response omits it', async () => {
+    // Tue/Wed/Thu は確定済み。Mon/Fri が欠けて Mon..Fri に畳まれるが、レスポンスが Fri 分しか
+    // 返さなくても、間の確定日を '[]' で潰してはいけない（EC-07 の穴の恒久化を防ぐ回帰）。
+    const confirmedAt = DAY0 + 5 * 86400
+    const rows = filled(confirmedAt, [ev(NOON(1), 'existing-tue'), ev(NOON(2), 'existing-wed'), ev(NOON(3), 'existing-thu')])
+      .filter((r) => r.date !== ymd(0) && r.date !== ymd(4))
+    const store = fakeStore(rows)
+    const fetch = vi.fn(async () => [ev(NOON(4), 'NFP')])
+    const svc = createEconomicCalendarService({ store, fetch, now: () => confirmedAt + 100 })
+    const r = await svc.getRange(FROM, TO)
+    expect(fetch).toHaveBeenCalledWith(ymd(0), ymd(4))
+    expect(store.rows.get(ymd(1))).toEqual({ date: ymd(1), events: [ev(NOON(1), 'existing-tue')], fetchedAt: confirmedAt })
+    expect(store.rows.get(ymd(2))).toEqual({ date: ymd(2), events: [ev(NOON(2), 'existing-wed')], fetchedAt: confirmedAt })
+    expect(store.rows.get(ymd(3))).toEqual({ date: ymd(3), events: [ev(NOON(3), 'existing-thu')], fetchedAt: confirmedAt })
+    expect(r.events.map((e) => e.event)).toEqual(['existing-tue', 'existing-wed', 'existing-thu', 'NFP'])
+  })
+})
+
+describe('EconomicCalendarService.getRange — 不正な range', () => {
+  it('rejects a reversed range', async () => {
+    const store = fakeStore()
+    const fetch = vi.fn()
+    const svc = createEconomicCalendarService({ store, fetch, now: () => DAY0 + 60 * 86400 })
+    await expect(svc.getRange(TO, FROM)).rejects.toThrow()
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('rejects a malformed day string', async () => {
+    const store = fakeStore()
+    const fetch = vi.fn()
+    const svc = createEconomicCalendarService({ store, fetch, now: () => DAY0 + 60 * 86400 })
+    await expect(svc.getRange('2026-7-5', '2026-07-10')).rejects.toThrow()
+    expect(fetch).not.toHaveBeenCalled()
+  })
 })
 
 describe('EconomicCalendarService.getRange — 空日の行 (EC-08)', () => {
@@ -100,6 +135,7 @@ describe('EconomicCalendarService.getRange — 空日の行 (EC-08)', () => {
     expect([...store.rows.keys()].sort()).toEqual(DAYS)
     expect(store.rows.get(ymd(0))!.events).toEqual([])
     expect(store.rows.get(ymd(1))!.events.map((e) => e.time)).toEqual([NOON(1)])
+    expect(store.upsertDays).toHaveBeenCalledOnce() // 1 日ずつではなく一括書き込み
   })
 
   it('does not fetch again on a second call for the same range', async () => {
@@ -177,9 +213,10 @@ describe('EconomicCalendarService.getRange — force', () => {
 describe('EconomicCalendarService.getRange — ordering', () => {
   it('returns events sorted ascending across day boundaries', async () => {
     const store = fakeStore()
-    const fetch = vi.fn(async () => [ev(NOON(3), 'd3'), ev(NOON(1), 'd1'), ev(NOON(2), 'd2')])
+    // d1b は d1a より先に返ってくるが同日 → 日単位の flatMap だけでは通らず、.sort が要る。
+    const fetch = vi.fn(async () => [ev(NOON(3), 'd3'), ev(NOON(1) + 3600, 'd1b'), ev(NOON(1), 'd1a'), ev(NOON(2), 'd2')])
     const svc = createEconomicCalendarService({ store, fetch, now: () => DAY0 + 60 * 86400 })
     const r = await svc.getRange(FROM, TO)
-    expect(r.events.map((e) => e.event)).toEqual(['d1', 'd2', 'd3'])
+    expect(r.events.map((e) => e.event)).toEqual(['d1a', 'd1b', 'd2', 'd3'])
   })
 })
