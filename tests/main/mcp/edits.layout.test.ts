@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { makeIdMinter, pickWorkspace, setChart, visibleCells } from '../../../src/main/mcp/edits'
+import { makeIdMinter, pickWorkspace, setChart, setGridLayout, visibleCells } from '../../../src/main/mcp/edits'
 import type { Cell, IndicatorInstance, WorkspaceCollection } from '@shared/types'
 
 const vol = (id: string): IndicatorInstance =>
@@ -129,5 +129,50 @@ describe('setChart', () => {
     const res = setChart(collection(), { cell: '1', symbol: 'AAPL' })
     if (!res.ok) throw new Error(res.message)
     expect(res.value.hidden).toBe(false)
+  })
+})
+
+describe('setGridLayout', () => {
+  it('grows the cells array with fresh seeds when the grid gets bigger', () => {
+    const res = setGridLayout(collection(), { rows: 2, cols: 2 })
+    if (!res.ok) throw new Error(res.message)
+    const cells = res.collection.workspaces[0].layout.cells
+    expect(cells).toHaveLength(4)
+    // The new cell is a seed: empty, 1d, one fixed Volume, minted past every existing id.
+    expect(cells[3]).toMatchObject({ id: '11', symbol: null, timeframe: '1d' })
+    expect(cells[3].indicators).toEqual([
+      { id: '12', type: 'volume', params: {}, colors: {}, visible: true, fixed: true }
+    ])
+  })
+
+  // A shrink must not lose work: the off-grid cells stay in the array so growing back restores them.
+  it('keeps off-grid cells when the grid gets smaller', () => {
+    const res = setGridLayout(collection(), { rows: 1, cols: 1 })
+    if (!res.ok) throw new Error(res.message)
+    expect(res.collection.workspaces[0].layout.cells.map((x) => x.id)).toEqual(['1', '2', '3'])
+    expect(res.collection.workspaces[0].layout.shape).toEqual({ rows: 1, cols: 1 })
+  })
+
+  // Parity with store.setShape: an active cell pushed off-grid moves to the first visible one.
+  it('moves the active cell when a shrink hides it', () => {
+    const c = collection()
+    c.workspaces[0].layout.activeCellId = '2'
+    const res = setGridLayout(c, { rows: 1, cols: 1 })
+    if (!res.ok) throw new Error(res.message)
+    expect(res.collection.workspaces[0].layout.activeCellId).toBe('1')
+  })
+
+  it('leaves the active cell alone when it stays visible', () => {
+    const c = collection()
+    c.workspaces[0].layout.activeCellId = '2'
+    const res = setGridLayout(c, { rows: 2, cols: 2 })
+    if (!res.ok) throw new Error(res.message)
+    expect(res.collection.workspaces[0].layout.activeCellId).toBe('2')
+  })
+
+  it('reports an unknown workspace', () => {
+    expect(setGridLayout(collection(), { workspace: 'Nope', rows: 1, cols: 1 })).toEqual({
+      ok: false, message: 'No workspace named "Nope". Available: Main, Other'
+    })
   })
 })

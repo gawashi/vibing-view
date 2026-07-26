@@ -1,5 +1,5 @@
-import { cellCount } from '@shared/workspace'
-import type { Cell, Timeframe, Workspace, WorkspaceCollection } from '@shared/types'
+import { cellCount, newCellSeed } from '@shared/workspace'
+import type { Cell, GridShape, Timeframe, Workspace, WorkspaceCollection } from '@shared/types'
 
 // Every editor is a pure collection -> collection function so core.workspaces.mutate can run the
 // whole read-modify-write inside one synchronous call (MW-04). `value` carries whatever the tool
@@ -90,4 +90,28 @@ export function setChart(c: WorkspaceCollection, a: SetChartArgs): EditResult<Se
     cells: cells.filter((x) => ids.has(x.id)),
     hidden
   })
+}
+
+export type SetGridArgs = { workspace?: string; rows: number; cols: number }
+export type SetGridInfo = { workspaceName: string; shape: GridShape; visible: Cell[] }
+
+// Mirrors store.setShape: grow with seeds, never truncate on shrink, relocate a hidden active cell.
+export function setGridLayout(c: WorkspaceCollection, a: SetGridArgs): EditResult<SetGridInfo> {
+  const w = pickWorkspace(c, a.workspace)
+  if (!w) return editFail(missingWorkspace(c, a.workspace))
+  const shape: GridShape = { rows: a.rows, cols: a.cols }
+  const target = cellCount(shape)
+  const mint = makeIdMinter(c)
+  let cells = w.layout.cells
+  if (target > cells.length) {
+    const added: Cell[] = []
+    for (let i = cells.length; i < target; i++) added.push(newCellSeed(mint(), mint()))
+    cells = [...cells, ...added]
+  }
+  const visible = cells.slice(0, target)
+  const activeCellId = visible.some((x) => x.id === w.layout.activeCellId)
+    ? w.layout.activeCellId
+    : visible[0].id
+  const next: Workspace = { ...w, layout: { ...w.layout, cells, shape, activeCellId } }
+  return editOk(withWorkspace(c, w.name, next), { workspaceName: w.name, shape, visible })
 }
