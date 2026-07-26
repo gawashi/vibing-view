@@ -1,4 +1,9 @@
-export type Timeframe = '1m' | '5m' | '15m' | '1h' | '1d' | '1w' | '1M'
+// 表示順そのまま。Timeframe 型はこの配列から導出するので、増やすときはここだけ触る。
+export const TIMEFRAMES = ['1m', '5m', '15m', '1h', '1d', '1w', '1M'] as const
+export type Timeframe = (typeof TIMEFRAMES)[number]
+// '1w'/'1M' は日足から導出するだけで自前の行を持たない（D-17）。能力ゲートも常に available。
+export const DERIVED_TIMEFRAMES: readonly Timeframe[] = ['1w', '1M']
+export const DAILY_BACKED_TIMEFRAMES: readonly Timeframe[] = ['1d', '1w', '1M']
 
 export type Bar = {
   time: number // UTC epoch seconds
@@ -165,4 +170,5 @@ export type CompanyProfileData = {
 }
 
 // fetchedAt は列で持ちダイアログの「as of YYYY-MM-DD」表記に使う（blob には含めない）。
-export type CompanyInfo = CompanyProfileData & { fetchedAt: number }
+// stale は「取得に失敗してキャッシュを返した」フラグ。永続化はしない（blob 外）。
+export type CompanyInfo = CompanyProfileData & { fetchedAt: number; stale?: boolean }

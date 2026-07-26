@@ -134,6 +134,36 @@ describe('CacheService.getOHLCV', () => {
     expect(provider.getOHLCV).toHaveBeenCalledWith('AAPL', '1d', undefined)
     expect(bars).toEqual(deriveWeekly(dailyBars))
   })
+
+  it('passes the full requested range to the provider when there is NO coverage', async () => {
+    const store = fakeStore()
+    const provider = { getOHLCV: vi.fn(async () => [bar(500)]), searchSymbols: vi.fn() }
+    const svc = createCacheService({ provider, store })
+
+    await svc.getOHLCV('NVDA', '5m', { from: 100, to: 900 })
+
+    expect(provider.getOHLCV).toHaveBeenCalledWith('NVDA', '5m', { from: 100, to: 900 })
+  })
+
+  it('still fetches only the missing left sub-range when coverage exists', async () => {
+    const store = fakeStore([bar(500)], { oldestTime: 500, newestTime: 900 })
+    const provider = { getOHLCV: vi.fn(async () => [bar(200)]), searchSymbols: vi.fn() }
+    const svc = createCacheService({ provider, store })
+
+    await svc.getOHLCV('NVDA', '5m', { from: 100, to: 900 })
+
+    expect(provider.getOHLCV).toHaveBeenCalledWith('NVDA', '5m', { from: 100, to: 499 })
+  })
+
+  it('passes undefined to the provider when no range is requested (regression)', async () => {
+    const store = fakeStore()
+    const provider = { getOHLCV: vi.fn(async () => [bar(500)]), searchSymbols: vi.fn() }
+    const svc = createCacheService({ provider, store })
+
+    await svc.getOHLCV('NVDA', '5m', undefined)
+
+    expect(provider.getOHLCV).toHaveBeenCalledWith('NVDA', '5m', undefined)
+  })
 })
 
 describe('CacheService.refreshOHLCV', () => {

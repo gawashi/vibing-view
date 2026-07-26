@@ -57,7 +57,15 @@ describe('CompanyInfoService.getInfo', () => {
     const fetch = vi.fn(async () => { throw new Error('rate limited') })
     const svc = createCompanyInfoService({ store, fetch, now: () => NOW })
     const info = await svc.getInfo('AAPL')
-    expect(info).toEqual({ ...DATA, fetchedAt: NOW - 90_000 })
+    expect(info).toEqual({ ...DATA, fetchedAt: NOW - 90_000, stale: true })
+  })
+
+  // fetchedAt can't carry this: a row written seconds ago still looks fresh after a failed force.
+  it('flags stale on a failed force even when the cached row was just written', async () => {
+    const store = fakeStore({ data: DATA, fetchedAt: NOW - 5 })
+    const fetch = vi.fn(async () => { throw new Error('rate limited') })
+    const svc = createCompanyInfoService({ store, fetch, now: () => NOW })
+    expect(await svc.getInfo('AAPL', { force: true })).toEqual({ ...DATA, fetchedAt: NOW - 5, stale: true })
   })
 
   it('rethrows when the fetch fails and there is no row', async () => {

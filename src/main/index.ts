@@ -6,6 +6,17 @@ import { configureProxy } from './net/httpClient'
 import { CH } from '@shared/ipc'
 import { buildCompanyHash } from '@shared/companyWindow'
 import { buildChartHash } from '@shared/chartWindow'
+import { createCore } from './core'
+import * as barStore from './db/barStore'
+import * as profileStore from './db/profileStore'
+import * as companyProfileStore from './db/companyProfileStore'
+import * as workspaceStore from './workspaceStore'
+import * as capabilityCache from './capabilityCache'
+import { getApiKey, setApiKey, getKeyStatus, clearApiKey } from './keystore'
+import { FmpProvider } from './providers/FmpProvider'
+import { electronHttpGetJson } from './net/httpClient'
+import * as mcp from './mcp'
+import { getMcpConfig } from './settings'
 
 // One company-info window per symbol (spec: side-by-side compare). Reopening a live symbol focuses
 // its window; a new symbol spawns another. Cleared on 'closed'.
@@ -115,12 +126,36 @@ function installMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
+// Send to every window except the originator. core.ts stays free of `electron` imports by taking
+// this as a dep (same reasoning as db/client.ts's lazy require).
+function broadcast(channel: string, payload: unknown, exceptWebContentsId?: number): void {
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (w.webContents.id !== exceptWebContentsId) w.webContents.send(channel, payload)
+  }
+}
+
+function buildCore(): ReturnType<typeof createCore> {
+  return createCore({
+    broadcast,
+    barStore,
+    profileStore,
+    companyProfileStore,
+    workspaceStore,
+    capabilityCache,
+    keystore: { getApiKey, setApiKey, getKeyStatus, clearApiKey },
+    makeProvider: (apiKey) => new FmpProvider({ apiKey, httpGetJson: electronHttpGetJson })
+  })
+}
+
 app.whenReady().then(async () => {
   // Route provider HTTP through the OS/system proxy (or HTTP(S)_PROXY) before any fetch runs —
   // corporate networks block direct egress, so an unconfigured client times out (see net/httpClient).
   await configureProxy()
   installMenu()
-  registerIpc()
+  const core = buildCore()
+  registerIpc(core)
+  mcp.onStatusChanged((status) => broadcast(CH.mcpStatusChanged, status))
+  void mcp.applyConfig(core, getMcpConfig()) // no-op unless the user enabled it (M-06)
   ipcMain.handle(CH.companyOpenWindow, (_e, symbol: string) => openHashWindow(companyWindows, symbol, 600, 800, buildCompanyHash(symbol)))
   ipcMain.handle(CH.chartOpenWindow, (_e, cellId: string) => openHashWindow(chartWindows, cellId, 1100, 760, buildChartHash(cellId)))
   createWindow()
@@ -132,3 +167,6 @@ app.whenReady().then(async () => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
+
+// The MCP server lives in main, so it answers only while the app is running: no shutdown hook —
+// exiting the process closes the listening socket, which is all releasing the port takes.

@@ -16,6 +16,7 @@
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@radix-ui/react-context-menu": "^2.3.4",
     "@radix-ui/react-dialog": "^1.1.19",
     "@radix-ui/react-dropdown-menu": "^2.1.21",
