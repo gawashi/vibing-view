@@ -35,7 +35,8 @@ describe('mcp round trip', () => {
       'search_symbols', 'get_ohlcv', 'get_quote', 'get_company_info',
       'get_workspaces', 'get_workspace', 'get_cache_status',
       'set_chart', 'set_grid_layout', 'add_indicator', 'update_indicator', 'remove_indicator',
-      'edit_watchlist', 'create_workspace', 'rename_workspace', 'delete_workspace', 'activate_workspace'
+      'edit_watchlist', 'create_workspace', 'rename_workspace', 'delete_workspace', 'activate_workspace',
+      'force_reload'
     ])
   })
 

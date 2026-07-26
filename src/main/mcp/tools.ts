@@ -12,7 +12,7 @@ import { buildMutationTools } from './mutations'
 import { buildWorkspaceTools } from './workspaceTools'
 
 export type ToolCore = Pick<
-  Core, 'ohlcv' | 'symbols' | 'quote' | 'company' | 'workspaces' | 'capabilities' | 'cacheStatus'
+  Core, 'ohlcv' | 'symbols' | 'quote' | 'company' | 'workspaces' | 'capabilities' | 'cacheStatus' | 'uiRefresh'
 >
 
 export type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean }

@@ -190,6 +190,17 @@ export default function App(): React.JSX.Element {
 
   useGridShortcuts(() => void reload({ source: 'manual' }))
 
+  // MCP の force_reload はこの購読で UI のリロードボタンと同じ経路を通る（MW-14）。
+  const reloadRef = useRef(reload)
+  reloadRef.current = reload
+  useEffect(() => {
+    return api.refresh.onRequest((requestId) => {
+      void reloadRef.current({ source: 'manual' }).then((r) =>
+        api.refresh.done({ requestId, refreshed: r.refreshed, failed: r.failed, busy: r.busy })
+      )
+    })
+  }, [])
+
   // Per-cell capability gating (eager intraday probe, requires-plan→snap-to-daily, rate-limit
   // toast) has moved into GridHost's GridCell (D-60) — each rendered cell now gates its own row off
   // its own symbol/timeframe instead of one App-level effect tied to a single active symbol.

@@ -95,6 +95,18 @@ export function buildWorkspaceTools(core: ToolCore): ToolDef[] {
     return ok(`Active workspace is now "${parsed.data.name}".`)
   }
 
+  const forceReloadHandler: ToolHandler = async () => {
+    const result = await core.uiRefresh.run()
+    if (!result.ok) {
+      return fail(result.reason === 'no-window'
+        ? 'The app window is not available.'
+        : 'Refresh timed out — it may still be running in the app.')
+    }
+    if (result.busy) return fail('A refresh is already in progress in the app.')
+    const failed = result.failed > 0 ? `, ${result.failed} failed` : ''
+    return ok(`Refreshed ${plural(result.refreshed, 'chart')}${failed}.`)
+  }
+
   return [
     {
       name: 'edit_watchlist',
@@ -125,6 +137,12 @@ export function buildWorkspaceTools(core: ToolCore): ToolDef[] {
       description: 'Switch the app to a different workspace. No API request.',
       schema: nameArgs,
       handler: activateHandler
+    },
+    {
+      name: 'force_reload',
+      description: "Refetch every chart the user currently has on screen, exactly like the app's reload button: market status, the visible cells' bars, and quotes. Costs one API request per visible chart plus quotes, so use it only when the user asks for fresh data.",
+      schema: z.object({}),
+      handler: forceReloadHandler
     }
   ]
 }

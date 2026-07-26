@@ -32,6 +32,8 @@ export const CH = {
   clipboardChanged: 'clipboard:changed',
   refreshBroadcast: 'refresh:broadcast',
   refreshApplied: 'refresh:applied',
+  refreshRequest: 'refresh:request',
+  refreshDone: 'refresh:done',
   mcpGetConfig: 'mcp:getConfig',
   mcpSetEnabled: 'mcp:setEnabled',
   mcpSetPort: 'mcp:setPort',
@@ -56,6 +58,14 @@ export type RefreshAppliedPayload = {
   ohlcv: { symbol: string; timeframe: Timeframe; bars: Bar[] }[]
   quotes: { symbol: string; quote: Quote }[]
   marketStatus: MarketStatus | null
+}
+// force_reload の委譲（MW-14）。main → メインウィンドウが requestId を送り、window が終わったら
+// 同じ id で件数を返す。busy は「別のリフレッシュが走っていたので何もしなかった」。
+export type RefreshDonePayload = {
+  requestId: number
+  refreshed: number
+  failed: number
+  busy: boolean
 }
 
 export interface Api {
@@ -117,6 +127,9 @@ export interface Api {
   refresh: {
     broadcast(p: RefreshAppliedPayload): Promise<void>
     onApplied(cb: (p: RefreshAppliedPayload) => void): () => void
+    // main（MCP の force_reload）からの実行依頼。メインウィンドウだけが購読する。
+    onRequest(cb: (requestId: number) => void): () => void
+    done(p: RefreshDonePayload): Promise<void>
   }
   // MCP サーバ（既定 off、トークン未生成）。
   mcp: {
