@@ -129,17 +129,23 @@ export const formatIndicator = (i: {
   return parts.length > 0 ? `[${i.id}] ${i.type}(${parts.join(', ')})` : `[${i.id}] ${i.type}`
 }
 
+// The one cell-line format, shared by get_workspace and every mutation response (set_chart,
+// set_grid_layout, ...) so a mutation reply reads like the slice of get_workspace it just changed.
+export function formatCellLine(cell: {
+  id: string; symbol: string | null; timeframe: string; indicators: Parameters<typeof formatIndicator>[0][]
+}): string {
+  const indicators = cell.indicators.length === 0
+    ? 'no indicators'
+    : cell.indicators.map(formatIndicator).join(', ')
+  return `[${cell.id}] ${cell.symbol ?? '(empty)'} ${cell.timeframe} — ${indicators}`
+}
+
 export function formatWorkspaceDetail(w: Workspace, isActive: boolean): string {
   const { rows, cols } = w.layout.shape
   const watchlist = w.items.length === 0
     ? ['Watchlist: empty']
     : [`Watchlist (${w.items.length}):`, ...w.items.map((i) => `- ${i.symbol} — ${i.name} (${i.exchange})`)]
-  const cells = w.layout.cells.map((c) => {
-    const indicators = c.indicators.length === 0
-      ? 'no indicators'
-      : c.indicators.map(formatIndicator).join(', ')
-    return `- [${c.id}] ${c.symbol ?? '(empty)'} ${c.timeframe} — ${indicators}`
-  })
+  const cells = w.layout.cells.map((c) => `- ${formatCellLine(c)}`)
   return [
     `Workspace: ${w.name}${isActive ? ' (active)' : ''}`,
     `Grid: ${rows} rows x ${cols} cols, active cell: ${w.layout.activeCellId}`,

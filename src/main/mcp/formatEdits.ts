@@ -1,14 +1,5 @@
 import type { Cell, GridShape, IndicatorInstance, WatchlistItem } from '@shared/types'
-import { formatIndicator } from './format'
-
-// Same shape as formatWorkspaceDetail's cell line so a mutation response reads like the slice of
-// get_workspace it just changed.
-export function formatCellLine(cell: Cell): string {
-  const indicators = cell.indicators.length === 0
-    ? 'no indicators'
-    : cell.indicators.map(formatIndicator).join(', ')
-  return `[${cell.id}] ${cell.symbol ?? '(empty)'} ${cell.timeframe} — ${indicators}`
-}
+import { formatCellLine } from './format'
 
 export function formatCells(workspaceName: string, cells: Cell[]): string {
   return [`Workspace "${workspaceName}":`, ...cells.map((c) => `- ${formatCellLine(c)}`)].join('\n')
