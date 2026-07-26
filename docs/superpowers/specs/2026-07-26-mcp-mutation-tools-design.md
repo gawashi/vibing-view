@@ -128,7 +128,7 @@ compare-and-set では防げない（main が読むのは永続済みの状態�
 `color is not a parameter — use the color argument of update_indicator.` で弾く。
 
 `add_indicator` は色引数を持たない。追加時はパレットが自動で割り当てる（UI と同じ）。変更は `update_indicator` の
-`color` 引数で行い、こちらは `#rrggbb` 形式を検証する。
+`color` 引数で行い、こちらは `#rrggbb` 形式を検証したうえで**全 output キーに書く**（UI と同じ、MW-16）。
 
 ## ツール
 
@@ -194,8 +194,10 @@ Claude は「`get_workspace` で読む → id を掴む → 操作する」の�
 既にあるセルはスキップ」（既存 `addIndicatorToAll` の挙動）。単一セル指定時は重複チェックをしない（既存 `addIndicator` の挙動）。
 色引数は持たず、パレットが自動割り当てする（UI と同じ）。応答に採番された instance id を返す。
 
-**`update_indicator`** — `color` は `params` ではなく `colors` を書く別引数で、UI の `IndicatorEditForm` と同じく
-最初の output キーに適用する（`#rrggbb` 形式を検証）。
+**`update_indicator`** — `color` は `params` ではなく `colors` を書く別引数（`#rrggbb` 形式を検証）。UI の
+`IndicatorEditForm` と同じく、その type の**全 output キーに同じ色を書く**（`for (const output of module.outputs)
+setColor(...)`）。最初の output キーは UI が現在値を表示するために読むだけで、書き込み先ではない。
+MACD のようにパレットが出力ごとに別色を割り当てる type では、色変更で 3 本が同色に揃う — これは既存 UI の挙動どおり。
 `params` は既存値へのマージで、渡されたキーだけを更新する（値の検証は追加時と同じ）。
 `fixed: true` の Volume も対象にできる（`visible` と `color` のみ。`params` は空なので指定すれば未知キーのエラーになる）。
 `params` / `visible` / `color` の全省略はエラー。応答はその 1 件の全フィールド（id / type / params / visible / colors）。
@@ -283,7 +285,8 @@ MCP 側は `A refresh is already in progress in the app.` に写像する。main
 - **ツール層** — フェイク core で引数検証と上記エラー文言、`"all"` が表示中セルだけに効くこと、
   `set_chart` が未知銘柄で `profile` を 1 回だけ呼ぶこと、`edit_watchlist` が 1 件でも未解決なら
   collection を書き換えないこと、`FieldDesc` に反する params 値（型違い・`min` 未満・`options` 外）が弾かれること、
-  `params: { color }` が `colors` に書かれず専用エラーになること
+  `params: { color }` が `colors` に書かれず専用エラーになること、`update_indicator` の `color` が
+  MACD の 3 出力すべてに書かれること
 - **`formatWorkspaceDetail`** — インジケータ id が出ること、`visible: false` にだけ `hidden` が付くこと。
   既存 `tests/main/mcp/format.test.ts` の期待値更新
 - **`ProfileService`** — 一致が無かったときに `upsertProfile` を呼ばないこと（既存テストがあれば更新）
@@ -338,6 +341,9 @@ MCP 側は `A refresh is already in progress in the app.` に写像する。main
 - **MW-15** `kind: 'color'` の `FieldDesc` は `params` の一員として扱わない。色は `IndicatorInstance.colors` に入り
   `params` とは別経路で書かれる（`ParamFields` も描画をスキップし、`defaults` にも含まれない）。
   `params: { color: ... }` を受理すると renderer が読まないキーを書き込むことになり、無反映のまま成功を返す。
+- **MW-16** `update_indicator` の `color` は全 output キーに書く。`IndicatorEditForm` が
+  `for (const output of module.outputs) setColor(...)` で全出力に流しており、最初の output キーは
+  現在値の表示に読むだけ。1 キーだけ書くと MACD などで色が食い違い、UI での編集結果と一致しなくなる。
 
 ## 将来枠
 
