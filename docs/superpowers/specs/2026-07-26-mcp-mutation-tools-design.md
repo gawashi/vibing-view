@@ -20,6 +20,13 @@
 セル入替（`swap_cells`）・アクティブセル変更・ウォッチリストとワークスペースの並べ替え・クリップボード
 （並び順は人間の趣味であり、クリップボードはウィンドウ間同期用の内部機構）／取り消し機能（下記）。
 
+操作系ツールを成立させるために、既存コードにも次の変更が入る（詳細は各節）。
+
+- `formatWorkspaceDetail` にインジケータ id を追加（MW-12）
+- `ProfileService` が「一致なし」をキャッシュしないようにする（MW-13）
+- `App.tsx` の `reload` に戻り値を追加し、実行中は `busy` を返す（MW-14）
+- `src/renderer/indicators/` を `src/shared/indicators/` へ移動（MW-06）
+
 **取り消しは実装しない。** MCP 専用の undo を作ると手動操作が巻き戻せず一貫しないため、アプリ全体の変更履歴として
 別途設計する（将来枠）。したがって本設計では、MCP からの削除・上書きは UI 操作と同じく不可逆である。
 
@@ -29,7 +36,7 @@
   ブロードキャストを既に行う。`fromWebContentsId` を渡さなければ全ウィンドウが対象になる。
 - renderer の `useWorkspaceSync` は `rev` が新しい payload を受けると、**保留中のローカル保存をキャンセルしてから**
   `hydrateWorkspaces` する。MCP の書き込みは追加の調停なしにそのまま画面へ反映される。
-- 自動 / 手動リフレッシュのスケジューラは renderer（`App.tsx` の `runRefresh`）にある。市場状態の取得 →
+- 自動 / 手動リフレッシュのスケジューラは renderer（`App.tsx` の `reload`）にある。市場状態の取得 →
   表示中セルの `ohlcv.refresh` → quote 取得 → 他ウィンドウへ配信 → トーストと ⏱ 表示の更新、までが一連。
 - インジケータの型定義・デフォルト params・出力メタは `src/renderer/indicators/`、パレットとインスタンス生成は
   `src/renderer/store.ts` の `PALETTE` / `makeInstance` にあり、main プロセスからは見えない。
@@ -37,6 +44,9 @@
 - `Cell` 配列は `rows × cols` を超える分を非表示のまま保持する。グリッドを縮めてもセルは失われない。
 - `ProfileService.getProfile` は `profileStore` ヒットなら 0 リクエスト、ミス時に `searchSymbols` を 1 回。
   一致が無い場合と通信失敗の場合の双方で `{ symbol, name: symbol, exchange: '' }` を返し、両者を区別しない。
+  さらに一致が無かった場合はそのフォールバックを `upsertProfile` で**永続キャッシュ**する（通信失敗時はしない）。
+- `App.tsx` のリフレッシュ関数は `reload({ source })` で、戻り値は `Promise<void>`。
+  冒頭に `if (inFlight.current) return` の同期ガードがあり、実行中の要求は**黙って捨てられる**。
 
 ## アーキテクチャ
 
@@ -72,6 +82,7 @@ renderer の採番がその id を追い越して衝突しうる）。
 - セルを空にする（`symbol: null`）とユーザーが追加したインジケータは消えるが、`fixed: true` の Volume は残る
   （既存 `clearCell` の挙動）
 - `rows × cols` を減らしても `cells` 配列は切り詰めない（非表示で保持）。増やすときは `newCellSeed` で足す
+- グリッドを縮めてアクティブセルが非表示側へ落ちたら、表示中セルの先頭へ移す（既存 `setShape` の挙動）
 - ワークスペース名は一意。最後の 1 件は削除できない
 - アクティブなワークスペースを削除したら残りの先頭がアクティブになる
 
@@ -80,6 +91,10 @@ renderer の採番がその id を追い越して衝突しうる）。
 renderer のデバウンス保存（500ms）が飛ぶ直前に MCP が書くと、broadcast を受けた側が保留中の保存をキャンセルして
 hydrate するので MCP 側が勝つ。逆順ならユーザー操作が勝つ。どちらも UI 同士の 2 ウィンドウ編集と同じ扱いで、
 追加の調停は入れない。
+
+**受容するリスク**: MCP の書き込みが renderer の保存を追い越した場合、直前 500ms 以内のユーザー編集は失われる。
+compare-and-set では防げない（main が読むのは永続済みの状態で、それ自体は常に最新。失われるのはまだ main に
+届いていない編集）。全ミューテーションに flush 往復を足せば塞げるが、対価に合わない（MW-11）。
 
 ## インジケータ定義の共有
 
@@ -94,11 +109,30 @@ hydrate するので MCP 側が勝つ。逆順ならユーザー操作が勝つ�
 - ツール説明の「有効な type と params」を `registry` から機械生成でき、手書きの列挙（＝二重管理）が発生しない
 - 移動は機械的（renderer 側の import 修正 8 箇所）。「`registry.ts` に足すだけで end-to-end」という既存の性質も保たれる
 
+### params の検証
+
+`FieldDesc`（`kind: 'number' | 'select' | 'source' | 'color'` と `min` / `options`）をそのまま検証に使う。
+未知のキーを弾くだけでは足りない — `period: "abc"` や `kind: "WMA"` が通ると NaN や無描画になり、
+Claude は成功したと誤認する。
+
+- `number` — 数値であること。`min` があれば `min` 以上
+- `select` — `options` のいずれか
+- `source` — `close` / `open` / `high` / `low` / `hl2` / `hlc3` のいずれか
+- `color` — `#rrggbb` 形式
+- `step` は UI の入力刻みなので検証しない
+
+違反時のエラーには許容値を列挙する（例: `kind must be one of SMA, EMA.`）。
+
 ## ツール
 
-`workspace` は全ツール共通の任意引数で、省略時はアクティブなワークスペース（`get_workspace` と対称）。
 応答は既存 `format.ts` と同じ plain text で、**変更後の状態**を返す（Claude が確認のために `get_workspace` を
 呼び直さなくて済むようにする）。
+
+**対象ワークスペースの指し方**は 2 系統ある。内容を編集する 6 本（`set_chart` / `set_grid_layout` /
+`add_indicator` / `update_indicator` / `remove_indicator` / `edit_watchlist`）は任意引数 `workspace` で指定し、
+省略時はアクティブなワークスペース（`get_workspace` と対称）。ワークスペース自体を操作する 4 本
+（`create_workspace` / `rename_workspace` / `delete_workspace` / `activate_workspace`）は `name` / `from` で
+対象を指し、`workspace` 引数は持たない。`force_reload` はどちらも持たない。
 
 | ツール | 引数 | API 消費 |
 |---|---|---|
@@ -114,8 +148,25 @@ hydrate するので MCP 側が勝つ。逆順ならユーザー操作が勝つ�
 | `activate_workspace` | `name` | なし |
 | `force_reload` | — | 表示中セル数 + quote 数 |
 
-`get_workspace` の出力がセル id を `[3] NVDA 1d` の形で出しているので、Claude は「読む → id を掴む → 操作する」の
-流れになる。既存の読み取りツールとはこれで繋がる。
+Claude は「`get_workspace` で読む → id を掴む → 操作する」の流れになる。既存の読み取りツールとはこれで繋がるが、
+そのために `get_workspace` の出力を 1 箇所広げる必要がある（次節）。
+
+### `get_workspace` に indicator id を出す（既存出力の変更）
+
+`update_indicator` / `remove_indicator` は instance id で対象を指すが、現在の `formatWorkspaceDetail` は
+`type(params)` しか出しておらず id が読めない（`format.ts` の `formatIndicator`）。このままでは操作系ツールが
+成立しないので、セル行を次の形に変える。
+
+```
+- [3] NVDA 1d — [7] volume, [9] ma(period=20), [11] rsi(period=14, hidden)
+```
+
+- インジケータ id を `[9]` として前置する
+- `visible: false` のときだけ `hidden` を付ける（既定が true なので通常は増えない）
+- `colors` と `fixed` は**出さない**。色は `update_indicator` の応答でその 1 件だけ返せば足り、`fixed` は
+  `remove_indicator` のエラー文で説明できる。全セル分の色を常時出すのは出力の無駄
+
+既存の読み取りツールの出力変更なので、`tests/main/mcp/format.test.ts` の期待値も更新する。
 
 ### `"all"` の範囲
 
@@ -127,23 +178,24 @@ hydrate するので MCP 側が勝つ。逆順ならユーザー操作が勝つ�
 **`set_chart`** — `symbol` と `timeframe` の両方省略はエラー。`cell: "all"` に非 null の `symbol` は拒否（全セルを
 同一銘柄にするのは無意味）、`symbol: null` は許可（＝表示中セルの全消し）。対象セルが表示範囲外なら応答に
 `set_grid_layout` を促す注記を添える（非表示チャートを作ったまま気づかない事故を防ぐ）。銘柄は `core.symbols.profile()`
-で解決し、`exchange === ''` なら未解決としてエラー。
+で解決し、`exchange === ''` なら未解決としてエラー（MW-13）。
 
 **`set_grid_layout`** — 応答に新しい形状と表示されるセルの一覧を返す。
 
 **`add_indicator`** — `params` 省略で `registry` の `defaults`。未知の `type` はエラーに有効な type 一覧を添える。
-未知の param キーもエラー（モデルの綴り間違いを黙って捨てない）。`cell: "all"` のときだけ「同じ type かつ同じ params が
+未知の param キーも、値が `FieldDesc` に反する場合もエラー（「params の検証」節）。`cell: "all"` のときだけ「同じ type かつ同じ params が
 既にあるセルはスキップ」（既存 `addIndicatorToAll` の挙動）。単一セル指定時は重複チェックをしない（既存 `addIndicator` の挙動）。
 応答に採番された instance id を返す。
 
 **`update_indicator`** — `color` は UI の `IndicatorEditForm` と同じく最初の output キーに適用する。
+`params` は既存値へのマージで、渡されたキーだけを更新する（値の検証は追加時と同じ）。
 `fixed: true` の Volume も対象にできる（`visible` と `color` のみ。`params` は空なので指定すれば未知キーのエラーになる）。
-`params` / `visible` / `color` の全省略はエラー。
+`params` / `visible` / `color` の全省略はエラー。応答はその 1 件の全フィールド（id / type / params / visible / colors）。
 
 **`remove_indicator`** — `indicator` と `cell` はどちらか一方を必須（両方指定・両方省略はエラー）。`fixed: true` の
 Volume は消えない（UI 同様）。消せなかった旨を応答に含める。
 
-**`edit_watchlist`** — `add` の銘柄が 1 つでも解決できなければ**何も変更せずエラー**（部分適用しない）。
+**`edit_watchlist`** — `add` の銘柄が 1 つでも解決できなければ**何も変更せずエラー**（部分適用しない、MW-13）。
 重複追加は無視（既存 `addToWatchlist` の挙動）。`add` と `remove` の両方省略はエラー。応答に更新後のウォッチリストを返す。
 
 **`create_workspace`** — `copyFrom` 指定時は複製（セルとインジケータの id を再採番する）。名前重複はエラー。
@@ -151,7 +203,8 @@ Volume は消えない（UI 同様）。消せなかった旨を応答に含め�
 **`delete_workspace`** — 応答に「消したもの」（セル数・配置されていた銘柄・ウォッチリスト件数）を書き、
 Claude がユーザーに報告できるようにする。取り消しはできない。
 
-**`force_reload`** — 引数なし。応答は `Refreshed 4 charts, 1 failed`。
+**`force_reload`** — 引数なし。応答は `Refreshed 4 charts, 1 failed`（件数は OHLCV のみ。quote と市場状態は
+`reload` の内部処理で、成否を分けて数える意味が薄い）。
 
 ## `force_reload` の委譲
 
@@ -159,17 +212,25 @@ Claude がユーザーに報告できるようにする。取り消しはでき�
 
 | チャネル | 向き | 用途 |
 |---|---|---|
-| `refresh:request` | main → メインウィンドウ | `{ requestId }`。App が受けて既存の `runRefresh({ source: 'manual' })` を実行 |
-| `refresh:done` | メインウィンドウ → main | `{ requestId, refreshed, failed }`。完了通知 |
+| `refresh:request` | main → メインウィンドウ | `{ requestId }`。App が受けて既存の `reload({ source: 'manual' })` を実行 |
+| `refresh:done` | メインウィンドウ → main | `{ requestId, refreshed, failed, busy }`。完了通知 |
 
 main は `Map<requestId, resolve>` を持ち、`refresh:done` で解決する。`core.ts` は Electron を import しない方針なので、
 送信は `requestRefresh(requestId)` として `main/index.ts` から注入する（`broadcast` と同じ扱い）。
 
-`runRefresh` の中身は変えない。`source: 'manual'` をそのまま使うため、市場状態の取得・quote・他ウィンドウ配信・
-トースト・⏱ の表示までリロードボタンと完全に同一になる。App 側の追加は「`refresh:request` を購読して `runRefresh` を
-呼び、終わったら `refresh:done` を返す」だけ。
+`reload` のフェッチ処理は変えない。`source: 'manual'` をそのまま使うため、市場状態の取得・quote・他ウィンドウ配信・
+トースト・⏱ の表示までリロードボタンと完全に同一になる。App 側の変更は次の 2 点だけ。
 
-- 進行中の `force_reload` があれば `A refresh is already in progress.` で弾く
+1. **戻り値を足す** — `Promise<void>` → `Promise<{ refreshed: number; failed: number; busy: boolean }>`。
+   既に持っている `ohlcvResults` の fulfilled / rejected を数えるだけ。既存の呼び出し 3 箇所（リロードボタン・
+   auto tick・`useGridShortcuts`）は戻り値を無視する。
+2. **`refresh:request` の購読** — 受けたら `reload({ source: 'manual' })` を呼び、その戻り値を `refresh:done` に載せる。
+
+**同時実行の調停**は renderer 側に一本化する。`reload` 冒頭の `if (inFlight.current) return` は現在**黙って捨てる**
+ので、auto tick 中に `refresh:request` が届くと `refresh:done` が返らず MCP がタイムアウトまで待たされる。
+この早期 return を `{ refreshed: 0, failed: 0, busy: true }` に変え、`busy` をそのまま `refresh:done` で返す。
+MCP 側は `A refresh is already in progress in the app.` に写像する。main 側に二つ目のガードは置かない（MW-14）。
+
 - メインウィンドウが無ければ `The app window is not available.`
 - 60 秒でタイムアウトし `Refresh timed out — it may still be running in the app.` を返す（pending は破棄）
 
@@ -186,11 +247,12 @@ main は `Map<requestId, resolve>` を持ち、`refresh:done` で解決する。
 | indicator id 不明 | `No indicator "12". Use get_workspace to list indicator ids.` |
 | 未知の indicator type | `Unknown indicator "sma". Available: ma, bb, rsi, macd, volume.` |
 | 未知の param キー | `"length" is not a parameter of ma. Parameters: period, kind, source.` |
+| param の値が不正 | `kind must be one of SMA, EMA.` / `period must be a number >= 1.` |
 | 銘柄未解決 | `Could not resolve "XYZ" — check the ticker with search_symbols, or confirm the FMP API key is set.` |
 | ワークスペース名重複 | `A workspace named "X" already exists.` |
 | 最後の 1 件を削除 | `Cannot delete the only workspace.` |
 | `cell: "all"` に非 null symbol | `cell: "all" cannot set a symbol — pass a cell id, or symbol: null to clear every chart.` |
-| リフレッシュ二重実行 | `A refresh is already in progress.` |
+| リフレッシュ二重実行 | `A refresh is already in progress in the app.` |
 | メインウィンドウ不在 | `The app window is not available.` |
 | リフレッシュのタイムアウト | `Refresh timed out — it may still be running in the app.` |
 
@@ -203,18 +265,24 @@ main は `Map<requestId, resolve>` を持ち、`refresh:done` で解決する。
 既存どおり Electron をテストグラフに入れない。
 
 - **`edits.ts` の純粋関数** — `fixed: true` の Volume が消えないこと、`rows × cols` を縮めても `cells` が
-  切り詰められないこと、広げると `newCellSeed` で足されること、id が数値最大 + 1 から採番され既存 id と
-  衝突しないこと、名前の一意性、最後の 1 件が削除できないこと、アクティブ削除時のアクティブ移動
+  切り詰められないこと、広げると `newCellSeed` で足されること、**縮小でアクティブセルが隠れたら表示中の先頭へ移ること**、
+  id が数値最大 + 1 から採番され既存 id と衝突しないこと、名前の一意性、最後の 1 件が削除できないこと、
+  アクティブ削除時のアクティブ移動
 - **`core.workspaces.mutate`** — 読み → 編集 → 書きが同期であること、`rev` が 1 だけ進むこと、
   `fromWebContentsId` 無しで全ウィンドウへ broadcast されること、`fn` が Error を返したら書き込みも
   `rev` 更新も broadcast も起きないこと
 - **ツール層** — フェイク core で引数検証と上記エラー文言、`"all"` が表示中セルだけに効くこと、
   `set_chart` が未知銘柄で `profile` を 1 回だけ呼ぶこと、`edit_watchlist` が 1 件でも未解決なら
-  collection を書き換えないこと
+  collection を書き換えないこと、`FieldDesc` に反する params 値（型違い・`min` 未満・`options` 外）が弾かれること
+- **`formatWorkspaceDetail`** — インジケータ id が出ること、`visible: false` にだけ `hidden` が付くこと。
+  既存 `tests/main/mcp/format.test.ts` の期待値更新
+- **`ProfileService`** — 一致が無かったときに `upsertProfile` を呼ばないこと（既存テストがあれば更新）
 - **`makeIndicatorInstance` の共有** — 同じ入力に対し store 経由と MCP 経由で同一の `colors` が付くこと
   （パレット割り当ての二重実装が復活したら落ちる）
 - **indicators 移設の回帰** — 既存のインジケータテストが import パス変更だけで通ること
-- **`force_reload`** — フェイクの `requestRefresh` で requestId の照合、二重実行の拒否、タイムアウト
+- **`force_reload`** — フェイクの `requestRefresh` で requestId の照合、`busy: true` が
+  `A refresh is already in progress in the app.` に写像されること、タイムアウト
+- **`reload` の戻り値** — 実行中の呼び出しが `busy: true` を返すこと（従来は `undefined` を返して黙って捨てていた）
 
 手動確認: Claude から `set_chart` してメインウィンドウが即座に切り替わること、enlarge 窓も追随すること、
 `force_reload` がリロードボタンと同じ結果になること。
@@ -239,11 +307,24 @@ main は `Map<requestId, resolve>` を持ち、`refresh:done` で解決する。
 - **MW-07** `set_chart` と `edit_watchlist` は `core.symbols.profile()` で銘柄を解決し、未解決ならエラーにする。
   UI では検索結果から選ぶので不正な銘柄が入らないが、MCP だけ素通しだとタイプミスで空のチャートが置かれ、
   Claude が成功したと誤認する。`profileStore` ヒットなら 0 リクエストで、コストはほぼない。
+  「該当なし」と「通信失敗」は `ProfileService` が区別しないため、エラー文は両方を含む形にする。
 - **MW-08** `"all"` は表示中セル（`rows × cols`）のみを指す。UI の `clearAllCells`（全セル対象）とは挙動が異なるが、
   MCP から見て非表示セルは存在しないも同然のため揃える。
 - **MW-09** グリッドの自動拡張はしない。`set_chart` の対象セルが表示範囲外なら注記を返すに留める。
   ユーザーの見ている画面が予告なく分割されるのは驚きが大きい。
 - **MW-10** `force_reload` は引数を取らない。単一系列の更新は `get_ohlcv(force: true)` が担う。
+- **MW-11** MCP の書き込みが renderer のデバウンス保存を追い越したときのユーザー編集喪失（最大 500ms 分）は受容する。
+  compare-and-set では防げず（失われるのはまだ main に届いていない編集）、flush 往復を全ミューテーションに
+  足すのは対価に合わない。UI 2 窓の同時編集と同じ性質。
+- **MW-12** `get_workspace` の出力にインジケータ id を足す。既存の読み取りツールの出力変更になるが、
+  id を指定する操作系ツールの前提であり、これ無しでは `update_indicator` / `remove_indicator` が使えない。
+  `colors` / `fixed` は足さない（出力の無駄。色は `update_indicator` の応答、`fixed` はエラー文で伝わる）。
+- **MW-13** `ProfileService` は「検索成功・一致なし」のフォールバックをキャッシュしない。現状は永続キャッシュするため、
+  一度弾かれた銘柄が以後ずっと 0 リクエストで弾かれ続け、FMP の検索が実在銘柄を返さないケースで詰む。
+  未知銘柄の再問い合わせが毎回 1 リクエストになるが、探索は `search_symbols` の役割なので許容する。
+- **MW-14** リフレッシュの同時実行ガードは renderer の `inFlight` に一本化する。現在の「黙って早期 return」を
+  `busy: true` の返却に変え、main 側に二つ目のガードを置かない。二重ガードだと auto tick 中の MCP 要求が
+  応答を失い、60 秒のタイムアウトまで待たされる。
 
 ## 将来枠
 
@@ -251,3 +332,5 @@ main は `Map<requestId, resolve>` を持ち、`refresh:done` で解決する。
 - セル入替、アクティブセル変更、ウォッチリスト / ワークスペースの並べ替え。必要になれば同じ形で足せる。
 - キャッシュ操作ツール（キャッシュ済み OHLCV の削除）。
 - `bandPrimitive.ts` を含むインジケータ描画層の整理。今回は移動対象外。
+- CLAUDE.md の `DataSourceAdapter` / 「SQLite = OHLCV のみ」と実装の乖離。前回の MCP 設計の将来枠に記載済みで、
+  本設計は workspaces の JSON しか触らず FMP 結合を増やさないため、ここでは扱わない。
