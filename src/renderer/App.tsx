@@ -24,6 +24,7 @@ import { applyTheme } from './lib/theme'
 import type { CapabilityStatus } from '@shared/ipc'
 import type { Timeframe, Quote, MarketStatus } from '@shared/types'
 import type { ReloadSource } from './lib/autoRefresh'
+import { BUSY_RESULT, countOhlcv, type ReloadResult } from './lib/reloadResult'
 
 export default function App(): React.JSX.Element {
   // Sidebar open/closed (D-63) — UI chrome, persisted separately from the Workspace/named-layout
@@ -76,8 +77,10 @@ export default function App(): React.JSX.Element {
   }>({ status: 'idle', errorSource: null, lastRefreshedAt: null })
   const [autoRefresh, setAutoRefresh] = useState(false)
 
-  const reload = async (opts: { source: ReloadSource }): Promise<void> => {
-    if (inFlight.current) return // 同期ガード: 手動と auto tick の二重実行を防ぐ（state のラグに依存しない）
+  const reload = async (opts: { source: ReloadSource }): Promise<ReloadResult> => {
+    // 同期ガード: 手動と auto tick の二重実行を防ぐ（state のラグに依存しない）。
+    // MW-14: 黙って捨てず busy を返す — MCP の force_reload はこの戻り値で「今は無理」を知る。
+    if (inFlight.current) return BUSY_RESULT
     const state = useAppStore.getState()
     const { cells, shape } = state
     const caps = queryClient.getQueryData<Record<Timeframe, CapabilityStatus>>(qk.capabilities())
@@ -112,7 +115,7 @@ export default function App(): React.JSX.Element {
           status: statusOk ? 'paused-closed' : s.status,
           errorSource: statusOk ? null : 'auto',
         }))
-        return
+        return { refreshed: 0, failed: 0, busy: false }
       }
       let marketStatus: MarketStatus | null = queryClient.getQueryData<MarketStatus>(qk.marketStatus()) ?? null
       const ohlcvResults = await Promise.allSettled(
@@ -139,7 +142,8 @@ export default function App(): React.JSX.Element {
       }
       // 他ウィンドウ(enlarge 窓)へ配信。受信側は setQueryData のみ（追加 FMP なし）。
       void api.refresh.broadcast({ ohlcv, quotes, marketStatus })
-      const failed = ohlcvResults.some((r) => r.status === 'rejected')
+      const counts = countOhlcv(ohlcvResults)
+      const failed = counts.failed > 0
       if (failed) toast('Some charts couldn’t be refreshed. Check your connection or FMP plan.')
       // ドットは市場状態(開場=緑/閉鎖=琥珀)。失敗は起こしたソースを errorSource に記録し、
       // 成功はソースに関わらずクリア(データが最新になったので)。
@@ -150,6 +154,7 @@ export default function App(): React.JSX.Element {
         errorSource: failed || !statusOk ? opts.source : null,
         lastRefreshedAt: Date.now(),
       }))
+      return { ...counts, busy: false }
     } finally {
       inFlight.current = false
       setReloading(false)
