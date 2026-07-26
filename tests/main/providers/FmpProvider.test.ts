@@ -230,3 +230,77 @@ describe('FmpProvider.getCompanyProfile', () => {
     expect(httpGetJson.mock.calls.some((cc) => cc[0].includes('/profile?symbol=AAPL'))).toBe(true)
   })
 })
+
+describe('FmpProvider.getEconomicCalendar', () => {
+  // 夏週/冬週の米 CPI の暦日。Task 1 の fixture から転記（08:30 ET 発表という事実で epoch を固定する）。
+  const CPI_SUMMER_DAY = '2026-07-14' // ← fixture の date の先頭 10 文字に合わせる
+  const CPI_WINTER_DAY = '2026-01-13' // ← 同上（winter fixture）
+
+  const cpiOf = (events: { time: number; event: string; country: string }[]) =>
+    events.find((e) => e.country === 'US' && /CPI/i.test(e.event))!
+
+  it('maps the summer CPI row to 08:30 America/New_York (= 12:30Z under EDT)', async () => {
+    const events = await provider(fx('fmp-economic-calendar.json')).getEconomicCalendar('2026-07-13', '2026-07-17')
+    expect(cpiOf(events).time).toBe(Math.floor(Date.parse(`${CPI_SUMMER_DAY}T12:30:00Z`) / 1000))
+  })
+
+  it('maps the winter CPI row to 08:30 America/New_York (= 13:30Z under EST)', async () => {
+    const events = await provider(fx('fmp-economic-calendar-winter.json')).getEconomicCalendar('2026-01-12', '2026-01-16')
+    expect(cpiOf(events).time).toBe(Math.floor(Date.parse(`${CPI_WINTER_DAY}T13:30:00Z`) / 1000))
+  })
+
+  it('returns events sorted ascending by time', async () => {
+    const events = await provider(fx('fmp-economic-calendar.json')).getEconomicCalendar('2026-07-13', '2026-07-17')
+    expect(events.length).toBeGreaterThan(1)
+    expect(events.map((e) => e.time)).toEqual([...events.map((e) => e.time)].sort((a, b) => a - b))
+  })
+
+  // 要求範囲を両端 1 日広げる（EC-02）。ET 基準だと UTC 日の端が欠けるため。リクエスト数は変わらない。
+  it('widens the requested range by one day on each end', async () => {
+    const httpGetJson = vi.fn(async (_url: string) => fx('fmp-economic-calendar.json'))
+    await new FmpProvider({ apiKey: 'k', httpGetJson }).getEconomicCalendar('2026-07-13', '2026-07-17')
+    expect(httpGetJson).toHaveBeenCalledTimes(1)
+    const url = httpGetJson.mock.calls[0][0]
+    expect(url).toContain('/economic-calendar?')
+    expect(url).toContain('from=2026-07-12')
+    expect(url).toContain('to=2026-07-18')
+  })
+
+  // 以下 3 件は手書きの合成行。fixture には入れない（実レスポンスの verbatim 性を保つため）。
+  it('normalizes an unknown impact to Low (EC-03)', async () => {
+    const rows = [
+      { date: '2026-07-14 12:30:00', country: 'US', currency: 'USD', event: 'A', previous: 1, estimate: 2, actual: 3, impact: '' },
+      { date: '2026-07-14 13:30:00', country: 'US', currency: 'USD', event: 'B', previous: 1, estimate: 2, actual: 3, impact: 'None' },
+      { date: '2026-07-14 14:30:00', country: 'US', currency: 'USD', event: 'C', previous: 1, estimate: 2, actual: 3, impact: 'Holiday' },
+      { date: '2026-07-14 15:30:00', country: 'US', currency: 'USD', event: 'D', previous: 1, estimate: 2, actual: 3, impact: null }
+    ]
+    const events = await provider(rows).getEconomicCalendar('2026-07-14', '2026-07-14')
+    expect(events.map((e) => e.impact)).toEqual(['Low', 'Low', 'Low', 'Low'])
+  })
+
+  it('keeps High/Medium/Low case-insensitively', async () => {
+    const rows = ['high', 'Medium', 'LOW'].map((impact, i) => ({
+      date: `2026-07-14 1${i}:00:00`, country: 'US', currency: 'USD', event: `E${i}`,
+      previous: null, estimate: null, actual: null, impact
+    }))
+    const events = await provider(rows).getEconomicCalendar('2026-07-14', '2026-07-14')
+    expect(events.map((e) => e.impact)).toEqual(['High', 'Medium', 'Low'])
+  })
+
+  it('passes through nulls: unreleased actual, and the all-null FOMC shape', async () => {
+    const rows = [
+      { date: '2026-07-14 12:30:00', country: 'US', currency: 'USD', event: 'CPI MoM', previous: 0.2, estimate: 0.3, actual: null, impact: 'High' },
+      { date: '2026-07-14 18:00:00', country: 'US', currency: null, event: 'FOMC Rate Decision', previous: null, estimate: null, actual: null, impact: 'High' }
+    ]
+    const events = await provider(rows).getEconomicCalendar('2026-07-14', '2026-07-14')
+    expect(events[0]).toMatchObject({ event: 'CPI MoM', previous: 0.2, estimate: 0.3, actual: null })
+    expect(events[1]).toMatchObject({ event: 'FOMC Rate Decision', currency: null, previous: null, estimate: null, actual: null })
+  })
+
+  it('wraps an error-shaped 200 payload as FmpHttpError(200) so core can classify it', async () => {
+    let caught: unknown
+    try { await provider(fx('fmp-error.json')).getEconomicCalendar('2026-07-13', '2026-07-17') } catch (e) { caught = e }
+    expect(caught).toBeInstanceOf(FmpHttpError)
+    expect(classify((caught as FmpHttpError).status, (caught as FmpHttpError).body)).toBe('requires-plan')
+  })
+})

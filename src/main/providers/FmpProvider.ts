@@ -1,10 +1,10 @@
-import { subDays, subMonths, subYears } from 'date-fns'
+import { subDays, subMonths, subYears, addDays } from 'date-fns'
 import { fromZonedTime } from 'date-fns-tz'
-import type { Bar, SymbolResult, Timeframe, DateRange, Quote, MarketStatus, CompanyProfileData } from '@shared/types'
+import type { Bar, SymbolResult, Timeframe, DateRange, Quote, MarketStatus, CompanyProfileData, EconomicEvent, EconomicImpact } from '@shared/types'
 import {
   fmpHistoricalResponse, fmpSearchResponse, fmpQuoteResponse, fmpMarketHoursResponse, fmpProfileResponse,
   fmpRatiosTtmResponse, fmpKeyMetricsTtmResponse, fmpGradesConsensusResponse,
-  fmpPriceTargetConsensusResponse, fmpFinancialGrowthResponse, fmpEarningsResponse
+  fmpPriceTargetConsensusResponse, fmpFinancialGrowthResponse, fmpEarningsResponse, fmpEconomicCalendarResponse
 } from './fmp.schema'
 
 // FMP migrated off /api/v3 (now returns 403 for current keys) to the /stable surface.
@@ -52,6 +52,22 @@ function nyDateTimeToEpochSeconds(s: string): number {
 function ymd(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
+
+// FMP の /economic-calendar の `date` は "2026-07-14 12:30:00" 形式でタイムゾーンマーカーを持たない。
+// 実測で確定済み（2026-07-26）: 米 CPI = 08:30 ET は夏週で 12:30Z、冬週で 13:30Z と一致し、
+// DST の切り替わりに追従している — つまりこの文字列はすでに UTC。
+// これが SQLite の economic_days のキー（UTC 日）を決めるので、基準を変えるときは client.ts で
+// DROP TABLE economic_days する — 1 週 1 リクエストの安いキャッシュなので捨てるほうが小さい。
+function economicDateToEpochSeconds(s: string): number {
+  return Math.floor(Date.parse(`${s.replace(' ', 'T')}Z`) / 1000)
+}
+
+// 'YYYY-MM-DD' を UTC 日で n 日ずらす。
+function shiftUtcDay(day: string, n: number): string {
+  return ymd(addDays(new Date(`${day}T00:00:00Z`), n))
+}
+
+const ECONOMIC_IMPACT: Record<string, EconomicImpact> = { high: 'High', medium: 'Medium', low: 'Low' }
 
 // ponytail: 1m span approximated as 7 calendar days (covers "last 5 trading days" across a
 // weekend); swap to an exchange-calendar trading-day count if coverage proves short (§4).
@@ -285,5 +301,25 @@ export class FmpProvider {
       price: r.price ?? null,
       valuation, financials, analyst, growth, schedule
     }
+  }
+
+  // from/to は UTC 日の 'YYYY-MM-DD'。範囲を両端 1 日広げる: FMP の from/to が ET 基準だと要求した
+  // UTC 日の端が欠ける（EC-02）。広げてもリクエストは 1 本のままで、範囲外の日は
+  // EconomicCalendarService が捨てる。
+  async getEconomicCalendar(from: string, to: string): Promise<EconomicEvent[]> {
+    const url = `${BASE}/economic-calendar?from=${shiftUtcDay(from, -1)}&to=${shiftUtcDay(to, 1)}&apikey=${this.apiKey}`
+    const rows = this.parseOrThrowHttpError(fmpEconomicCalendarResponse, await this.httpGetJson(url))
+    return rows
+      .map((r) => ({
+        time: economicDateToEpochSeconds(r.date),
+        country: r.country,
+        currency: r.currency ?? null,
+        event: r.event,
+        impact: ECONOMIC_IMPACT[(r.impact ?? '').toLowerCase()] ?? 'Low',
+        previous: r.previous ?? null,
+        estimate: r.estimate ?? null,
+        actual: r.actual ?? null
+      }))
+      .sort((a, b) => a.time - b.time)
   }
 }

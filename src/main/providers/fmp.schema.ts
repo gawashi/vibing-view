@@ -128,3 +128,17 @@ export const fmpEarningsResponse = z.array(z.object({
   epsActual: num(),
   epsEstimated: num()
 }).passthrough())
+
+// /stable/economic-calendar returns a flat array. `impact` は z.string() で受けてから正規化する:
+// 空文字 / 'None' / 休場表記など未知の値でパースを落とさない（EC-03、正規化は FmpProvider）。
+// change / changePercentage は previous と actual から導出できるので受けない（EC-01）。
+export const fmpEconomicCalendarResponse = z.array(z.object({
+  date: z.string(),
+  country: z.string(),
+  currency: z.string().nullable().optional().catch(null),
+  event: z.string(),
+  previous: num(),
+  estimate: num(),
+  actual: num(),
+  impact: z.string().nullable().optional().catch(null)
+}).passthrough())
