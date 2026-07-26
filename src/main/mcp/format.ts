@@ -112,9 +112,15 @@ export function formatWorkspaceList(collection: WorkspaceCollection): string {
   return [head, ...lines].join('\n')
 }
 
-const formatIndicator = (i: { type: string; params: Record<string, number | string> }): string => {
-  const params = Object.entries(i.params).map(([k, v]) => `${k}=${v}`).join(', ')
-  return params ? `${i.type}(${params})` : i.type
+// MW-12: the instance id is printed because update_indicator / remove_indicator take it. `colors`
+// and `fixed` stay out: colour is echoed by update_indicator's own response, and `fixed` is
+// explained by remove_indicator's error when it refuses.
+export const formatIndicator = (i: {
+  id: string; type: string; params: Record<string, number | string>; visible: boolean
+}): string => {
+  const parts = Object.entries(i.params).map(([k, v]) => `${k}=${v}`)
+  if (!i.visible) parts.push('hidden')
+  return parts.length > 0 ? `[${i.id}] ${i.type}(${parts.join(', ')})` : `[${i.id}] ${i.type}`
 }
 
 export function formatWorkspaceDetail(w: Workspace, isActive: boolean): string {
