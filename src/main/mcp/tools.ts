@@ -9,6 +9,7 @@ import {
   summaryLine, toCsv, unmetRangeNotes, DEFAULT_LIMIT, MAX_LIMIT, ok, fail
 } from './format'
 import { buildMutationTools } from './mutations'
+import { buildWorkspaceTools } from './workspaceTools'
 
 export type ToolCore = Pick<
   Core, 'ohlcv' | 'symbols' | 'quote' | 'company' | 'workspaces' | 'capabilities' | 'cacheStatus'
@@ -236,7 +237,8 @@ export function buildTools(core: ToolCore, now: () => number): ToolDef[] {
         return ok(formatCacheStatus(core.cacheStatus.summarize(symbol), core.capabilities.get(), symbol))
       }
     },
-    ...buildMutationTools(core)
+    ...buildMutationTools(core),
+    ...buildWorkspaceTools(core)
   ]
 }
 

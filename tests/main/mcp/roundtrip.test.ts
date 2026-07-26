@@ -34,7 +34,8 @@ describe('mcp round trip', () => {
     expect(body.result.tools.map((t: { name: string }) => t.name)).toEqual([
       'search_symbols', 'get_ohlcv', 'get_quote', 'get_company_info',
       'get_workspaces', 'get_workspace', 'get_cache_status',
-      'set_chart', 'set_grid_layout', 'add_indicator', 'update_indicator', 'remove_indicator'
+      'set_chart', 'set_grid_layout', 'add_indicator', 'update_indicator', 'remove_indicator',
+      'edit_watchlist', 'create_workspace', 'rename_workspace', 'delete_workspace', 'activate_workspace'
     ])
   })
 

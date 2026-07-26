@@ -54,7 +54,7 @@ const removeIndicatorArgs = z.object({
 })
 
 // The tool layer resolves symbols BEFORE calling mutate, because mutate is synchronous (MW-04).
-export async function resolveSymbol(core: ToolCore, symbol: string): Promise<string | null> {
+async function resolveSymbol(core: ToolCore, symbol: string): Promise<string | null> {
   const profile = await core.symbols.profile(symbol)
   // ProfileService collapses "no match" and "request failed" into exchange: '' (MW-07).
   return profile.exchange === '' ? null : profile.symbol.toUpperCase()

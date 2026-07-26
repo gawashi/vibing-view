@@ -106,7 +106,7 @@ export function formatCacheStatus(
   return [head, ...lines, capLine].join('\n')
 }
 
-const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`
+export const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`
 
 export function formatWorkspaceList(collection: WorkspaceCollection): string {
   const head = `Workspaces (${collection.workspaces.length}) — active: ${collection.active}`
