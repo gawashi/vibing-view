@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  parseIsoToEpoch, formatEpoch, clampLimit, interpretationNote, unmetRangeNotes,
+  parseIsoToEpoch, formatEpoch, unmetRangeNotes,
   summaryLine, toCsv, formatCacheStatus, formatWorkspaceList, formatWorkspaceDetail,
   formatSymbolResults, formatQuote, formatCompanyInfo
 } from '../../../src/main/mcp/format'
@@ -32,34 +32,6 @@ describe('formatEpoch', () => {
 
   it('prints a full timestamp for intraday', () => {
     expect(formatEpoch(at('2026-07-24T13:30:00Z'), '5m')).toBe('2026-07-24T13:30:00Z')
-  })
-})
-
-describe('clampLimit', () => {
-  it('defaults to 300', () => {
-    expect(clampLimit(undefined)).toEqual({ limit: 300, note: null })
-  })
-
-  it('passes an in-range limit through', () => {
-    expect(clampLimit(50)).toEqual({ limit: 50, note: null })
-  })
-
-  it('caps at 2000 and says so', () => {
-    expect(clampLimit(5000)).toEqual({ limit: 2000, note: 'note: limit was capped at 2000 (requested 5000).' })
-  })
-})
-
-describe('interpretationNote', () => {
-  it('explains a date-only bound on an intraday request', () => {
-    expect(interpretationNote('from', '2026-01-01', '5m')).toBe('note: from=2026-01-01 was read as 2026-01-01T00:00:00Z.')
-  })
-
-  it('says nothing for a daily request', () => {
-    expect(interpretationNote('from', '2026-01-01', '1d')).toBeNull()
-  })
-
-  it('says nothing when a full timestamp was given', () => {
-    expect(interpretationNote('to', '2026-01-01T10:00:00Z', '5m')).toBeNull()
   })
 })
 
@@ -269,30 +241,30 @@ describe('formatCompanyInfo', () => {
   }
 
   it('prints a present group in full and a null group as not available, never omitted', () => {
-    const text = formatCompanyInfo(info, false)
+    const text = formatCompanyInfo(info)
     expect(text).toContain('valuation: peRatio=65, pbRatio=—, psRatio=—, pegRatio=—, dividendYield=—, evToEbitda=—, earningsYield=—, fcfYield=—')
     expect(text).toContain('financials: not available')
   })
 
   it('prints an undefined group as not available too', () => {
-    expect(formatCompanyInfo(info, false)).toContain('analyst: not available')
+    expect(formatCompanyInfo(info)).toContain('analyst: not available')
   })
 
   it('renders null scalars as the em-dash placeholder', () => {
-    const text = formatCompanyInfo(info, false)
+    const text = formatCompanyInfo(info)
     expect(text).toContain('market cap: 3000000000000, price: 120.5, beta: 1.7, employees: 29600')
     expect(text).toContain('sector: Technology, industry: Semiconductors, country: US')
   })
 
   it('prints the header and every present group', () => {
-    const text = formatCompanyInfo(info, false)
+    const text = formatCompanyInfo(info)
     expect(text).toContain('NVDA — NVIDIA Corporation (as of 2026-07-24T00:00:00.000Z)')
     expect(text).toContain('growth: revenueGrowth=0.5, netIncomeGrowth=0.6, epsGrowth=0.4')
     expect(text).toContain('schedule: not available')
   })
 
-  it('adds the stale line when forcedButStale is set', () => {
-    expect(formatCompanyInfo(info, false)).not.toContain('stale:')
-    expect(formatCompanyInfo(info, true)).toContain('stale: fetch failed, showing cached')
+  it('adds the stale line when the info is flagged stale', () => {
+    expect(formatCompanyInfo(info)).not.toContain('stale:')
+    expect(formatCompanyInfo({ ...info, stale: true })).toContain('stale: fetch failed, showing cached')
   })
 })

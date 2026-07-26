@@ -26,7 +26,9 @@ export function createCompanyInfoService(deps: {
         store.upsertCompanyProfile(symbol, data, fetchedAt)
         return { ...data, fetchedAt }
       } catch (err) {
-        if (cached) return { ...cached.data, fetchedAt: cached.fetchedAt } // stale fallback
+        // stale: true so callers can say "this is the cached row, the refetch failed" — fetchedAt
+        // alone can't tell them (a row written seconds ago still looks fresh).
+        if (cached) return { ...cached.data, fetchedAt: cached.fetchedAt, stale: true }
         throw err
       }
     }

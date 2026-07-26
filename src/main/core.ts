@@ -1,12 +1,18 @@
-import type {
-  Bar, Timeframe, DateRange, WorkspaceCollection, SymbolResult,
-  CompanyProfileData, Quote, MarketStatus, CompanyInfo, ClipboardCell
+import {
+  TIMEFRAMES, DERIVED_TIMEFRAMES, DAILY_BACKED_TIMEFRAMES,
+  type Bar, type Timeframe, type DateRange, type WorkspaceCollection, type SymbolResult,
+  type Quote, type MarketStatus, type CompanyInfo, type ClipboardCell
 } from '@shared/types'
 import type { CapabilityStatus, KeyStatus, SetKeyResult } from '@shared/ipc'
 import { CH } from '@shared/ipc'
 import type { FmpProvider } from './providers/FmpProvider'
 import { FmpHttpError } from './providers/FmpProvider'
 import type * as barStoreModule from './db/barStore'
+import type * as profileStoreModule from './db/profileStore'
+import type * as companyProfileStoreModule from './db/companyProfileStore'
+import type * as workspaceStoreModule from './workspaceStore'
+import type * as capabilityCacheModule from './capabilityCache'
+import type * as keystoreModule from './keystore'
 import type { BarSummary } from './db/barStore'
 import { createCacheService } from './cache/CacheService'
 import { classify } from './capabilityClassifier'
@@ -15,10 +21,6 @@ import { createProfileService } from './profile/ProfileService'
 import { createCompanyInfoService } from './profile/CompanyInfoService'
 
 export type { BarSummary } from './db/barStore'
-
-const ALL_TIMEFRAMES: Timeframe[] = ['1m', '5m', '15m', '1h', '1d', '1w', '1M']
-const DERIVED_TIMEFRAMES: Timeframe[] = ['1w', '1M'] // never gated — always 'available'
-const DAILY_BACKED: Timeframe[] = ['1d', '1w', '1M'] // all served from '1d' bars
 
 // `[]` used to mean three different things at once (off-plan short-circuit, unknown symbol, empty
 // window). The renderer can collapse them into one "not covered" message; MCP has to explain
@@ -44,29 +46,11 @@ export type ProviderLike = Pick<
 export type CoreDeps = {
   broadcast: (channel: string, payload: unknown, exceptWebContentsId?: number) => void
   barStore: Pick<typeof barStoreModule, 'getCoverage' | 'getBars' | 'upsertBarsAndCoverage' | 'summarizeBars'>
-  profileStore: {
-    getProfile(symbol: string): SymbolResult | null
-    upsertProfile(p: SymbolResult): void
-  }
-  companyProfileStore: {
-    getCompanyProfile(symbol: string): { data: CompanyProfileData; fetchedAt: number } | null
-    upsertCompanyProfile(symbol: string, data: CompanyProfileData, fetchedAt: number): void
-  }
-  workspaceStore: {
-    getWorkspaces(): WorkspaceCollection
-    setWorkspaces(c: WorkspaceCollection): void
-  }
-  capabilityCache: {
-    getStatus(apiKey: string, tf: Timeframe): CapabilityStatus
-    setStatus(apiKey: string, tf: Timeframe, status: CapabilityStatus): void
-    clearForKeyChange(): void
-  }
-  keystore: {
-    getApiKey(): string | null
-    setApiKey(key: string): SetKeyResult
-    getKeyStatus(): KeyStatus
-    clearApiKey(): void
-  }
+  profileStore: Pick<typeof profileStoreModule, 'getProfile' | 'upsertProfile'>
+  companyProfileStore: Pick<typeof companyProfileStoreModule, 'getCompanyProfile' | 'upsertCompanyProfile'>
+  workspaceStore: Pick<typeof workspaceStoreModule, 'getWorkspaces' | 'setWorkspaces'>
+  capabilityCache: Pick<typeof capabilityCacheModule, 'getStatus' | 'setStatus' | 'clearForKeyChange'>
+  keystore: Pick<typeof keystoreModule, 'getApiKey' | 'setApiKey' | 'getKeyStatus' | 'clearApiKey'>
   makeProvider: (apiKey: string) => ProviderLike
   nowSec?: () => number // epoch SECONDS; injectable for tests
 }
@@ -113,8 +97,7 @@ export function createCore(deps: CoreDeps) {
         getOHLCV: (symbol, tf, range) => {
           counter.calls += 1
           return provider.getOHLCV(symbol, tf, range)
-        },
-        searchSymbols: (query) => provider.searchSymbols(query)
+        }
       },
       store: barStore,
       now: deps.nowSec
@@ -139,14 +122,14 @@ export function createCore(deps: CoreDeps) {
   const runTracked = async (
     symbol: string, timeframe: Timeframe, counter: { calls: number }, run: () => Promise<Bar[]>
   ): Promise<OhlcvOutcome> => {
-    if (DAILY_BACKED.includes(timeframe) && dailyOutOfPlan.has(symbol)) return { kind: 'out-of-plan' }
+    if (DAILY_BACKED_TIMEFRAMES.includes(timeframe) && dailyOutOfPlan.has(symbol)) return { kind: 'out-of-plan' }
 
     let bars: Bar[]
     try {
       bars = await run()
     } catch (err) {
       const planGated = err instanceof FmpHttpError && (err.status === 402 || err.status === 403)
-      const symbolOffPlan = planGated && DAILY_BACKED.includes(timeframe)
+      const symbolOffPlan = planGated && DAILY_BACKED_TIMEFRAMES.includes(timeframe)
       if (symbolOffPlan) dailyOutOfPlan.add(symbol)
       const apiKey = keystore.getApiKey()
       if (apiKey && !DERIVED_TIMEFRAMES.includes(timeframe) && err instanceof FmpHttpError) {
@@ -170,7 +153,7 @@ export function createCore(deps: CoreDeps) {
     }
     if (bars.length > 0) return { kind: 'ok', bars, apiCalls: counter.calls }
     // Empty. W/M carry no rows of their own (D-17) — their coverage IS the daily coverage.
-    const covTf = DAILY_BACKED.includes(timeframe) ? '1d' : timeframe
+    const covTf = DAILY_BACKED_TIMEFRAMES.includes(timeframe) ? '1d' : timeframe
     return barStore.getCoverage(symbol, covTf) ? { kind: 'empty-range' } : { kind: 'unknown-symbol' }
   }
 
@@ -272,7 +255,7 @@ export function createCore(deps: CoreDeps) {
       get(): Record<Timeframe, CapabilityStatus> {
         const apiKey = keystore.getApiKey()
         const result = {} as Record<Timeframe, CapabilityStatus>
-        for (const tf of ALL_TIMEFRAMES) {
+        for (const tf of TIMEFRAMES) {
           result[tf] = DERIVED_TIMEFRAMES.includes(tf)
             ? 'available'
             : apiKey

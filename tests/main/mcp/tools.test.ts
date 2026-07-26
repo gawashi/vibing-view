@@ -85,6 +85,21 @@ describe('get_ohlcv range handling', () => {
     expect(core.ohlcv.get).toHaveBeenCalledWith('NVDA', '1d', undefined)
   })
 
+  // Date.parse would roll 2026-02-30 over to March 2 (silently wrong range) and return NaN for
+  // 2026-99-01 (throws out of the handler instead of returning isError).
+  it.each(['2026-02-30', '2026-13-01', '2026-99-01', '2025-02-29'])('rejects the non-date %s', async (from) => {
+    const core = fakeCore()
+    const res = await tool(core, 'get_ohlcv').handler({ symbol: 'NVDA', timeframe: '1d', from })
+    expect(res.isError).toBe(true)
+    expect(core.ohlcv.get).not.toHaveBeenCalled()
+  })
+
+  it('accepts a leap day that exists', async () => {
+    const core = fakeCore()
+    const res = await tool(core, 'get_ohlcv').handler({ symbol: 'NVDA', timeframe: '1d', from: '2024-02-29' })
+    expect(res.isError).toBeUndefined()
+  })
+
   it('rejects from > to', async () => {
     const core = fakeCore()
     const res = await tool(core, 'get_ohlcv').handler({ symbol: 'NVDA', timeframe: '1d', from: '2026-02-01', to: '2026-01-01' })
@@ -112,9 +127,10 @@ describe('get_ohlcv output', () => {
     expect(text).not.toContain('2026-01-08')
   })
 
-  it('caps an over-large limit and says so', async () => {
+  it('caps an over-large limit at MAX_LIMIT', async () => {
     const res = await tool(fakeCore(), 'get_ohlcv').handler({ symbol: 'NVDA', timeframe: '1d', limit: 9999 })
-    expect(res.content[0].text).toContain('note: limit was capped at 2000 (requested 9999).')
+    // 10 cached bars, so the cap is invisible in the output beyond "N of M" reporting the truth.
+    expect(res.content[0].text).toContain('10 of 10 cached bars')
   })
 
   it('routes force=true to refresh', async () => {
@@ -173,8 +189,8 @@ describe('workspace tools', () => {
     expect(res.content[0].text).toContain('Workspaces (2) — active: Main')
   })
 
-  it('get_active_workspace details the active one', async () => {
-    const res = await tool(fakeCore(), 'get_active_workspace').handler({})
+  it('get_workspace defaults to the active one', async () => {
+    const res = await tool(fakeCore(), 'get_workspace').handler({})
     expect(res.content[0].text).toContain('Workspace: Main (active)')
   })
 

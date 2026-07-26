@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest'
 import { startMcpHttpServer, type McpHttpServer } from '../../../src/main/mcp/httpServer'
 
 // McpHttpServer only exposes port()/close(), so the underlying net.Server is captured via a
-// wrapped `http.createServer` instead of widening the public API just for one test.
+// wrapped `http.createServer` instead of widening the public API for the bind/error assertions.
 const capture = vi.hoisted(() => ({ server: undefined as import('http').Server | undefined }))
 vi.mock('http', async (importOriginal) => {
   const actual = await importOriginal<typeof import('http')>()
@@ -30,20 +30,24 @@ const post = (port: number, headers: Record<string, string>, body: unknown = { j
   })
 
 describe('startMcpHttpServer', () => {
-  it('passes an authorised request to the handler with the parsed body', async () => {
-    const handle = vi.fn(async (_req, res, _body) => { res.writeHead(200).end('ok') })
+  it('passes an authorised request to the handler with the body still unread', async () => {
+    // The body is left for the MCP transport to parse, so the handler must still be able to read it.
+    const handle = vi.fn(async (req, res) => {
+      const chunks: Buffer[] = []
+      for await (const c of req) chunks.push(c as Buffer)
+      res.writeHead(200).end(Buffer.concat(chunks))
+    })
     server = await startMcpHttpServer({ port: 0, token: 'secret', handle })
 
     const res = await post(server.port(), { authorization: 'Bearer secret' })
 
     expect(res.status).toBe(200)
-    expect(handle).toHaveBeenCalledOnce()
-    expect(handle.mock.calls[0][2]).toEqual({ jsonrpc: '2.0', id: 1, method: 'ping' })
+    expect(await res.json()).toEqual({ jsonrpc: '2.0', id: 1, method: 'ping' })
   })
 
   it('binds loopback only, never all interfaces', async () => {
     server = await startMcpHttpServer({ port: 0, token: 'secret', handle: vi.fn() })
-    expect(server.address()).toBe('127.0.0.1')
+    expect((capture.server!.address() as import('net').AddressInfo).address).toBe('127.0.0.1')
   })
 
   it('rejects a request with no token', async () => {

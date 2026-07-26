@@ -1,11 +1,11 @@
 import { z } from 'zod'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import type { DateRange, Timeframe } from '@shared/types'
+import { TIMEFRAMES, type DateRange, type Timeframe } from '@shared/types'
 import type { Core, OhlcvOutcome } from '../core'
 import { FmpHttpError } from '../providers/FmpProvider'
 import {
-  clampLimit, formatCacheStatus, formatCompanyInfo, formatEpoch, formatQuote, formatSymbolResults,
-  formatWorkspaceDetail, formatWorkspaceList, interpretationNote, isIntraday, parseIsoToEpoch,
+  formatCacheStatus, formatCompanyInfo, formatEpoch, formatQuote, formatSymbolResults,
+  formatWorkspaceDetail, formatWorkspaceList, isIntraday, parseIsoToEpoch,
   summaryLine, toCsv, unmetRangeNotes, DEFAULT_LIMIT, MAX_LIMIT
 } from './format'
 
@@ -15,33 +15,60 @@ export type ToolCore = Pick<
 
 export type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean }
 export type ToolHandler = (args: Record<string, unknown>) => Promise<ToolResult>
-export type ToolDef = { name: string; description: string; schema: z.ZodTypeAny; handler: ToolHandler }
+export type ToolDef = {
+  name: string
+  description: string
+  schema: z.ZodObject<z.ZodRawShape>
+  handler: ToolHandler
+}
 
 const ok = (text: string): ToolResult => ({ content: [{ type: 'text', text }] })
 // Tool-level failures are reported as isError results, never thrown: a protocol error tells the
 // model "the call broke", an isError result tells it *what to do differently*.
 const fail = (text: string): ToolResult => ({ content: [{ type: 'text', text }], isError: true })
 
-const TIMEFRAMES = ['1m', '5m', '15m', '1h', '1d', '1w', '1M'] as const
 const DATE_RE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}Z)?$/
 
-const symbolArg = z.string().min(1).describe('Ticker symbol, e.g. NVDA. Case-insensitive.')
-const dateArg = z.string().regex(DATE_RE, 'Use YYYY-MM-DD or YYYY-MM-DDTHH:mm:ssZ (UTC).')
+// A bare date means midnight UTC, same as parseIsoToEpoch.
+const normIso = (v: string): string => (v.length === 10 ? `${v}T00:00:00Z` : v)
+// DATE_RE only checks the shape: Date.parse rolls 2026-02-30 over to March 2 (wrong range, no
+// warning) and returns NaN for 2026-99-01, which would throw out of the handler as a protocol
+// error instead of an isError result. Round-trip the parse to reject both.
+const isRealDate = (v: string): boolean => {
+  const ms = Date.parse(normIso(v))
+  return !Number.isNaN(ms) && new Date(ms).toISOString().startsWith(v.slice(0, 10))
+}
 
-const ohlcvArgs = z
-  .object({
-    symbol: symbolArg,
-    timeframe: z.enum(TIMEFRAMES).describe("Bar size. '1w' and '1M' are derived from cached daily bars."),
-    from: dateArg.optional().describe('Oldest bar to return (inclusive), UTC.'),
-    to: dateArg.optional().describe('Newest bar to return (inclusive), UTC.'),
-    limit: z.number().int().positive().optional()
-      .describe(`Maximum bars to return, counted back from the newest. Default ${DEFAULT_LIMIT}, capped at ${MAX_LIMIT}.`),
-    force: z.boolean().optional()
-      .describe('Fetch the newest bars from FMP before answering. Costs one API request EVERY call — omit it unless you specifically need up-to-the-minute data.')
-  })
-  .refine((a) => !(a.from && a.to) || parseIsoToEpoch(a.from) <= parseIsoToEpoch(a.to), {
-    message: 'from must not be after to.'
-  })
+const symbolArg = z.string().min(1).describe('Ticker symbol, e.g. NVDA. Case-insensitive.')
+const dateArg = z.string()
+  .regex(DATE_RE, 'Use YYYY-MM-DD or YYYY-MM-DDTHH:mm:ssZ (UTC).')
+  .refine(isRealDate, 'Not a real calendar date.')
+
+const BARE_DATE_HINT = 'A bare YYYY-MM-DD means 00:00:00Z, so pass a full timestamp on intraday timeframes.'
+
+const searchArgs = z.object({ query: z.string().min(1).describe('Ticker fragment or company name.') })
+const symbolOnlyArgs = z.object({ symbol: symbolArg })
+const companyArgs = z.object({
+  symbol: symbolArg,
+  force: z.boolean().optional().describe('Ignore the 24-hour cache and refetch. Costs up to 7 API requests.')
+})
+const workspaceArgs = z.object({
+  name: z.string().min(1).optional()
+    .describe('Exact workspace name, as listed by get_workspaces. Omit for the one the user has open.')
+})
+const cacheStatusArgs = z.object({
+  symbol: symbolArg.optional().describe('Restrict to one symbol. Omit for every cached symbol.')
+})
+const ohlcvArgs = z.object({
+  symbol: symbolArg,
+  timeframe: z.enum(TIMEFRAMES).describe("Bar size. '1w' and '1M' are derived from cached daily bars."),
+  from: dateArg.optional().describe(`Oldest bar to return (inclusive), UTC. ${BARE_DATE_HINT}`),
+  to: dateArg.optional().describe(`Newest bar to return (inclusive), UTC. ${BARE_DATE_HINT}`),
+  limit: z.number().int().positive().optional()
+    .describe(`Maximum bars to return, counted back from the newest. Default ${DEFAULT_LIMIT}, capped at ${MAX_LIMIT}.`),
+  force: z.boolean().optional()
+    .describe('Fetch the newest bars from FMP before answering. Costs one API request EVERY call — omit it unless you specifically need up-to-the-minute data.')
+})
 
 const OHLCV_DESCRIPTION = [
   'Return cached OHLCV candles for a symbol as CSV.',
@@ -88,15 +115,14 @@ export function buildTools(core: ToolCore, now: () => number): ToolDef[] {
     const { symbol, timeframe, from, to, force } = parsed.data
 
     const notes: string[] = []
-    const { limit, note: limitNote } = clampLimit(parsed.data.limit)
-    if (limitNote) notes.push(limitNote)
-    for (const [label, value] of [['from', from], ['to', to]] as const) {
-      const n = value ? interpretationNote(label, value, timeframe) : null
-      if (n) notes.push(n)
-    }
+    const limit = Math.min(parsed.data.limit ?? DEFAULT_LIMIT, MAX_LIMIT)
 
     const fromSec = from ? parseIsoToEpoch(from) : undefined
     const toSec = to ? parseIsoToEpoch(to) : undefined
+    // Checked here rather than as a schema refinement: zod runs object-level refinements even when
+    // a field already failed, and parseIsoToEpoch would then throw a protocol error out of the
+    // handler instead of returning an isError result the model can act on.
+    if (fromSec !== undefined && toSec !== undefined && fromSec > toSec) return fail('from must not be after to.')
     // M-14: a lone `to` gets no synthetic `from` — epoch 0 on a minute series would ask FMP for
     // decades. Fetch the cached window and filter the output instead. A lone `from` gets a
     // synthetic `to` capped at the cached newest bar (falling back to `now` only when nothing is
@@ -139,9 +165,9 @@ export function buildTools(core: ToolCore, now: () => number): ToolDef[] {
     {
       name: 'search_symbols',
       description: 'Search FMP for tickers by symbol or company name. Costs one API request unless the same query was searched in the last 5 minutes.',
-      schema: z.object({ query: z.string().min(1).describe('Ticker fragment or company name.') }),
+      schema: searchArgs,
       handler: async (raw) => {
-        const parsed = z.object({ query: z.string().min(1) }).safeParse(raw)
+        const parsed = searchArgs.safeParse(raw)
         if (!parsed.success) return fail(parsed.error.issues[0].message)
         try {
           return ok(formatSymbolResults(await core.symbols.search(parsed.data.query)))
@@ -154,9 +180,9 @@ export function buildTools(core: ToolCore, now: () => number): ToolDef[] {
     {
       name: 'get_quote',
       description: 'Current price, day range, and change for a symbol. Always costs one API request (quotes are never cached).',
-      schema: z.object({ symbol: symbolArg }),
+      schema: symbolOnlyArgs,
       handler: async (raw) => {
-        const parsed = z.object({ symbol: symbolArg }).safeParse(raw)
+        const parsed = symbolOnlyArgs.safeParse(raw)
         if (!parsed.success) return fail(parsed.error.issues[0].message)
         try {
           return ok(formatQuote(parsed.data.symbol, await core.quote.get(parsed.data.symbol)))
@@ -168,20 +194,14 @@ export function buildTools(core: ToolCore, now: () => number): ToolDef[] {
     {
       name: 'get_company_info',
       description: 'Valuation, financials, analyst consensus, growth, and earnings schedule for a symbol. Cached for 24 hours; a cache miss costs up to 7 API requests. Groups that FMP did not return are shown as "not available".',
-      schema: z.object({
-        symbol: symbolArg,
-        force: z.boolean().optional().describe('Ignore the 24-hour cache and refetch. Costs up to 7 API requests.')
-      }),
+      schema: companyArgs,
       handler: async (raw) => {
-        const parsed = z.object({ symbol: symbolArg, force: z.boolean().optional() }).safeParse(raw)
+        const parsed = companyArgs.safeParse(raw)
         if (!parsed.success) return fail(parsed.error.issues[0].message)
         const { symbol, force } = parsed.data
         try {
-          const info = await core.company.info(symbol, force ? { force: true } : undefined)
-          // CompanyInfoService returns the stale row when a forced refetch fails; fetchedAt then
-          // stays old. Anything older than a minute after a forced call means the fetch failed.
-          const stale = force === true && Math.floor(now() / 1000) - info.fetchedAt > 60
-          return ok(formatCompanyInfo(info, stale))
+          // CompanyInfoService flags the row it fell back to; formatCompanyInfo prints the warning.
+          return ok(formatCompanyInfo(await core.company.info(symbol, force ? { force: true } : undefined)))
         } catch (err) {
           return fail(messageForError(err))
         }
@@ -189,32 +209,22 @@ export function buildTools(core: ToolCore, now: () => number): ToolDef[] {
     },
     {
       name: 'get_workspaces',
-      description: 'List the saved workspaces (name, whether it is active, watchlist size, grid shape). No API request. Use get_workspace or get_active_workspace for the per-cell detail.',
+      description: 'List the saved workspaces (name, whether it is active, watchlist size, grid shape). No API request. Use get_workspace for the per-cell detail.',
       schema: z.object({}),
       handler: async () => ok(formatWorkspaceList(core.workspaces.get().collection))
     },
     {
-      name: 'get_active_workspace',
-      description: 'Full detail of the workspace the user currently has open: watchlist, grid shape, and every cell with its symbol, timeframe, and indicators. No API request.',
-      schema: z.object({}),
-      handler: async () => {
-        const { collection } = core.workspaces.get()
-        const active = collection.workspaces.find((w) => w.name === collection.active)
-        if (!active) return fail(`No active workspace. Available: ${collection.workspaces.map((w) => w.name).join(', ')}`)
-        return ok(formatWorkspaceDetail(active, true))
-      }
-    },
-    {
       name: 'get_workspace',
-      description: 'Full detail of one workspace by name. No API request.',
-      schema: z.object({ name: z.string().min(1).describe('Exact workspace name, as listed by get_workspaces.') }),
+      description: 'Full detail of one workspace — watchlist, grid shape, and every cell with its symbol, timeframe, and indicators. Defaults to the workspace the user currently has open. No API request.',
+      schema: workspaceArgs,
       handler: async (raw) => {
-        const parsed = z.object({ name: z.string().min(1) }).safeParse(raw)
+        const parsed = workspaceArgs.safeParse(raw)
         if (!parsed.success) return fail(parsed.error.issues[0].message)
         const { collection } = core.workspaces.get()
-        const found = collection.workspaces.find((w) => w.name === parsed.data.name)
+        const name = parsed.data.name ?? collection.active
+        const found = collection.workspaces.find((w) => w.name === name)
         if (!found) {
-          return fail(`No workspace named "${parsed.data.name}". Available: ${collection.workspaces.map((w) => w.name).join(', ')}`)
+          return fail(`No workspace named "${name}". Available: ${collection.workspaces.map((w) => w.name).join(', ')}`)
         }
         return ok(formatWorkspaceDetail(found, found.name === collection.active))
       }
@@ -222,9 +232,9 @@ export function buildTools(core: ToolCore, now: () => number): ToolDef[] {
     {
       name: 'get_cache_status',
       description: 'What OHLCV is already on disk: bar count and period per symbol and timeframe, plus each timeframe\'s availability on the current FMP plan. No API request. Call this before get_ohlcv to see which requests are free.',
-      schema: z.object({ symbol: symbolArg.optional().describe('Restrict to one symbol. Omit for every cached symbol.') }),
+      schema: cacheStatusArgs,
       handler: async (raw) => {
-        const parsed = z.object({ symbol: z.string().min(1).optional() }).safeParse(raw)
+        const parsed = cacheStatusArgs.safeParse(raw)
         if (!parsed.success) return fail(parsed.error.issues[0].message)
         const { symbol } = parsed.data
         return ok(formatCacheStatus(core.cacheStatus.summarize(symbol), core.capabilities.get(), symbol))
@@ -235,10 +245,9 @@ export function buildTools(core: ToolCore, now: () => number): ToolDef[] {
 
 export function registerTools(server: McpServer, core: ToolCore, now: () => number = () => Date.now()): void {
   for (const def of buildTools(core, now)) {
-    const shape = def.schema instanceof z.ZodObject ? def.schema.shape : (def.schema as z.ZodEffects<z.ZodObject<z.ZodRawShape>>).innerType().shape
     server.registerTool(
       def.name,
-      { description: def.description, inputSchema: shape },
+      { description: def.description, inputSchema: def.schema.shape },
       async (args: Record<string, unknown>) => def.handler(args ?? {})
     )
   }

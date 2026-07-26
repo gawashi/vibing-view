@@ -16,24 +16,16 @@ export function onStatusChanged(cb: (s: McpStatus) => void): void {
   notify = cb
 }
 
-// Serialises stop()/applyConfig() so two overlapping calls (e.g. a Settings toggle double-click)
-// can never interleave — without this, call A could await `listen` after call B already decided
-// there was nothing to stop, leaving a live listener while the UI and settings.json both say
-// stopped. `fn, fn` runs `fn` on rejection too, so one failed call can't wedge the chain forever.
+// Serialises applyConfig() so two overlapping calls (e.g. a Settings toggle double-click) can never
+// interleave — without this, call A could await `listen` after call B already decided there was
+// nothing to stop, leaving a live listener while the UI and settings.json both say stopped.
+// `fn, fn` runs `fn` on rejection too, so one failed call can't wedge the chain forever.
 let chain: Promise<unknown> = Promise.resolve()
 const serial = <T>(fn: () => Promise<T>): Promise<T> => (chain = chain.then(fn, fn) as Promise<T>)
 
-async function stopNow(): Promise<void> {
+async function applyConfigNow(core: ToolCore, config: McpConfig): Promise<McpStatus> {
   await running?.close()
   running = null
-}
-
-export function stop(): Promise<void> {
-  return serial(stopNow)
-}
-
-async function applyConfigNow(core: ToolCore, config: McpConfig): Promise<McpStatus> {
-  await stopNow()
   lastError = undefined
   if (config.enabled && !config.token) {
     // A listener with no token accepts nobody (auth.ts rejects an empty stored token for every
@@ -48,7 +40,7 @@ async function applyConfigNow(core: ToolCore, config: McpConfig): Promise<McpSta
         // Stateless: a fresh server + transport per request. The SDK's own stateless example does
         // the same — reusing one transport across concurrent requests collides on JSON-RPC ids.
         // Building them is just object construction plus our tool registrations.
-        handle: async (req, res, body) => {
+        handle: async (req, res) => {
           const server = new McpServer({ name: 'vibing-view', version: '0.2.0' })
           registerTools(server, core)
           const transport = new StreamableHTTPServerTransport({
@@ -60,7 +52,7 @@ async function applyConfigNow(core: ToolCore, config: McpConfig): Promise<McpSta
             void server.close()
           })
           await server.connect(transport)
-          await transport.handleRequest(req, res, body)
+          await transport.handleRequest(req, res)
         }
       })
     } catch (err) {

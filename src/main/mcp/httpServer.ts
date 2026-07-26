@@ -1,37 +1,10 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'http'
 import { tokenMatches, originAllowed } from './auth'
 
-export type McpRequestHandler = (req: IncomingMessage, res: ServerResponse, body: unknown) => Promise<void>
-export type McpHttpServer = { close(): Promise<void>; port(): number; address(): string }
+export type McpRequestHandler = (req: IncomingMessage, res: ServerResponse) => Promise<void>
+export type McpHttpServer = { close(): Promise<void>; port(): number }
 
 const PATH = '/mcp'
-const MAX_BODY_BYTES = 4 * 1024 * 1024
-
-function readBody(req: IncomingMessage): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = []
-    let size = 0
-    req.on('data', (chunk: Buffer) => {
-      size += chunk.length
-      if (size > MAX_BODY_BYTES) {
-        reject(new Error('request body too large'))
-        req.destroy()
-        return
-      }
-      chunks.push(chunk)
-    })
-    req.on('error', reject)
-    req.on('end', () => {
-      const raw = Buffer.concat(chunks).toString('utf8')
-      if (raw.length === 0) return resolve(undefined)
-      try {
-        resolve(JSON.parse(raw))
-      } catch {
-        reject(new Error('invalid JSON body'))
-      }
-    })
-  })
-}
 
 const send = (res: ServerResponse, status: number, message: string): void => {
   res.writeHead(status, { 'content-type': 'application/json' })
@@ -45,19 +18,19 @@ export function startMcpHttpServer(opts: {
   token: string
   handle: McpRequestHandler
 }): Promise<McpHttpServer> {
+  // Only differs from opts.port when a test passes 0 ("any free port"); assigned once, on listen.
+  let boundPort = opts.port
   const server = createServer((req, res) => {
     void (async () => {
       try {
         const url = new URL(req.url ?? '/', 'http://127.0.0.1')
         if (url.pathname !== PATH) return send(res, 404, 'not found')
-
-        const address = server.address()
-        const boundPort = typeof address === 'object' && address ? address.port : opts.port
         if (!originAllowed(req.headers.origin, boundPort)) return send(res, 403, 'origin not allowed')
         if (!tokenMatches(req.headers.authorization, opts.token)) return send(res, 401, 'unauthorized')
 
-        const body = req.method === 'POST' ? await readBody(req) : undefined
-        await opts.handle(req, res, body)
+        // The body is left unread: the MCP transport parses it itself (and answers a bad one with
+        // a JSON-RPC -32700) — see webStandardStreamableHttp's `req.json()` fallback.
+        await opts.handle(req, res)
       } catch (err) {
         if (!res.headersSent) send(res, 400, err instanceof Error ? err.message : 'bad request')
         else res.end()
@@ -73,14 +46,12 @@ export function startMcpHttpServer(opts: {
       // 'error' event with no listener throws. Log instead of leaving the emitter bare.
       server.on('error', (err) => console.error('[mcp] http server error:', err))
       const address = server.address()
-      const port = typeof address === 'object' && address ? address.port : opts.port
-      const host = typeof address === 'object' && address ? address.address : '127.0.0.1'
+      if (typeof address === 'object' && address) boundPort = address.port
       resolve({
-        port: () => port,
-        address: () => host,
-        // server.close()'s callback only fires once every open socket ends on its own — an
-        // in-flight or keep-alive connection can hold it open indefinitely. The quit path awaits
-        // this promise, so stop accepting first, then force-close what's already open.
+        port: () => boundPort,
+        // server.close()'s callback only fires once every open socket ends on its own — a
+        // keep-alive connection can hold it open indefinitely, and applyConfig awaits this before
+        // rebinding the port. Stop accepting first, then force-close what's already open.
         close: () => new Promise<void>((done) => {
           server.close(() => done())
           server.closeAllConnections()

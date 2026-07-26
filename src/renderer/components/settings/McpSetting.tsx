@@ -3,7 +3,6 @@ import { Copy } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Switch } from '@/components/ui/switch'
 import { api } from '@/api'
 import type { McpConfigView, McpStatus } from '@shared/ipc'
 
@@ -87,9 +86,12 @@ export function McpSetting(): React.JSX.Element {
         Listens on 127.0.0.1 only and requires a Bearer token. Responds only while the app is running.
       </div>
       <div className="flex items-center gap-2">
-        <Switch
+        <input
+          type="checkbox"
+          role="switch"
+          className="size-4 accent-primary disabled:opacity-50"
           checked={config.enabled}
-          onCheckedChange={toggle}
+          onChange={(e) => void toggle(e.target.checked)}
           disabled={busy || !hasToken}
           aria-label="Enable MCP server"
         />

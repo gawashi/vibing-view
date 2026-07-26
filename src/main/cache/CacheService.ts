@@ -4,7 +4,7 @@ import type * as barStore from '../db/barStore'
 import { deriveWeekly, deriveMonthly } from '../aggregate'
 
 export function createCacheService(deps: {
-  provider: Pick<FmpProvider, 'getOHLCV' | 'searchSymbols'>
+  provider: Pick<FmpProvider, 'getOHLCV'>
   store: Pick<typeof barStore, 'getCoverage' | 'getBars' | 'upsertBarsAndCoverage'>
   now?: () => number // epoch SECONDS; injectable for tests
 }) {

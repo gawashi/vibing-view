@@ -1,17 +1,16 @@
-import type {
-  Bar, Timeframe, SymbolResult, Quote, CompanyInfo, Workspace, WorkspaceCollection
+import {
+  TIMEFRAMES, DERIVED_TIMEFRAMES, DAILY_BACKED_TIMEFRAMES,
+  type Bar, type Timeframe, type SymbolResult, type Quote, type CompanyInfo,
+  type Workspace, type WorkspaceCollection
 } from '@shared/types'
 import type { CapabilityStatus } from '@shared/ipc'
 import type { BarSummary } from '../core'
-
-const ALL_TIMEFRAMES: Timeframe[] = ['1m', '5m', '15m', '1h', '1d', '1w', '1M']
-const DERIVED_TIMEFRAMES: Timeframe[] = ['1w', '1M']
 
 export const DEFAULT_LIMIT = 300
 export const MAX_LIMIT = 2000
 
 export function isIntraday(tf: Timeframe): boolean {
-  return tf !== '1d' && tf !== '1w' && tf !== '1M'
+  return !DAILY_BACKED_TIMEFRAMES.includes(tf)
 }
 
 // Bar.time is epoch seconds internally, but models mis-handle epochs — every MCP boundary speaks
@@ -26,19 +25,6 @@ export function parseIsoToEpoch(value: string): number {
 export function formatEpoch(time: number, tf: Timeframe): string {
   const iso = new Date(time * 1000).toISOString()
   return isIntraday(tf) ? `${iso.slice(0, 19)}Z` : iso.slice(0, 10)
-}
-
-export function clampLimit(limit: number | undefined): { limit: number; note: string | null } {
-  if (limit === undefined) return { limit: DEFAULT_LIMIT, note: null }
-  if (limit > MAX_LIMIT) {
-    return { limit: MAX_LIMIT, note: `note: limit was capped at ${MAX_LIMIT} (requested ${limit}).` }
-  }
-  return { limit, note: null }
-}
-
-export function interpretationNote(label: 'from' | 'to', value: string, tf: Timeframe): string | null {
-  if (!isIntraday(tf) || value.length !== 10) return null
-  return `note: ${label}=${value} was read as ${value}T00:00:00Z.`
 }
 
 // CacheService only backfills the LEFT edge; right-edge gaps and interior holes are never filled
@@ -92,13 +78,13 @@ export function toCsv(bars: Bar[], tf: Timeframe): string {
 export function formatCacheStatus(
   rows: BarSummary[], capabilities: Record<Timeframe, CapabilityStatus>, symbol?: string
 ): string {
-  const capLine = 'Timeframe capability: ' + ALL_TIMEFRAMES.map((tf) => `${tf} ${capabilities[tf]}`).join(', ')
+  const capLine = 'Timeframe capability: ' + TIMEFRAMES.map((tf) => `${tf} ${capabilities[tf]}`).join(', ')
   if (rows.length === 0) {
     const head = symbol ? `Nothing cached for ${symbol}.` : 'Nothing is cached yet.'
     return [head, capLine].join('\n')
   }
   const sorted = [...rows].sort((a, b) =>
-    a.symbol.localeCompare(b.symbol) || ALL_TIMEFRAMES.indexOf(a.timeframe) - ALL_TIMEFRAMES.indexOf(b.timeframe)
+    a.symbol.localeCompare(b.symbol) || TIMEFRAMES.indexOf(a.timeframe) - TIMEFRAMES.indexOf(b.timeframe)
   )
   const lines = sorted.map((r) => {
     const range = `${formatEpoch(r.oldestTime, r.timeframe)} to ${formatEpoch(r.newestTime, r.timeframe)}`
@@ -180,9 +166,9 @@ function group(label: string, obj: Record<string, number | string | null | undef
   return `${label}: ${body}`
 }
 
-export function formatCompanyInfo(info: CompanyInfo, forcedButStale: boolean): string {
+export function formatCompanyInfo(info: CompanyInfo): string {
   const head = `${info.symbol} — ${info.companyName} (as of ${new Date(info.fetchedAt * 1000).toISOString()})`
-  const stale = forcedButStale ? ['stale: fetch failed, showing cached'] : []
+  const stale = info.stale ? ['stale: fetch failed, showing cached'] : []
   return [
     head,
     ...stale,
