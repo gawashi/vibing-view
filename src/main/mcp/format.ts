@@ -5,9 +5,15 @@ import {
 } from '@shared/types'
 import type { CapabilityStatus } from '@shared/ipc'
 import type { BarSummary } from '../core'
+import type { ToolResult } from './tools'
 
 export const DEFAULT_LIMIT = 300
 export const MAX_LIMIT = 2000
+
+export const ok = (text: string): ToolResult => ({ content: [{ type: 'text', text }] })
+// Tool-level failures are reported as isError results, never thrown: a protocol error tells the
+// model "the call broke", an isError result tells it *what to do differently*.
+export const fail = (text: string): ToolResult => ({ content: [{ type: 'text', text }], isError: true })
 
 export function isIntraday(tf: Timeframe): boolean {
   return !DAILY_BACKED_TIMEFRAMES.includes(tf)
