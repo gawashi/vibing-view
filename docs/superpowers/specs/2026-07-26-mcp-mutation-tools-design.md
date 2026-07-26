@@ -111,17 +111,24 @@ compare-and-set では防げない（main が読むのは永続済みの状態�
 
 ### params の検証
 
-`FieldDesc`（`kind: 'number' | 'select' | 'source' | 'color'` と `min` / `options`）をそのまま検証に使う。
-未知のキーを弾くだけでは足りない — `period: "abc"` や `kind: "WMA"` が通ると NaN や無描画になり、
-Claude は成功したと誤認する。
+`FieldDesc`（`kind` と `min` / `options`）をそのまま検証に使う。未知のキーを弾くだけでは足りない —
+`period: "abc"` や `kind: "WMA"` が通ると NaN や無描画になり、Claude は成功したと誤認する。
 
 - `number` — 数値であること。`min` があれば `min` 以上
 - `select` — `options` のいずれか
 - `source` — `close` / `open` / `high` / `low` / `hl2` / `hlc3` のいずれか
-- `color` — `#rrggbb` 形式
 - `step` は UI の入力刻みなので検証しない
 
 違反時のエラーには許容値を列挙する（例: `kind must be one of SMA, EMA.`）。
+
+**`kind: 'color'` の FieldDesc は `params` ではない。** 色は `IndicatorInstance.colors` に入り、`params` とは
+別経路（`setColor`）で書かれる。`ma.defaults` にも `color` は含まれず、`ParamFields` も `case 'color': return null`
+として描画をスキップし、呼び出し側が自前で出している。したがって MCP の `params` の有効キーは
+`registry[type].params` のうち **`kind !== 'color'` のものだけ**とし、`params: { color: ... }` は
+`color is not a parameter — use the color argument of update_indicator.` で弾く。
+
+`add_indicator` は色引数を持たない。追加時はパレットが自動で割り当てる（UI と同じ）。変更は `update_indicator` の
+`color` 引数で行い、こちらは `#rrggbb` 形式を検証する。
 
 ## ツール
 
@@ -185,9 +192,10 @@ Claude は「`get_workspace` で読む → id を掴む → 操作する」の�
 **`add_indicator`** — `params` 省略で `registry` の `defaults`。未知の `type` はエラーに有効な type 一覧を添える。
 未知の param キーも、値が `FieldDesc` に反する場合もエラー（「params の検証」節）。`cell: "all"` のときだけ「同じ type かつ同じ params が
 既にあるセルはスキップ」（既存 `addIndicatorToAll` の挙動）。単一セル指定時は重複チェックをしない（既存 `addIndicator` の挙動）。
-応答に採番された instance id を返す。
+色引数は持たず、パレットが自動割り当てする（UI と同じ）。応答に採番された instance id を返す。
 
-**`update_indicator`** — `color` は UI の `IndicatorEditForm` と同じく最初の output キーに適用する。
+**`update_indicator`** — `color` は `params` ではなく `colors` を書く別引数で、UI の `IndicatorEditForm` と同じく
+最初の output キーに適用する（`#rrggbb` 形式を検証）。
 `params` は既存値へのマージで、渡されたキーだけを更新する（値の検証は追加時と同じ）。
 `fixed: true` の Volume も対象にできる（`visible` と `color` のみ。`params` は空なので指定すれば未知キーのエラーになる）。
 `params` / `visible` / `color` の全省略はエラー。応答はその 1 件の全フィールド（id / type / params / visible / colors）。
@@ -248,6 +256,7 @@ MCP 側は `A refresh is already in progress in the app.` に写像する。main
 | 未知の indicator type | `Unknown indicator "sma". Available: ma, bb, rsi, macd, volume.` |
 | 未知の param キー | `"length" is not a parameter of ma. Parameters: period, kind, source.` |
 | param の値が不正 | `kind must be one of SMA, EMA.` / `period must be a number >= 1.` |
+| `params` に `color` | `color is not a parameter — use the color argument of update_indicator.` |
 | 銘柄未解決 | `Could not resolve "XYZ" — check the ticker with search_symbols, or confirm the FMP API key is set.` |
 | ワークスペース名重複 | `A workspace named "X" already exists.` |
 | 最後の 1 件を削除 | `Cannot delete the only workspace.` |
@@ -273,7 +282,8 @@ MCP 側は `A refresh is already in progress in the app.` に写像する。main
   `rev` 更新も broadcast も起きないこと
 - **ツール層** — フェイク core で引数検証と上記エラー文言、`"all"` が表示中セルだけに効くこと、
   `set_chart` が未知銘柄で `profile` を 1 回だけ呼ぶこと、`edit_watchlist` が 1 件でも未解決なら
-  collection を書き換えないこと、`FieldDesc` に反する params 値（型違い・`min` 未満・`options` 外）が弾かれること
+  collection を書き換えないこと、`FieldDesc` に反する params 値（型違い・`min` 未満・`options` 外）が弾かれること、
+  `params: { color }` が `colors` に書かれず専用エラーになること
 - **`formatWorkspaceDetail`** — インジケータ id が出ること、`visible: false` にだけ `hidden` が付くこと。
   既存 `tests/main/mcp/format.test.ts` の期待値更新
 - **`ProfileService`** — 一致が無かったときに `upsertProfile` を呼ばないこと（既存テストがあれば更新）
@@ -325,6 +335,9 @@ MCP 側は `A refresh is already in progress in the app.` に写像する。main
 - **MW-14** リフレッシュの同時実行ガードは renderer の `inFlight` に一本化する。現在の「黙って早期 return」を
   `busy: true` の返却に変え、main 側に二つ目のガードを置かない。二重ガードだと auto tick 中の MCP 要求が
   応答を失い、60 秒のタイムアウトまで待たされる。
+- **MW-15** `kind: 'color'` の `FieldDesc` は `params` の一員として扱わない。色は `IndicatorInstance.colors` に入り
+  `params` とは別経路で書かれる（`ParamFields` も描画をスキップし、`defaults` にも含まれない）。
+  `params: { color: ... }` を受理すると renderer が読まないキーを書き込むことになり、無反映のまま成功を返す。
 
 ## 将来枠
 
