@@ -16,12 +16,12 @@ import {
   type LogicalRange
 } from 'lightweight-charts'
 import { api, qk } from '@/api'
-import { registry } from '@/indicators/registry'
+import { registry } from '@shared/indicators/registry'
 import { BandPrimitive, hexToRgba } from '@/indicators/bandPrimitive'
 import { IndicatorLegend } from './IndicatorLegend'
 import { useAppStore } from '@/store'
 import type { CrosshairValues } from '@/store'
-import type { HistPoint, LineData } from '@/indicators/types'
+import type { HistPoint, LineData } from '@shared/indicators/types'
 import type { Bar, Timeframe, Quote, MarketStatus } from '@shared/types'
 import { initialLogicalRange } from '@/lib/initialRange'
 

@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { Plus } from 'lucide-react'
 import { Button } from './ui/button'
-import { registry } from '../indicators/registry'
+import { registry } from '@shared/indicators/registry'
 import { useAppStore } from '../store'
 
 // Plain button + inline menu (DESIGN §6 — no dropdown-menu/popover dependency for 2 items).

@@ -6,7 +6,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { TimeframeRow } from './TimeframeRow'
 import { BulkDeleteMenu } from './BulkDeleteMenu'
 import { ParamFields } from './ParamFields'
-import { registry } from '../indicators/registry'
+import { registry } from '@shared/indicators/registry'
 import { useAppStore } from '../store'
 import type { Params } from '@shared/types'
 

@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Eye, EyeOff, Settings2, X } from 'lucide-react'
-import { registry } from '../indicators/registry'
+import { registry } from '@shared/indicators/registry'
 import { useAppStore, type CrosshairValues } from '../store'
 import { Button } from './ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'

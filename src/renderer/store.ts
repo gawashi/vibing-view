@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
-import { registry } from './indicators/registry'
+import { registry } from '@shared/indicators/registry'
 import { defaultLayout, newCellSeed, SCHEMA_VERSION, cellCount } from '@shared/workspace'
 import type { Cell, GridShape, IndicatorInstance, Params, Timeframe, Layout, WatchlistItem, Workspace, WorkspaceCollection, ClipboardCell } from '@shared/types'
 

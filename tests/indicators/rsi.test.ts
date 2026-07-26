@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { rsi as computeRsi } from '../../src/renderer/indicators/math'
-import { rsi } from '../../src/renderer/indicators/rsi'
-import { registry } from '../../src/renderer/indicators/registry'
+import { rsi as computeRsi } from '../../src/shared/indicators/math'
+import { rsi } from '../../src/shared/indicators/rsi'
+import { registry } from '../../src/shared/indicators/registry'
 import type { Bar } from '../../src/shared/types'
 
 describe('rsi (math)', () => {
