@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
 import { registry } from '@shared/indicators/registry'
+import { makeIndicatorInstance, sameParams } from '@shared/indicators/instance'
 import { defaultLayout, newCellSeed, SCHEMA_VERSION, cellCount } from '@shared/workspace'
 import type { Cell, GridShape, IndicatorInstance, Params, Timeframe, Layout, WatchlistItem, Workspace, WorkspaceCollection, ClipboardCell } from '@shared/types'
 
@@ -10,10 +11,6 @@ import type { Cell, GridShape, IndicatorInstance, Params, Timeframe, Layout, Wat
 export type OhlcValues = { open: number; high: number; low: number; close: number }
 export type InstReadout = Record<string, number>
 export type CrosshairValues = Record<string, OhlcValues | InstReadout>
-
-// D-30: fixed 6-hue dark-theme palette, round-robin assigned by add order. Disjoint from candle
-// colors, the app accent, and destructive — see 03-UI-SPEC.md Color section.
-export const PALETTE = ['#F5A623', '#A78BFA', '#2DD4BF', '#F472B6', '#FACC15', '#38BDF8']
 
 export type WatchlistActionResult = { ok: true } | { ok: false; error: string }
 
@@ -129,32 +126,10 @@ export const useAppStore = create<AppState>()(subscribeWithSelector((set, get) =
     set({ workspaces, activeWorkspace: name })
     get().hydrate(layout)
   }
-  // Build one IndicatorInstance with palette-assigned colors. Extracted from addIndicator so the
-  // bulk addIndicatorToAll shares the exact color/id logic. `base` = the target cell's current
-  // indicator count (palette is round-robin by add order). Returns null for an unknown type.
-  const makeInstance = (type: string, params: Params, base: number): IndicatorInstance | null => {
-    const module = registry[type]
-    if (!module) return null
-    const colors: Record<string, string> = {}
-    const lineCount = module.outputs.filter((o) => o.kind === 'line').length
-    const hasBand = module.outputs.some((o) => o.kind === 'band')
-    if (lineCount > 1 && !hasBand) {
-      let n = 0
-      for (const output of module.outputs) {
-        colors[output.key] =
-          output.kind === 'line' ? PALETTE[(base + n++) % PALETTE.length] : PALETTE[base % PALETTE.length]
-      }
-    } else {
-      const color = PALETTE[base % PALETTE.length]
-      for (const output of module.outputs) colors[output.key] = color
-    }
-    return { id: String(nextId++), type, params: { ...params }, colors, visible: true }
-  }
-  // Shallow params equality — same type ⇒ same key set, so key-count + per-key value compare suffices.
-  const sameParams = (a: Params, b: Params): boolean => {
-    const ak = Object.keys(a)
-    return ak.length === Object.keys(b).length && ak.every((k) => a[k] === b[k])
-  }
+  // Palette/colors/params live in the shared builder so MCP writes identical instances (MW-06).
+  // The store keeps id minting (module-level nextId); an unknown type must not burn an id.
+  const makeInstance = (type: string, params: Params, base: number): IndicatorInstance | null =>
+    registry[type] ? makeIndicatorInstance(type, params, base, String(nextId++)) : null
   return {
   cells: initialLayout.cells,
   activeCellId: initialLayout.activeCellId,
