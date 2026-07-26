@@ -1,6 +1,6 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import type { Timeframe, DateRange, WorkspaceCollection, ClipboardCell } from '@shared/types'
-import { CH, type RefreshAppliedPayload } from '@shared/ipc'
+import { CH, type RefreshAppliedPayload, type RefreshDonePayload } from '@shared/ipc'
 import { toBars, type Core } from './core'
 import {
   getLastSymbol, setLastSymbol, getSidebarOpen, setSidebarOpen, getSidebarWidth, setSidebarWidth,
@@ -54,6 +54,9 @@ export function registerIpc(core: Core): void {
       if (w.webContents.id !== e.sender.id) w.webContents.send(CH.refreshApplied, p)
     }
   })
+
+  // メインウィンドウからの完了通知を core の待ち receiver へ渡す（force_reload、MW-14）。
+  ipcMain.handle(CH.refreshDone, (_e, p: RefreshDonePayload) => core.uiRefresh.settle(p))
 
   ipcMain.handle(CH.capabilitiesGet, () => core.capabilities.get())
 

@@ -1,13 +1,20 @@
 import {
   TIMEFRAMES, DERIVED_TIMEFRAMES, DAILY_BACKED_TIMEFRAMES,
   type Bar, type Timeframe, type SymbolResult, type Quote, type CompanyInfo,
-  type Workspace, type WorkspaceCollection
+  type Workspace, type WorkspaceCollection, type Cell, type GridShape,
+  type IndicatorInstance, type WatchlistItem
 } from '@shared/types'
 import type { CapabilityStatus } from '@shared/ipc'
 import type { BarSummary } from '../core'
+import type { ToolResult } from './tools'
 
 export const DEFAULT_LIMIT = 300
 export const MAX_LIMIT = 2000
+
+export const ok = (text: string): ToolResult => ({ content: [{ type: 'text', text }] })
+// Tool-level failures are reported as isError results, never thrown: a protocol error tells the
+// model "the call broke", an isError result tells it *what to do differently*.
+export const fail = (text: string): ToolResult => ({ content: [{ type: 'text', text }], isError: true })
 
 export function isIntraday(tf: Timeframe): boolean {
   return !DAILY_BACKED_TIMEFRAMES.includes(tf)
@@ -100,7 +107,7 @@ export function formatCacheStatus(
   return [head, ...lines, capLine].join('\n')
 }
 
-const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`
+export const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`
 
 export function formatWorkspaceList(collection: WorkspaceCollection): string {
   const head = `Workspaces (${collection.workspaces.length}) — active: ${collection.active}`
@@ -112,9 +119,26 @@ export function formatWorkspaceList(collection: WorkspaceCollection): string {
   return [head, ...lines].join('\n')
 }
 
-const formatIndicator = (i: { type: string; params: Record<string, number | string> }): string => {
-  const params = Object.entries(i.params).map(([k, v]) => `${k}=${v}`).join(', ')
-  return params ? `${i.type}(${params})` : i.type
+// MW-12: the instance id is printed because update_indicator / remove_indicator take it. `colors`
+// and `fixed` stay out: colour is echoed by update_indicator's own response, and `fixed` is
+// explained by remove_indicator's error when it refuses.
+export const formatIndicator = (i: {
+  id: string; type: string; params: Record<string, number | string>; visible: boolean
+}): string => {
+  const parts = Object.entries(i.params).map(([k, v]) => `${k}=${v}`)
+  if (!i.visible) parts.push('hidden')
+  return parts.length > 0 ? `[${i.id}] ${i.type}(${parts.join(', ')})` : `[${i.id}] ${i.type}`
+}
+
+// The one cell-line format, shared by get_workspace and every mutation response (set_chart,
+// set_grid_layout, ...) so a mutation reply reads like the slice of get_workspace it just changed.
+export function formatCellLine(cell: {
+  id: string; symbol: string | null; timeframe: string; indicators: Parameters<typeof formatIndicator>[0][]
+}): string {
+  const indicators = cell.indicators.length === 0
+    ? 'no indicators'
+    : cell.indicators.map(formatIndicator).join(', ')
+  return `[${cell.id}] ${cell.symbol ?? '(empty)'} ${cell.timeframe} — ${indicators}`
 }
 
 export function formatWorkspaceDetail(w: Workspace, isActive: boolean): string {
@@ -122,18 +146,46 @@ export function formatWorkspaceDetail(w: Workspace, isActive: boolean): string {
   const watchlist = w.items.length === 0
     ? ['Watchlist: empty']
     : [`Watchlist (${w.items.length}):`, ...w.items.map((i) => `- ${i.symbol} — ${i.name} (${i.exchange})`)]
-  const cells = w.layout.cells.map((c) => {
-    const indicators = c.indicators.length === 0
-      ? 'no indicators'
-      : c.indicators.map(formatIndicator).join(', ')
-    return `- [${c.id}] ${c.symbol ?? '(empty)'} ${c.timeframe} — ${indicators}`
-  })
+  const cells = w.layout.cells.map((c) => `- ${formatCellLine(c)}`)
   return [
     `Workspace: ${w.name}${isActive ? ' (active)' : ''}`,
     `Grid: ${rows} rows x ${cols} cols, active cell: ${w.layout.activeCellId}`,
     ...watchlist,
     `Cells (${w.layout.cells.length}):`,
     ...cells
+  ].join('\n')
+}
+
+// Mutation responses (set_chart, set_grid_layout, update_indicator, edit_watchlist) — each one
+// echoes back the slice of get_workspace it just changed, in that same wording.
+export function formatCells(workspaceName: string, cells: Cell[]): string {
+  return [`Workspace "${workspaceName}":`, ...cells.map((c) => `- ${formatCellLine(c)}`)].join('\n')
+}
+
+export function formatGrid(workspaceName: string, shape: GridShape, visible: Cell[]): string {
+  return [
+    `Workspace "${workspaceName}" grid is now ${shape.rows} rows x ${shape.cols} cols.`,
+    ...visible.map((c) => `- ${formatCellLine(c)}`)
+  ].join('\n')
+}
+
+const kv = (o: Record<string, string | number>): string =>
+  Object.entries(o).map(([k, v]) => `${k}=${v}`).join(', ')
+
+export function formatInstanceDetail(cellId: string, i: IndicatorInstance): string {
+  return [
+    `[${i.id}] ${i.type} on cell [${cellId}]`,
+    `params: ${kv(i.params) || '(none)'}`,
+    `visible: ${i.visible}`,
+    `colors: ${kv(i.colors) || '(none)'}`
+  ].join('\n')
+}
+
+export function formatWatchlist(workspaceName: string, items: WatchlistItem[]): string {
+  if (items.length === 0) return `Workspace "${workspaceName}" watchlist is empty.`
+  return [
+    `Workspace "${workspaceName}" watchlist (${items.length}):`,
+    ...items.map((i) => `- ${i.symbol} — ${i.name} (${i.exchange})`)
   ].join('\n')
 }
 

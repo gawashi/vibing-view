@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { macd as computeMacd } from '../../src/renderer/indicators/math'
-import { macd } from '../../src/renderer/indicators/macd'
-import { registry } from '../../src/renderer/indicators/registry'
+import { macd as computeMacd } from '../../src/shared/indicators/math'
+import { macd } from '../../src/shared/indicators/macd'
+import { registry } from '../../src/shared/indicators/registry'
 import type { Bar } from '../../src/shared/types'
-import type { HistPoint } from '../../src/renderer/indicators/types'
+import type { HistPoint } from '../../src/shared/indicators/types'
 
 // Histogram color rule (D-42), duplicated here so the test pins the exact branch selection the
 // module must emit — including the first-bar prev=0 default. Kept in sync with macd.ts compute.

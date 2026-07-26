@@ -46,6 +46,16 @@ function hardenWindow(win: BrowserWindow): void {
   })
 }
 
+// The refresh scheduler lives in the main window's renderer (App.reload), so force_reload has to
+// be delegated to exactly that window — not broadcast to all of them.
+let mainWindow: BrowserWindow | null = null
+
+function requestRefresh(requestId: number): boolean {
+  if (!mainWindow || mainWindow.isDestroyed()) return false
+  mainWindow.webContents.send(CH.refreshRequest, requestId)
+  return true
+}
+
 function createWindow(): void {
   const win = new BrowserWindow({
     width: 1280,
@@ -60,10 +70,12 @@ function createWindow(): void {
     }
   })
   hardenWindow(win)
+  mainWindow = win
   win.setMenuBarVisibility(false) // hide the top menu bar; accelerators (zoom/fullscreen/close) still fire from the app menu
   win.on('ready-to-show', () => win.show())
   // Closing the main window tears down company windows so window-all-closed fires → app quits.
   win.on('closed', () => {
+    mainWindow = null
     for (const w of companyWindows.values()) w.close()
     for (const w of chartWindows.values()) w.close()
   })
@@ -143,7 +155,8 @@ function buildCore(): ReturnType<typeof createCore> {
     workspaceStore,
     capabilityCache,
     keystore: { getApiKey, setApiKey, getKeyStatus, clearApiKey },
-    makeProvider: (apiKey) => new FmpProvider({ apiKey, httpGetJson: electronHttpGetJson })
+    makeProvider: (apiKey) => new FmpProvider({ apiKey, httpGetJson: electronHttpGetJson }),
+    requestRefresh
   })
 }
 

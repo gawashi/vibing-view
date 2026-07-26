@@ -1,7 +1,7 @@
 import React from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useAppStore } from '@/store'
-import { registry } from '@/indicators/registry'
+import { registry } from '@shared/indicators/registry'
 import { ParamFields } from './ParamFields'
 
 // D-25: renders purely from registry[type].params. ParamFields covers number/select/source;

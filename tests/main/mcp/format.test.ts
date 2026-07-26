@@ -145,8 +145,20 @@ describe('formatWorkspaceDetail', () => {
     expect(text).toContain('Workspace: Main (active)')
     expect(text).toContain('Grid: 2 rows x 2 cols, active cell: c1')
     expect(text).toContain('- NVDA — NVIDIA Corporation (NASDAQ)')
-    expect(text).toContain('- [c1] NVDA 1d — ma(period=20)')
+    expect(text).toContain('- [c1] NVDA 1d — [i1] ma(period=20)')
     expect(text).toContain('- [c2] (empty) 5m — no indicators')
+  })
+
+  // MW-12: the id is what update_indicator/remove_indicator take, so it must be readable here.
+  it('marks a hidden indicator and leaves visible ones unmarked', () => {
+    const w = workspace('Main')
+    const cell = w.layout.cells[0]
+    cell.indicators = [
+      { id: 'i1', type: 'ma', params: { period: 20 }, colors: {}, visible: true },
+      { id: 'i2', type: 'rsi', params: { period: 14 }, colors: {}, visible: false }
+    ]
+    const text = formatWorkspaceDetail(w, false)
+    expect(text).toContain('[i1] ma(period=20), [i2] rsi(period=14, hidden)')
   })
 })
 

@@ -51,17 +51,27 @@ describe('ProfileService.getProfile', () => {
     expect(store.upsertProfile).toHaveBeenCalledWith(AAPL)
   })
 
-  it('caches a fallback when a successful response has no exact match', async () => {
+  // MW-13: caching the miss would make a valid ticker permanently unresolvable for MCP's
+  // set_chart / edit_watchlist, which reject `exchange === ''`.
+  it('does not cache the fallback when the search returns no match', async () => {
     const store = fakeStore(null)
-    const search = vi.fn(async () => [
-      { symbol: 'ZZZZ', name: 'Zzz Corp', exchange: 'NYSE' }
-    ])
+    const search = vi.fn(async () => [{ symbol: 'NVDA', name: 'NVIDIA Corporation', exchange: 'NASDAQ' }])
     const svc = createProfileService({ store, search })
 
-    const p = await svc.getProfile('NOPE')
+    const p = await svc.getProfile('XYZ')
 
-    expect(p).toEqual({ symbol: 'NOPE', name: 'NOPE', exchange: '' })
-    expect(store.upsertProfile).toHaveBeenCalledWith({ symbol: 'NOPE', name: 'NOPE', exchange: '' })
+    expect(p).toEqual({ symbol: 'XYZ', name: 'XYZ', exchange: '' })
+    expect(store.upsertProfile).not.toHaveBeenCalled()
+  })
+
+  it('still caches a real match', async () => {
+    const store = fakeStore(null)
+    const search = vi.fn(async () => [{ symbol: 'NVDA', name: 'NVIDIA Corporation', exchange: 'NASDAQ' }])
+    const svc = createProfileService({ store, search })
+
+    await svc.getProfile('NVDA')
+
+    expect(store.upsertProfile).toHaveBeenCalledWith({ symbol: 'NVDA', name: 'NVIDIA Corporation', exchange: 'NASDAQ' })
   })
 
   it('returns a fallback WITHOUT caching on a transient failure (search throws)', async () => {

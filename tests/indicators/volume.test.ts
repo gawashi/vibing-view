@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { volume, abbreviate } from '../../src/renderer/indicators/volume'
-import type { HistPoint } from '../../src/renderer/indicators/types'
+import { volume, abbreviate } from '../../src/shared/indicators/volume'
+import type { HistPoint } from '../../src/shared/indicators/types'
 import type { Bar } from '../../src/shared/types'
 
 function makeBars(): Bar[] {

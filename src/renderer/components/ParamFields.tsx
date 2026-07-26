@@ -1,11 +1,10 @@
 import React from 'react'
 import { Input } from '@/components/ui/input'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
-import { registry } from '@/indicators/registry'
-import type { FieldDesc, Source } from '@/indicators/types'
+import { registry } from '@shared/indicators/registry'
+import { SOURCES } from '@shared/indicators/validate'
+import type { FieldDesc } from '@shared/indicators/types'
 import type { Params } from '@shared/types'
-
-const SOURCES: Source[] = ['close', 'open', 'high', 'low', 'hl2', 'hlc3']
 
 // Renders the number/select/source fields for registry[type].params as a fragment of rows.
 // Color is intentionally NOT rendered here — it lives in instance.colors and is written via a

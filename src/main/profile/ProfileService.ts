@@ -23,9 +23,10 @@ export function createProfileService(deps: {
       }
 
       const match = results.find((r) => r.symbol.toLowerCase() === symbol.toLowerCase())
-      const resolved: SymbolResult = match ?? { symbol, name: symbol, exchange: '' }
-      store.upsertProfile(resolved)
-      return resolved
+      // MW-13: only a real match is cached. Persisting the "no match" fallback would answer every
+      // later lookup from disk, so a ticker FMP's search missed once could never resolve again.
+      if (match) store.upsertProfile(match)
+      return match ?? { symbol, name: symbol, exchange: '' }
     }
   }
 }

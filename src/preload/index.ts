@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { Timeframe, DateRange, WorkspaceCollection, ClipboardCell } from '@shared/types'
-import { CH, type Api, type WorkspacesPayload, type ClipboardPayload, type RefreshAppliedPayload, type McpStatus } from '@shared/ipc'
+import { CH, type Api, type WorkspacesPayload, type ClipboardPayload, type RefreshAppliedPayload, type RefreshDonePayload, type McpStatus } from '@shared/ipc'
 
 const api: Api = {
   symbols: {
@@ -64,7 +64,13 @@ const api: Api = {
       const listener = (_e: unknown, p: RefreshAppliedPayload): void => cb(p)
       ipcRenderer.on(CH.refreshApplied, listener)
       return () => ipcRenderer.removeListener(CH.refreshApplied, listener)
-    }
+    },
+    onRequest: (cb) => {
+      const listener = (_e: unknown, requestId: number): void => cb(requestId)
+      ipcRenderer.on(CH.refreshRequest, listener)
+      return () => ipcRenderer.removeListener(CH.refreshRequest, listener)
+    },
+    done: (p: RefreshDonePayload) => ipcRenderer.invoke(CH.refreshDone, p)
   },
   mcp: {
     getConfig: () => ipcRenderer.invoke(CH.mcpGetConfig),

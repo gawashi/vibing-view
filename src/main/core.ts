@@ -3,7 +3,7 @@ import {
   type Bar, type Timeframe, type DateRange, type WorkspaceCollection, type SymbolResult,
   type Quote, type MarketStatus, type CompanyInfo, type ClipboardCell
 } from '@shared/types'
-import type { CapabilityStatus, KeyStatus, SetKeyResult } from '@shared/ipc'
+import type { CapabilityStatus, KeyStatus, RefreshDonePayload, SetKeyResult } from '@shared/ipc'
 import { CH } from '@shared/ipc'
 import type { FmpProvider } from './providers/FmpProvider'
 import { FmpHttpError } from './providers/FmpProvider'
@@ -19,6 +19,7 @@ import { classify } from './capabilityClassifier'
 import { createSearchCache } from './searchCache'
 import { createProfileService } from './profile/ProfileService'
 import { createCompanyInfoService } from './profile/CompanyInfoService'
+import type { EditResult } from './mcp/edits'
 
 export type { BarSummary } from './db/barStore'
 
@@ -52,6 +53,9 @@ export type CoreDeps = {
   capabilityCache: Pick<typeof capabilityCacheModule, 'getStatus' | 'setStatus' | 'clearForKeyChange'>
   keystore: Pick<typeof keystoreModule, 'getApiKey' | 'setApiKey' | 'getKeyStatus' | 'clearApiKey'>
   makeProvider: (apiKey: string) => ProviderLike
+  // main → メインウィンドウへ refresh:request を送る。送れたら true、窓が無ければ false。
+  // core は electron を import しないので index.ts から注入する（broadcast と同じ）。
+  requestRefresh?: (requestId: number) => boolean
   nowSec?: () => number // epoch SECONDS; injectable for tests
 }
 
@@ -79,6 +83,12 @@ export function createCore(deps: CoreDeps) {
   // per query-key and never sees an MCP call. Without this map, the UI and Claude asking for the
   // same symbol×timeframe at once cost two FMP requests (M-10).
   const inFlight = new Map<string, Promise<OhlcvOutcome>>()
+
+  // force_reload の往復（MW-14）。renderer 側の inFlight が唯一の同時実行ガードなので、ここでは
+  // 二重実行を弾かない — 走っていれば window が busy を返してくる。
+  let refreshSeq = 0
+  const pendingRefresh = new Map<number, (p: RefreshDonePayload) => void>()
+  const REFRESH_TIMEOUT_MS = 60_000
 
   const requireKey = (): string => {
     const apiKey = keystore.getApiKey()
@@ -236,6 +246,17 @@ export function createCore(deps: CoreDeps) {
         // Every OTHER window re-hydrates; the sender skips itself (its store is already current
         // and re-applying would fight its debounce).
         broadcast(CH.workspacesChanged, { collection: c, rev: workspacesRev }, fromWebContentsId)
+      },
+      // MW-04: read -> edit -> write in ONE synchronous call. main is single-threaded, so nothing
+      // can interleave a write between the read and the set. Async work (symbol resolution) must
+      // finish before calling this. MCP is not a window, so the broadcast excludes nobody.
+      // `this.set` is used below, so this object must stay a method (shorthand syntax) on the
+      // `workspaces` literal — never destructure `mutate` off `core.workspaces`, or `this` is lost.
+      mutate<T>(fn: (c: WorkspaceCollection) => EditResult<T>): EditResult<T> {
+        const result = fn(deps.workspaceStore.getWorkspaces())
+        if (!result.ok) return result
+        this.set(result.collection)
+        return result
       }
     },
 
@@ -263,6 +284,33 @@ export function createCore(deps: CoreDeps) {
               : 'unknown'
         }
         return result
+      }
+    },
+
+    uiRefresh: {
+      run(): Promise<
+        | { ok: true; refreshed: number; failed: number; busy: boolean }
+        | { ok: false; reason: 'no-window' | 'timeout' }
+      > {
+        const requestId = ++refreshSeq
+        const sent = deps.requestRefresh?.(requestId) ?? false
+        if (!sent) return Promise.resolve({ ok: false as const, reason: 'no-window' as const })
+        return new Promise((resolve) => {
+          const timer = setTimeout(() => {
+            pendingRefresh.delete(requestId)
+            resolve({ ok: false, reason: 'timeout' })
+          }, REFRESH_TIMEOUT_MS)
+          pendingRefresh.set(requestId, (p) => {
+            clearTimeout(timer)
+            resolve({ ok: true, refreshed: p.refreshed, failed: p.failed, busy: p.busy })
+          })
+        })
+      },
+      settle(p: RefreshDonePayload): void {
+        const resolve = pendingRefresh.get(p.requestId)
+        if (!resolve) return // a reply for a timed-out or unknown request
+        pendingRefresh.delete(p.requestId)
+        resolve(p)
       }
     },
 

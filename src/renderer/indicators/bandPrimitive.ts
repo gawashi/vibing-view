@@ -9,7 +9,7 @@ import type {
   Time
 } from 'lightweight-charts'
 import type { CanvasRenderingTarget2D } from 'fancy-canvas'
-import type { LineData } from './types'
+import type { LineData } from '@shared/indicators/types'
 
 /** hex ('#rrggbb') -> rgba(...) at the given alpha. Generic — any indicator's palette hue works. */
 export function hexToRgba(hex: string, alpha: number): string {

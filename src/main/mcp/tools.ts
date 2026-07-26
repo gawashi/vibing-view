@@ -6,11 +6,13 @@ import { FmpHttpError } from '../providers/FmpProvider'
 import {
   formatCacheStatus, formatCompanyInfo, formatEpoch, formatQuote, formatSymbolResults,
   formatWorkspaceDetail, formatWorkspaceList, isIntraday, parseIsoToEpoch,
-  summaryLine, toCsv, unmetRangeNotes, DEFAULT_LIMIT, MAX_LIMIT
+  summaryLine, toCsv, unmetRangeNotes, DEFAULT_LIMIT, MAX_LIMIT, ok, fail
 } from './format'
+import { buildMutationTools } from './mutations'
+import { buildWorkspaceTools } from './workspaceTools'
 
 export type ToolCore = Pick<
-  Core, 'ohlcv' | 'symbols' | 'quote' | 'company' | 'workspaces' | 'capabilities' | 'cacheStatus'
+  Core, 'ohlcv' | 'symbols' | 'quote' | 'company' | 'workspaces' | 'capabilities' | 'cacheStatus' | 'uiRefresh'
 >
 
 export type ToolResult = { content: { type: 'text'; text: string }[]; isError?: boolean }
@@ -21,11 +23,6 @@ export type ToolDef = {
   schema: z.ZodObject<z.ZodRawShape>
   handler: ToolHandler
 }
-
-const ok = (text: string): ToolResult => ({ content: [{ type: 'text', text }] })
-// Tool-level failures are reported as isError results, never thrown: a protocol error tells the
-// model "the call broke", an isError result tells it *what to do differently*.
-const fail = (text: string): ToolResult => ({ content: [{ type: 'text', text }], isError: true })
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}Z)?$/
 
@@ -239,7 +236,9 @@ export function buildTools(core: ToolCore, now: () => number): ToolDef[] {
         const { symbol } = parsed.data
         return ok(formatCacheStatus(core.cacheStatus.summarize(symbol), core.capabilities.get(), symbol))
       }
-    }
+    },
+    ...buildMutationTools(core),
+    ...buildWorkspaceTools(core)
   ]
 }
 

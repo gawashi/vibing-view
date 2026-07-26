@@ -10,7 +10,7 @@
 // math.ts already implements (BB population stddev, EMA SMA-seed) and would fail if either
 // convention silently regressed to the wrong formula.
 import { describe, it, expect } from 'vitest'
-import { sma, ema, bollinger, rsi, macd } from '../../src/renderer/indicators/math'
+import { sma, ema, bollinger, rsi, macd } from '../../src/shared/indicators/math'
 import { goldenBars, goldenCheckpoints, type GoldenCheckpoint } from './fixtures/golden'
 
 const closes = goldenBars.map((b) => b.close)

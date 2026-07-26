@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { sma, ema, bollinger } from '../../src/renderer/indicators/math'
+import { sma, ema, bollinger } from '../../src/shared/indicators/math'
 
 describe('sma', () => {
   it('returns leading undefined until period values accumulated, then trailing means', () => {
