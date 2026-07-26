@@ -75,10 +75,13 @@ describe('validateParams', () => {
 })
 
 describe('indicatorCatalog', () => {
-  it('lists every registered type with its parameter names', () => {
+  it('lists every addable type with its parameter names', () => {
     const text = indicatorCatalog()
     expect(text).toContain('ma(period, kind, source)')
-    expect(text).toContain('volume()')
-    for (const type of INDICATOR_TYPES) expect(text).toContain(type)
+    for (const type of INDICATOR_TYPES) {
+      // Fixed Volume is not addable, so advertising it would only invite rejected calls (D-34).
+      if (type === 'volume') expect(text).not.toContain('volume(')
+      else expect(text).toContain(type)
+    }
   })
 })

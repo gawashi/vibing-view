@@ -1,4 +1,4 @@
-import { registry } from './registry'
+import { ADDABLE, registry } from './registry'
 import type { FieldDesc, Source } from './types'
 import type { Params } from '@shared/types'
 
@@ -54,6 +54,7 @@ export function validateParams(type: string, patch: Params): ParamCheck {
 }
 
 // Generated from the registry so the tool description never drifts from the modules (MW-06).
+// Advertises only ADDABLE types — listing fixed Volume would invite add_indicator calls it rejects.
 export function indicatorCatalog(): string {
-  return INDICATOR_TYPES.map((type) => `${type}(${paramFields(type).map((f) => f.key).join(', ')})`).join(', ')
+  return ADDABLE.map((m) => `${m.type}(${paramFields(m.type).map((f) => f.key).join(', ')})`).join(', ')
 }

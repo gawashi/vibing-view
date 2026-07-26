@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { TIMEFRAMES, type Params } from '@shared/types'
 import { defaultParams, indicatorCatalog, validateParams } from '@shared/indicators/validate'
+import { ADDABLE } from '@shared/indicators/registry'
 import type { ToolCore, ToolDef, ToolHandler } from './tools'
 import { ok, fail } from './format'
 import {
@@ -104,6 +105,11 @@ export function buildMutationTools(core: ToolCore): ToolDef[] {
     const { workspace, cell, type } = parsed.data
     const check = validateParams(type, parsed.data.params ?? {})
     if (!check.ok) return fail(check.message)
+    // A fixed indicator is already in every cell; adding a second (removable) copy would contradict
+    // both the renderer's menus and remove_indicator's "cannot be removed" contract (D-34).
+    if (!ADDABLE.some((m) => m.type === type)) {
+      return fail(`${type} is always on and cannot be added — every cell already has it.`)
+    }
     const params: Params = { ...defaultParams(type), ...check.params }
 
     const result = core.workspaces.mutate((c) => addIndicator(c, { workspace, cell, type, params }))

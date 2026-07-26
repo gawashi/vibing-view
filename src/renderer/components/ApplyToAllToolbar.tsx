@@ -6,12 +6,9 @@ import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip'
 import { TimeframeRow } from './TimeframeRow'
 import { BulkDeleteMenu } from './BulkDeleteMenu'
 import { ParamFields } from './ParamFields'
-import { registry } from '@shared/indicators/registry'
+import { ADDABLE, registry } from '@shared/indicators/registry'
 import { useAppStore } from '../store'
 import type { Params } from '@shared/types'
-
-// Volume is fixed/non-addable (D-34) — mirror AddIndicatorMenu's filter.
-const ADDABLE = Object.values(registry).filter((m) => m.type !== 'volume')
 
 // Header toolbar: apply one timeframe, or one pre-configured indicator, to every visible grid cell.
 export function ApplyToAllToolbar(): React.JSX.Element {

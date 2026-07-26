@@ -151,6 +151,15 @@ describe('add_indicator', () => {
     expect(res.content[0].text).toBe('kind must be one of SMA, EMA.')
   })
 
+  // D-34: Volume is fixed and already in every cell — a second, removable copy must not be possible.
+  it('rejects the fixed volume type and keeps it out of the advertised catalog', async () => {
+    const core = fakeCore()
+    const res = await tool(core, 'add_indicator').handler({ cell: '1', type: 'volume' })
+    expect(res.isError).toBe(true)
+    expect(core.current().workspaces[0].layout.cells[0].indicators).toHaveLength(1)
+    expect(tool(core, 'add_indicator').description).not.toContain('volume(')
+  })
+
   // MW-15
   it('rejects color inside params', async () => {
     const res = await tool(fakeCore(), 'add_indicator').handler({ cell: '1', type: 'ma', params: { color: '#fff' } })

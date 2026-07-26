@@ -258,8 +258,16 @@ export function editWatchlist(
   const drop = new Set(a.remove.map((s) => s.toUpperCase()))
   const kept = w.items.filter((i) => !drop.has(i.symbol.toUpperCase()))
   const removedCount = w.items.length - kept.length
+  // Parity with addToWatchlist — which adds one at a time, so `have` must grow as we go or one
+  // batch containing ["AAPL", "aapl"] would insert the same ticker twice.
   const have = new Set(kept.map((i) => i.symbol.toUpperCase()))
-  const fresh = a.add.filter((i) => !have.has(i.symbol.toUpperCase())) // parity with addToWatchlist
+  const fresh: WatchlistItem[] = []
+  for (const item of a.add) {
+    const key = item.symbol.toUpperCase()
+    if (have.has(key)) continue
+    have.add(key)
+    fresh.push(item)
+  }
   const items = [...kept, ...fresh]
   return editOk(withWorkspace(c, w.name, { ...w, items }), {
     workspaceName: w.name, items, addedCount: fresh.length, removedCount

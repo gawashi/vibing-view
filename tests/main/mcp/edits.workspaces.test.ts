@@ -48,6 +48,13 @@ describe('editWatchlist', () => {
     expect(res.value.addedCount).toBe(0)
   })
 
+  it('adds a ticker repeated within one batch only once', () => {
+    const res = editWatchlist(collection(), { add: [item('AMD'), item('amd')], remove: [] })
+    if (!res.ok) throw new Error(res.message)
+    expect(res.value.items.map((i) => i.symbol)).toEqual(['NVDA', 'AMD'])
+    expect(res.value.addedCount).toBe(1)
+  })
+
   it('ignores a remove for a symbol that is not on the list', () => {
     const res = editWatchlist(collection(), { add: [], remove: ['TSLA'] })
     if (!res.ok) throw new Error(res.message)
