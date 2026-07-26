@@ -255,7 +255,7 @@ describe('FmpProvider.getEconomicCalendar', () => {
     expect(events.map((e) => e.time)).toEqual([...events.map((e) => e.time)].sort((a, b) => a - b))
   })
 
-  // 要求範囲を両端 1 日広げる（EC-02）。ET 基準だと UTC 日の端が欠けるため。リクエスト数は変わらない。
+  // 要求範囲を両端 1 日広げる（EC-02）。端が欠ける可能性への備え。リクエスト数は変わらない。
   it('widens the requested range by one day on each end', async () => {
     const httpGetJson = vi.fn(async (_url: string) => fx('fmp-economic-calendar.json'))
     await new FmpProvider({ apiKey: 'k', httpGetJson }).getEconomicCalendar('2026-07-13', '2026-07-17')
@@ -264,6 +264,16 @@ describe('FmpProvider.getEconomicCalendar', () => {
     expect(url).toContain('/economic-calendar?')
     expect(url).toContain('from=2026-07-12')
     expect(url).toContain('to=2026-07-18')
+  })
+
+  // DST 境界回帰: shiftUtcDay が addDays（ローカル時刻基準）だと America/New_York 等で 1 日ずれる。
+  // UTC 固定演算なら実行環境の TZ によらず常に成立する。
+  it('widens correctly across a DST-transition week (regression)', async () => {
+    const httpGetJson = vi.fn(async (_url: string) => fx('fmp-economic-calendar.json'))
+    await new FmpProvider({ apiKey: 'k', httpGetJson }).getEconomicCalendar('2026-03-02', '2026-03-08')
+    const url = httpGetJson.mock.calls[0][0]
+    expect(url).toContain('from=2026-03-01')
+    expect(url).toContain('to=2026-03-09')
   })
 
   // 以下 3 件は手書きの合成行。fixture には入れない（実レスポンスの verbatim 性を保つため）。
@@ -302,5 +312,15 @@ describe('FmpProvider.getEconomicCalendar', () => {
     try { await provider(fx('fmp-error.json')).getEconomicCalendar('2026-07-13', '2026-07-17') } catch (e) { caught = e }
     expect(caught).toBeInstanceOf(FmpHttpError)
     expect(classify((caught as FmpHttpError).status, (caught as FmpHttpError).body)).toBe('requires-plan')
+  })
+
+  // 未知の date 形式は NaN ではなく FmpHttpError にする（economic_days のキーを壊さない）。
+  it('throws FmpHttpError instead of yielding time: NaN for an unparseable date', async () => {
+    const rows = [
+      { date: 'All Day', country: 'US', currency: 'USD', event: 'Bank Holiday', previous: null, estimate: null, actual: null, impact: 'Low' }
+    ]
+    let caught: unknown
+    try { await provider(rows).getEconomicCalendar('2026-07-14', '2026-07-14') } catch (e) { caught = e }
+    expect(caught).toBeInstanceOf(FmpHttpError)
   })
 })

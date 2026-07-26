@@ -1,4 +1,4 @@
-import { subDays, subMonths, subYears, addDays } from 'date-fns'
+import { subDays, subMonths, subYears } from 'date-fns'
 import { fromZonedTime } from 'date-fns-tz'
 import type { Bar, SymbolResult, Timeframe, DateRange, Quote, MarketStatus, CompanyProfileData, EconomicEvent, EconomicImpact } from '@shared/types'
 import {
@@ -59,15 +59,20 @@ function ymd(d: Date): string {
 // これが SQLite の economic_days のキー（UTC 日）を決めるので、基準を変えるときは client.ts で
 // DROP TABLE economic_days する — 1 週 1 リクエストの安いキャッシュなので捨てるほうが小さい。
 function economicDateToEpochSeconds(s: string): number {
-  return Math.floor(Date.parse(`${s.replace(' ', 'T')}Z`) / 1000)
+  const t = Date.parse(`${s.replace(' ', 'T')}Z`)
+  // 未知の date 形式は行を通さない（economic_days のキーが壊れる）
+  if (Number.isNaN(t)) throw new FmpHttpError(200, s)
+  return Math.floor(t / 1000)
 }
 
-// 'YYYY-MM-DD' を UTC 日で n 日ずらす。
+// 'YYYY-MM-DD' を UTC 日で n 日ずらす。date-fns の addDays はローカル時刻基準で DST をまたぐと
+// 24h にならないので使わない。
 function shiftUtcDay(day: string, n: number): string {
-  return ymd(addDays(new Date(`${day}T00:00:00Z`), n))
+  return ymd(new Date(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000))
 }
 
-const ECONOMIC_IMPACT: Record<string, EconomicImpact> = { high: 'High', medium: 'Medium', low: 'Low' }
+const ECONOMIC_IMPACT: Record<string, EconomicImpact> =
+  Object.assign(Object.create(null), { high: 'High', medium: 'Medium', low: 'Low' })
 
 // ponytail: 1m span approximated as 7 calendar days (covers "last 5 trading days" across a
 // weekend); swap to an exchange-calendar trading-day count if coverage proves short (§4).
@@ -303,8 +308,8 @@ export class FmpProvider {
     }
   }
 
-  // from/to は UTC 日の 'YYYY-MM-DD'。範囲を両端 1 日広げる: FMP の from/to が ET 基準だと要求した
-  // UTC 日の端が欠ける（EC-02）。広げてもリクエストは 1 本のままで、範囲外の日は
+  // from/to は UTC 日の 'YYYY-MM-DD'。範囲を両端 1 日広げる: UTC 日の端が欠ける可能性に備える
+  // （実測では端の日は返っている、EC-02）。広げてもリクエストは 1 本のままで、範囲外の日は
   // EconomicCalendarService が捨てる。
   async getEconomicCalendar(from: string, to: string): Promise<EconomicEvent[]> {
     const url = `${BASE}/economic-calendar?from=${shiftUtcDay(from, -1)}&to=${shiftUtcDay(to, 1)}&apikey=${this.apiKey}`
