@@ -198,9 +198,10 @@ Claude は「`get_workspace` で読む → id を掴む → 操作する」の�
 `IndicatorEditForm` と同じく、その type の**全 output キーに同じ色を書く**（`for (const output of module.outputs)
 setColor(...)`）。最初の output キーは UI が現在値を表示するために読むだけで、書き込み先ではない。
 ただし書いた色が全部描画に効くわけではない。`Chart.tsx` が `inst.colors[output.key]` を読むのは
-`kind: 'line'` の出力だけで、ヒストグラムは `compute` が返す per-bar の色（MACD の D-42 4 色、Volume の
-陰陽色）で描かれる。MACD なら色変更で `macd` / `signal` の 2 本が同色に揃い、ヒストグラムの見た目は変わらない
-（`colors.histogram` は書かれるが読まれない）。これは既存 UI の挙動そのままで、MCP でも同じにする。
+`kind: 'line'`（線色）と `kind: 'band'`（BB の帯を 15% アルファで塗る）で、`kind: 'histogram'` だけは読まず、
+`compute` が返す per-bar の色（MACD の D-42 4 色、Volume の陰陽色）で描かれる。MACD なら色変更で
+`macd` / `signal` の 2 本が同色に揃い、ヒストグラムの見た目は変わらない（`colors.histogram` は書かれるが
+読まれない）。これは既存 UI の挙動そのままで、MCP でも同じにする。
 `params` は既存値へのマージで、渡されたキーだけを更新する（値の検証は追加時と同じ）。
 `fixed: true` の Volume も対象にできる（`visible` と `color` のみ。`params` は空なので指定すれば未知キーのエラーになる）。
 `params` / `visible` / `color` の全省略はエラー。応答はその 1 件の全フィールド（id / type / params / visible / colors）。
@@ -347,8 +348,9 @@ MCP 側は `A refresh is already in progress in the app.` に写像する。main
 - **MW-16** `update_indicator` の `color` は全 output キーに書く。`IndicatorEditForm` が
   `for (const output of module.outputs) setColor(...)` で全出力に流しており、最初の output キーは
   現在値の表示に読むだけ。1 キーだけ書くと MACD などで色が食い違い、UI での編集結果と一致しなくなる。
-  描画に反映されるのは `kind: 'line'` の出力のみ（ヒストグラムは `compute` の per-bar 色で描かれ、
-  `colors` を読まない）。データ上は全キーに書くのが UI パリティなので、この不一致もそのまま踏襲する。
+  描画に反映されるのは `kind: 'line'` と `kind: 'band'` の出力で、`kind: 'histogram'` は `compute` の
+  per-bar 色で描かれ `colors` を読まない。データ上は全キーに書くのが UI パリティなので、この不一致も
+  そのまま踏襲する。
 
 ## 将来枠
 
