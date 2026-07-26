@@ -19,6 +19,7 @@ import { classify } from './capabilityClassifier'
 import { createSearchCache } from './searchCache'
 import { createProfileService } from './profile/ProfileService'
 import { createCompanyInfoService } from './profile/CompanyInfoService'
+import type { EditResult } from './mcp/edits'
 
 export type { BarSummary } from './db/barStore'
 
@@ -36,6 +37,12 @@ export type OhlcvOutcome =
 export function toBars(outcome: OhlcvOutcome): Bar[] {
   return outcome.kind === 'ok' ? outcome.bars : []
 }
+
+// MCP write result: mirrors EditResult<T> but carries the whole collection on success so a caller
+// doesn't need a follow-up get() to format its response.
+export type MutateResult<T> =
+  | { ok: true; collection: WorkspaceCollection; value: T }
+  | { ok: false; message: string }
 
 export type ProviderLike = Pick<
   FmpProvider, 'getOHLCV' | 'searchSymbols' | 'getQuote' | 'getMarketStatus' | 'getCompanyProfile'
@@ -236,6 +243,17 @@ export function createCore(deps: CoreDeps) {
         // Every OTHER window re-hydrates; the sender skips itself (its store is already current
         // and re-applying would fight its debounce).
         broadcast(CH.workspacesChanged, { collection: c, rev: workspacesRev }, fromWebContentsId)
+      },
+      // MW-04: read -> edit -> write in ONE synchronous call. main is single-threaded, so nothing
+      // can interleave a write between the read and the set. Async work (symbol resolution) must
+      // finish before calling this. MCP is not a window, so the broadcast excludes nobody.
+      // `this.set` is used below, so this object must stay a method (shorthand syntax) on the
+      // `workspaces` literal — never destructure `mutate` off `core.workspaces`, or `this` is lost.
+      mutate<T>(fn: (c: WorkspaceCollection) => EditResult<T>): MutateResult<T> {
+        const result = fn(deps.workspaceStore.getWorkspaces())
+        if (!result.ok) return result
+        this.set(result.collection)
+        return result
       }
     },
 
