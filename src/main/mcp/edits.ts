@@ -1,5 +1,5 @@
-import { cellCount, newCellSeed } from '@shared/workspace'
-import type { Cell, GridShape, IndicatorInstance, Params, Timeframe, Workspace, WorkspaceCollection } from '@shared/types'
+import { cellCount, defaultLayout, newCellSeed } from '@shared/workspace'
+import type { Cell, GridShape, IndicatorInstance, Layout, Params, Timeframe, Workspace, WatchlistItem, WorkspaceCollection } from '@shared/types'
 import { registry } from '@shared/indicators/registry'
 import { makeIndicatorInstance, sameParams } from '@shared/indicators/instance'
 
@@ -243,4 +243,106 @@ export function removeIndicator(
     })
   }
   return editOk(withWorkspace(c, w.name, withCells(w, cells)), { workspaceName: w.name, removed, keptFixed })
+}
+
+export type EditWatchlistArgs = { workspace?: string; add: WatchlistItem[]; remove: string[] }
+export type EditWatchlistInfo = {
+  workspaceName: string; items: WatchlistItem[]; addedCount: number; removedCount: number
+}
+
+export function editWatchlist(
+  c: WorkspaceCollection, a: EditWatchlistArgs
+): EditResult<EditWatchlistInfo> {
+  const w = pickWorkspace(c, a.workspace)
+  if (!w) return editFail(missingWorkspace(c, a.workspace))
+  const drop = new Set(a.remove.map((s) => s.toUpperCase()))
+  const kept = w.items.filter((i) => !drop.has(i.symbol.toUpperCase()))
+  const removedCount = w.items.length - kept.length
+  const have = new Set(kept.map((i) => i.symbol.toUpperCase()))
+  const fresh = a.add.filter((i) => !have.has(i.symbol.toUpperCase())) // parity with addToWatchlist
+  const items = [...kept, ...fresh]
+  return editOk(withWorkspace(c, w.name, { ...w, items }), {
+    workspaceName: w.name, items, addedCount: fresh.length, removedCount
+  })
+}
+
+const duplicateName = (name: string): string => `A workspace named "${name}" already exists.`
+
+function remintLayout(layout: Layout, mint: () => string): Layout {
+  let activeCellId = layout.activeCellId
+  const cells = layout.cells.map((cell) => {
+    const id = mint()
+    if (cell.id === layout.activeCellId) activeCellId = id
+    return { ...cell, id, indicators: cell.indicators.map((i) => ({ ...i, id: mint() })) }
+  })
+  return { ...layout, cells, activeCellId }
+}
+
+export type CreateWorkspaceArgs = { name: string; copyFrom?: string; activate: boolean }
+
+export function createWorkspace(
+  c: WorkspaceCollection, a: CreateWorkspaceArgs
+): EditResult<{ name: string }> {
+  if (c.workspaces.some((w) => w.name === a.name)) return editFail(duplicateName(a.name))
+  const mint = makeIdMinter(c)
+  let items: WatchlistItem[] = []
+  let layout: Layout
+  if (a.copyFrom !== undefined) {
+    const source = c.workspaces.find((w) => w.name === a.copyFrom)
+    if (!source) return editFail(missingWorkspace(c, a.copyFrom))
+    items = [...source.items]
+    layout = remintLayout(source.layout, mint)
+  } else {
+    layout = defaultLayout(mint(), mint())
+  }
+  const next: WorkspaceCollection = {
+    ...c,
+    active: a.activate ? a.name : c.active,
+    workspaces: [...c.workspaces, { name: a.name, items, layout }]
+  }
+  return editOk(next, { name: a.name })
+}
+
+export function renameWorkspace(
+  c: WorkspaceCollection, a: { from: string; to: string }
+): EditResult<{ name: string }> {
+  if (!c.workspaces.some((w) => w.name === a.from)) return editFail(missingWorkspace(c, a.from))
+  if (c.workspaces.some((w) => w.name === a.to)) return editFail(duplicateName(a.to))
+  const next: WorkspaceCollection = {
+    ...c,
+    active: c.active === a.from ? a.to : c.active,
+    workspaces: c.workspaces.map((w) => (w.name === a.from ? { ...w, name: a.to } : w))
+  }
+  return editOk(next, { name: a.to })
+}
+
+export type DeleteWorkspaceInfo = {
+  name: string; cellCount: number; symbols: string[]; watchlistCount: number; activeNow: string
+}
+
+export function deleteWorkspace(
+  c: WorkspaceCollection, a: { name: string }
+): EditResult<DeleteWorkspaceInfo> {
+  const target = c.workspaces.find((w) => w.name === a.name)
+  if (!target) return editFail(missingWorkspace(c, a.name))
+  if (c.workspaces.length === 1) return editFail('Cannot delete the only workspace.')
+  const workspaces = c.workspaces.filter((w) => w.name !== a.name)
+  const activeNow = c.active === a.name ? workspaces[0].name : c.active
+  const symbols = target.layout.cells
+    .map((cell) => cell.symbol)
+    .filter((s): s is string => s !== null)
+  return editOk({ ...c, active: activeNow, workspaces }, {
+    name: a.name,
+    cellCount: target.layout.cells.length,
+    symbols,
+    watchlistCount: target.items.length,
+    activeNow
+  })
+}
+
+export function activateWorkspace(
+  c: WorkspaceCollection, a: { name: string }
+): EditResult<{ name: string }> {
+  if (!c.workspaces.some((w) => w.name === a.name)) return editFail(missingWorkspace(c, a.name))
+  return editOk({ ...c, active: a.name }, { name: a.name })
 }
