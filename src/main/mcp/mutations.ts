@@ -3,11 +3,8 @@ import { TIMEFRAMES, type Params } from '@shared/types'
 import { defaultParams, indicatorCatalog, validateParams } from '@shared/indicators/validate'
 import { ADDABLE } from '@shared/indicators/registry'
 import type { ToolCore, ToolDef, ToolHandler } from './tools'
-import { ok, fail } from './format'
-import {
-  addIndicator, removeIndicator, setChart, setGridLayout, updateIndicator, pickWorkspace
-} from './edits'
-import { formatCells, formatGrid, formatInstanceDetail } from './formatEdits'
+import { ok, fail, formatCells, formatGrid, formatInstanceDetail } from './format'
+import { addIndicator, removeIndicator, setChart, setGridLayout, updateIndicator } from './edits'
 
 export const workspaceArg = z.string().min(1).optional()
   .describe('Exact workspace name, as listed by get_workspaces. Omit for the one the user has open.')
@@ -130,15 +127,7 @@ export function buildMutationTools(core: ToolCore): ToolDef[] {
     }
     if (color !== undefined && !HEX.test(color)) return fail('color must be a hex value like #1e90ff.')
 
-    // The type is only known after the instance is found, so params are validated inside mutate's
-    // editor call — do it in two steps: locate first, then validate, then write.
-    const found = pickWorkspace(core.workspaces.get().collection, workspace)
-      ?.layout.cells.flatMap((cell) => cell.indicators).find((i) => i.id === indicator)
-    if (found && parsed.data.params) {
-      const check = validateParams(found.type, parsed.data.params)
-      if (!check.ok) return fail(check.message)
-    }
-
+    // params are validated inside updateIndicator, where the instance's type is already known.
     const result = core.workspaces.mutate((c) =>
       updateIndicator(c, { workspace, indicator, params: parsed.data.params, visible, color })
     )

@@ -2,6 +2,7 @@ import { cellCount, defaultLayout, newCellSeed } from '@shared/workspace'
 import type { Cell, GridShape, IndicatorInstance, Layout, Params, Timeframe, Workspace, WatchlistItem, WorkspaceCollection } from '@shared/types'
 import { registry } from '@shared/indicators/registry'
 import { makeIndicatorInstance, sameParams } from '@shared/indicators/instance'
+import { validateParams } from '@shared/indicators/validate'
 
 // Every editor is a pure collection -> collection function so core.workspaces.mutate can run the
 // whole read-modify-write inside one synchronous call (MW-04). `value` carries whatever the tool
@@ -14,10 +15,7 @@ export const editFail = <T>(message: string): EditResult<T> => ({ ok: false, mes
 export const editOk = <T>(collection: WorkspaceCollection, value: T): EditResult<T> =>
   ({ ok: true, collection, value })
 
-const numericId = (id: string): number => {
-  const n = parseInt(id, 10)
-  return Number.isFinite(n) ? n : 0
-}
+const numericId = (id: string): number => parseInt(id, 10) || 0 // NaN (a non-numeric id) -> 0
 
 // MW-05: mint from "highest numeric id + 1". The renderer's store reseeds its own counter past
 // every loaded id on hydrate, so ids minted here can never collide with ids it mints later. A
@@ -46,6 +44,15 @@ export function missingWorkspace(c: WorkspaceCollection, name?: string): string 
 // Cells past rows*cols are kept in the array (a shrink never truncates) but are not on screen.
 export const visibleCells = (w: Workspace): Cell[] => w.layout.cells.slice(0, cellCount(w.layout.shape))
 
+// A cell id, or 'all' for every VISIBLE cell (MW-08). Returns the failure message when nothing hits.
+function resolveTargets(w: Workspace, cell: string): { ids: Set<string> } | { message: string } {
+  const targets = cell === 'all' ? visibleCells(w) : w.layout.cells.filter((x) => x.id === cell)
+  if (targets.length === 0) {
+    return { message: `No cell "${cell}" in workspace "${w.name}". Cells: ${w.layout.cells.map((x) => x.id).join(', ')}.` }
+  }
+  return { ids: new Set(targets.map((t) => t.id)) }
+}
+
 export function withWorkspace(
   c: WorkspaceCollection, name: string, next: Workspace
 ): WorkspaceCollection {
@@ -67,13 +74,9 @@ export type SetChartInfo = { workspaceName: string; cells: Cell[]; hidden: boole
 export function setChart(c: WorkspaceCollection, a: SetChartArgs): EditResult<SetChartInfo> {
   const w = pickWorkspace(c, a.workspace)
   if (!w) return editFail(missingWorkspace(c, a.workspace))
-  const targets = a.cell === 'all' ? visibleCells(w) : w.layout.cells.filter((x) => x.id === a.cell)
-  if (targets.length === 0) {
-    return editFail(
-      `No cell "${a.cell}" in workspace "${w.name}". Cells: ${w.layout.cells.map((x) => x.id).join(', ')}.`
-    )
-  }
-  const ids = new Set(targets.map((t) => t.id))
+  const t = resolveTargets(w, a.cell)
+  if ('message' in t) return editFail(t.message)
+  const ids = t.ids
   const cells = w.layout.cells.map((cell) => {
     if (!ids.has(cell.id)) return cell
     let next = cell
@@ -133,13 +136,9 @@ export function addIndicator(
 ): EditResult<AddIndicatorInfo> {
   const w = pickWorkspace(c, a.workspace)
   if (!w) return editFail(missingWorkspace(c, a.workspace))
-  const targets = a.cell === 'all' ? visibleCells(w) : w.layout.cells.filter((x) => x.id === a.cell)
-  if (targets.length === 0) {
-    return editFail(
-      `No cell "${a.cell}" in workspace "${w.name}". Cells: ${w.layout.cells.map((x) => x.id).join(', ')}.`
-    )
-  }
-  const ids = new Set(targets.map((t) => t.id))
+  const t = resolveTargets(w, a.cell)
+  if ('message' in t) return editFail(t.message)
+  const ids = t.ids
   const mint = makeIdMinter(c)
   const added: { cellId: string; instance: IndicatorInstance }[] = []
   let skipped = 0
@@ -181,7 +180,13 @@ export function updateIndicator(
   if (!host || !current) return editFail(NO_INDICATOR(a.indicator))
 
   let next: IndicatorInstance = { ...current }
-  if (a.params) next.params = { ...next.params, ...a.params }
+  if (a.params) {
+    // Validated here, not in the tool layer: the type is only known once the instance is found, so
+    // checking outside would mean looking the instance up twice.
+    const check = validateParams(current.type, a.params)
+    if (!check.ok) return editFail(check.message)
+    next.params = { ...next.params, ...a.params }
+  }
   if (a.visible !== undefined) next.visible = a.visible
   if (a.color) {
     // MW-16: fan the colour across every output, exactly as IndicatorEditForm does.
@@ -227,13 +232,9 @@ export function removeIndicator(
       }))
     }
   } else {
-    const targets = a.cell === 'all' ? visibleCells(w) : w.layout.cells.filter((x) => x.id === a.cell)
-    if (targets.length === 0) {
-      return editFail(
-        `No cell "${a.cell}" in workspace "${w.name}". Cells: ${w.layout.cells.map((x) => x.id).join(', ')}.`
-      )
-    }
-    const ids = new Set(targets.map((t) => t.id))
+    const t = resolveTargets(w, a.cell ?? '')
+    if ('message' in t) return editFail(t.message)
+    const ids = t.ids
     cells = w.layout.cells.map((cell) => {
       if (!ids.has(cell.id)) return cell
       const kept = cell.indicators.filter((i) => i.fixed)

@@ -38,12 +38,6 @@ export function toBars(outcome: OhlcvOutcome): Bar[] {
   return outcome.kind === 'ok' ? outcome.bars : []
 }
 
-// MCP write result: mirrors EditResult<T> but carries the whole collection on success so a caller
-// doesn't need a follow-up get() to format its response.
-export type MutateResult<T> =
-  | { ok: true; collection: WorkspaceCollection; value: T }
-  | { ok: false; message: string }
-
 export type ProviderLike = Pick<
   FmpProvider, 'getOHLCV' | 'searchSymbols' | 'getQuote' | 'getMarketStatus' | 'getCompanyProfile'
 >
@@ -258,7 +252,7 @@ export function createCore(deps: CoreDeps) {
       // finish before calling this. MCP is not a window, so the broadcast excludes nobody.
       // `this.set` is used below, so this object must stay a method (shorthand syntax) on the
       // `workspaces` literal — never destructure `mutate` off `core.workspaces`, or `this` is lost.
-      mutate<T>(fn: (c: WorkspaceCollection) => EditResult<T>): MutateResult<T> {
+      mutate<T>(fn: (c: WorkspaceCollection) => EditResult<T>): EditResult<T> {
         const result = fn(deps.workspaceStore.getWorkspaces())
         if (!result.ok) return result
         this.set(result.collection)

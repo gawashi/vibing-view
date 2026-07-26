@@ -1,7 +1,8 @@
 import {
   TIMEFRAMES, DERIVED_TIMEFRAMES, DAILY_BACKED_TIMEFRAMES,
   type Bar, type Timeframe, type SymbolResult, type Quote, type CompanyInfo,
-  type Workspace, type WorkspaceCollection
+  type Workspace, type WorkspaceCollection, type Cell, type GridShape,
+  type IndicatorInstance, type WatchlistItem
 } from '@shared/types'
 import type { CapabilityStatus } from '@shared/ipc'
 import type { BarSummary } from '../core'
@@ -152,6 +153,39 @@ export function formatWorkspaceDetail(w: Workspace, isActive: boolean): string {
     ...watchlist,
     `Cells (${w.layout.cells.length}):`,
     ...cells
+  ].join('\n')
+}
+
+// Mutation responses (set_chart, set_grid_layout, update_indicator, edit_watchlist) — each one
+// echoes back the slice of get_workspace it just changed, in that same wording.
+export function formatCells(workspaceName: string, cells: Cell[]): string {
+  return [`Workspace "${workspaceName}":`, ...cells.map((c) => `- ${formatCellLine(c)}`)].join('\n')
+}
+
+export function formatGrid(workspaceName: string, shape: GridShape, visible: Cell[]): string {
+  return [
+    `Workspace "${workspaceName}" grid is now ${shape.rows} rows x ${shape.cols} cols.`,
+    ...visible.map((c) => `- ${formatCellLine(c)}`)
+  ].join('\n')
+}
+
+const kv = (o: Record<string, string | number>): string =>
+  Object.entries(o).map(([k, v]) => `${k}=${v}`).join(', ')
+
+export function formatInstanceDetail(cellId: string, i: IndicatorInstance): string {
+  return [
+    `[${i.id}] ${i.type} on cell [${cellId}]`,
+    `params: ${kv(i.params) || '(none)'}`,
+    `visible: ${i.visible}`,
+    `colors: ${kv(i.colors) || '(none)'}`
+  ].join('\n')
+}
+
+export function formatWatchlist(workspaceName: string, items: WatchlistItem[]): string {
+  if (items.length === 0) return `Workspace "${workspaceName}" watchlist is empty.`
+  return [
+    `Workspace "${workspaceName}" watchlist (${items.length}):`,
+    ...items.map((i) => `- ${i.symbol} — ${i.name} (${i.exchange})`)
   ].join('\n')
 }
 

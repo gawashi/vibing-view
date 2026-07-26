@@ -4,8 +4,7 @@ import type { ToolCore, ToolDef, ToolHandler } from './tools'
 import {
   activateWorkspace, createWorkspace, deleteWorkspace, editWatchlist, renameWorkspace
 } from './edits'
-import { formatWatchlist } from './formatEdits'
-import { ok, fail, plural } from './format'
+import { ok, fail, plural, formatWatchlist } from './format'
 import { UNRESOLVED, workspaceArg } from './mutations'
 
 const watchlistArgs = z.object({

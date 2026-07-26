@@ -21,10 +21,9 @@ import { useWorkspaceSync } from './hooks/useWorkspaceSync'
 import { useClipboardSync } from './hooks/useClipboardSync'
 import { useGridShortcuts } from '@/hooks/useGridShortcuts'
 import { applyTheme } from './lib/theme'
-import type { CapabilityStatus } from '@shared/ipc'
+import type { CapabilityStatus, RefreshDonePayload } from '@shared/ipc'
 import type { Timeframe, Quote, MarketStatus } from '@shared/types'
 import type { ReloadSource } from './lib/autoRefresh'
-import { BUSY_RESULT, countOhlcv, type ReloadResult } from './lib/reloadResult'
 
 export default function App(): React.JSX.Element {
   // Sidebar open/closed (D-63) — UI chrome, persisted separately from the Workspace/named-layout
@@ -77,10 +76,13 @@ export default function App(): React.JSX.Element {
   }>({ status: 'idle', errorSource: null, lastRefreshedAt: null })
   const [autoRefresh, setAutoRefresh] = useState(false)
 
-  const reload = async (opts: { source: ReloadSource }): Promise<ReloadResult> => {
+  // 戻り値は force_reload への返答そのもの（MW-14）。
+  const reload = async (
+    opts: { source: ReloadSource }
+  ): Promise<Omit<RefreshDonePayload, 'requestId'>> => {
     // 同期ガード: 手動と auto tick の二重実行を防ぐ（state のラグに依存しない）。
     // MW-14: 黙って捨てず busy を返す — MCP の force_reload はこの戻り値で「今は無理」を知る。
-    if (inFlight.current) return BUSY_RESULT
+    if (inFlight.current) return { refreshed: 0, failed: 0, busy: true }
     const state = useAppStore.getState()
     const { cells, shape } = state
     const caps = queryClient.getQueryData<Record<Timeframe, CapabilityStatus>>(qk.capabilities())
@@ -142,8 +144,9 @@ export default function App(): React.JSX.Element {
       }
       // 他ウィンドウ(enlarge 窓)へ配信。受信側は setQueryData のみ（追加 FMP なし）。
       void api.refresh.broadcast({ ohlcv, quotes, marketStatus })
-      const counts = countOhlcv(ohlcvResults)
-      const failed = counts.failed > 0
+      // ohlcv は fulfilled のみ（上の flatMap）なので、それが成功数そのもの。
+      const failedCount = ohlcvResults.length - ohlcv.length
+      const failed = failedCount > 0
       if (failed) toast('Some charts couldn’t be refreshed. Check your connection or FMP plan.')
       // ドットは市場状態(開場=緑/閉鎖=琥珀)。失敗は起こしたソースを errorSource に記録し、
       // 成功はソースに関わらずクリア(データが最新になったので)。
@@ -154,7 +157,7 @@ export default function App(): React.JSX.Element {
         errorSource: failed || !statusOk ? opts.source : null,
         lastRefreshedAt: Date.now(),
       }))
-      return { ...counts, busy: false }
+      return { refreshed: ohlcv.length, failed: failedCount, busy: false }
     } finally {
       inFlight.current = false
       setReloading(false)
@@ -191,15 +194,11 @@ export default function App(): React.JSX.Element {
   useGridShortcuts(() => void reload({ source: 'manual' }))
 
   // MCP の force_reload はこの購読で UI のリロードボタンと同じ経路を通る（MW-14）。
-  const reloadRef = useRef(reload)
-  reloadRef.current = reload
-  useEffect(() => {
-    return api.refresh.onRequest((requestId) => {
-      void reloadRef.current({ source: 'manual' }).then((r) =>
-        api.refresh.done({ requestId, refreshed: r.refreshed, failed: r.failed, busy: r.busy })
-      )
-    })
-  }, [])
+  // reload はレンダごとに作り直されるが、参照するのは ref と getState だけなので初回分で足りる。
+  useEffect(() => api.refresh.onRequest((requestId) => {
+    void reload({ source: 'manual' }).then((r) => api.refresh.done({ requestId, ...r }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [])
 
   // Per-cell capability gating (eager intraday probe, requires-plan→snap-to-daily, rate-limit
   // toast) has moved into GridHost's GridCell (D-60) — each rendered cell now gates its own row off
