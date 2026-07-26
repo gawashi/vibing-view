@@ -86,15 +86,17 @@ export function McpSetting(): React.JSX.Element {
         Listens on 127.0.0.1 only and requires a Bearer token. Responds only while the app is running.
       </div>
       <div className="flex items-center gap-2">
-        <input
-          type="checkbox"
+        <button
+          type="button"
           role="switch"
-          className="size-4 accent-primary disabled:opacity-50"
-          checked={config.enabled}
-          onChange={(e) => void toggle(e.target.checked)}
+          aria-checked={config.enabled}
+          className="inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-transparent bg-input transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 aria-checked:bg-primary"
+          onClick={() => void toggle(!config.enabled)}
           disabled={busy || !hasToken}
           aria-label="Enable MCP server"
-        />
+        >
+          <span className="pointer-events-none ml-0.5 size-4 rounded-full bg-background shadow transition-transform data-[on=true]:translate-x-4" data-on={config.enabled} />
+        </button>
         <span className="text-xs text-muted-foreground">
           {!hasToken
             ? 'Generate a token to enable.'
