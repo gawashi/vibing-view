@@ -47,7 +47,11 @@ epoch が 4〜5 時間ずれ、イベントの並び順・UTC 日キー・ロー
 - **`from`/`to` の基準**: 要求した範囲の端の日が返ってくるか。ET 基準なら UTC 日の端が欠けるので、
   `EconomicCalendarService` が要求する範囲を 1 日広げる必要がある
 
-確定した基準はこの設計書に追記し、`FmpProvider` の変換関数の直上にコメントで残す。
+**確定した基準（2026-07-26 実測）**: `date` は **UTC** 基準。米 CPI（08:30 ET）の行は
+夏週 `tests/fixtures/fmp-economic-calendar.json` で `"2026-07-14 12:30:00"`、冬週
+`tests/fixtures/fmp-economic-calendar-winter.json` で `"2026-01-13 13:30:00"`。`from`/`to` は要求した端の日が
+`返る`。`FmpProvider` は要求範囲を両端 1 日広げる（基準に依らず安全で、リクエスト数は
+変わらない）。変換関数の直上に同じ内容をコメントで残す。
 
 将来 FMP 側が基準を変えた場合は、既存行のキーが無効になるので `client.ts` で
 `DROP TABLE economic_days` する（1 週あたり 1 リクエストの再取得で済む安いキャッシュなので、
