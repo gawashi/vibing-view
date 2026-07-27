@@ -6,6 +6,7 @@ import { configureProxy } from './net/httpClient'
 import { CH } from '@shared/ipc'
 import { buildCompanyHash } from '@shared/companyWindow'
 import { buildChartHash } from '@shared/chartWindow'
+import { buildSymbolChartHash } from '@shared/symbolChartWindow'
 import { createCore } from './core'
 import * as barStore from './db/barStore'
 import * as profileStore from './db/profileStore'
@@ -25,6 +26,10 @@ const companyWindows = new Map<string, BrowserWindow>()
 // One enlarge-chart window per cellId (spec: cellId keying; the same cell re-focuses, a different
 // cell spawns another). Cleared on 'closed'. Twin of companyWindows.
 const chartWindows = new Map<string, BrowserWindow>()
+
+// One symbol window per watchlist symbol (spec: symbol keying; the same symbol re-focuses, a
+// different symbol spawns another). Cleared on 'closed'. Twin of chartWindows.
+const symbolChartWindows = new Map<string, BrowserWindow>()
 
 // Load the shared renderer bundle, optionally with a hash (e.g. company=AAPL) that main.tsx reads
 // to mount CompanyWindow instead of App. Dev serves from ELECTRON_RENDERER_URL; prod loads the file.
@@ -78,6 +83,7 @@ function createWindow(): void {
     mainWindow = null
     for (const w of companyWindows.values()) w.close()
     for (const w of chartWindows.values()) w.close()
+    for (const w of symbolChartWindows.values()) w.close()
   })
   loadRenderer(win)
 }
@@ -171,6 +177,7 @@ app.whenReady().then(async () => {
   void mcp.applyConfig(core, getMcpConfig()) // no-op unless the user enabled it (M-06)
   ipcMain.handle(CH.companyOpenWindow, (_e, symbol: string) => openHashWindow(companyWindows, symbol, 600, 800, buildCompanyHash(symbol)))
   ipcMain.handle(CH.chartOpenWindow, (_e, cellId: string) => openHashWindow(chartWindows, cellId, 1100, 760, buildChartHash(cellId)))
+  ipcMain.handle(CH.symbolChartOpenWindow, (_e, symbol: string) => openHashWindow(symbolChartWindows, symbol, 1100, 760, buildSymbolChartHash(symbol)))
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
