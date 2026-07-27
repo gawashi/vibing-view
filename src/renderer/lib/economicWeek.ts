@@ -2,9 +2,11 @@
 import { addDays, format } from 'date-fns'
 import type { EconomicCountryPreset, EconomicEvent, EconomicImpact } from '@shared/types'
 
-// 'Major' の 5 コードはハードコードする（EC-11）。全世界の国リスト（40 前後）はハードコードしない —
+// 'Major' のコードはハードコードする（EC-11）。全世界の国リスト（40 前後）はハードコードしない —
 // 列挙を誤ると選べない国が生まれ、それを埋めるメンテが要る。'all' はフィルタ自体を素通しにする。
-export const MAJOR_COUNTRIES = ['US', 'EU', 'JP', 'GB', 'CN'] as const
+// FMP は英国を非 ISO の 'UK' で返す（2026-07-26 実測、夏冬 2 fixture 計 1089 行中 UK 46 / GB 0）。
+// 'GB' は将来 FMP が ISO 表記に変えた場合のゼロコストな保険として残す。
+export const MAJOR_COUNTRIES = ['US', 'EU', 'JP', 'UK', 'GB', 'CN'] as const
 
 export type EconomicFilterInput = {
   countries: EconomicCountryPreset

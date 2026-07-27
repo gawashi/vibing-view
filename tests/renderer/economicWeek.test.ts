@@ -1,9 +1,13 @@
 // tests/renderer/economicWeek.test.ts
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, it, expect } from 'vitest'
 import {
   MAJOR_COUNTRIES, applyFilter, eventsInWeek, groupByLocalDay, weekUtcDays
 } from '../../src/renderer/lib/economicWeek'
 import type { EconomicEvent, EconomicImpact } from '@shared/types'
+
+const fx = (name: string): { country: string }[] => JSON.parse(readFileSync(join(__dirname, '../fixtures', name), 'utf8'))
 
 const ev = (over: Partial<EconomicEvent> = {}): EconomicEvent => ({
   time: Date.parse('2026-07-28T12:30:00Z') / 1000,
@@ -83,13 +87,22 @@ describe('applyFilter — country presets (EC-11)', () => {
     expect(applyFilter(events, { countries: 'us', impacts: all, text: '' }).map((e) => e.country)).toEqual(['US'])
   })
 
-  it("'major' keeps the five hardcoded majors", () => {
+  it("'major' keeps the hardcoded majors", () => {
     expect(applyFilter(events, { countries: 'major', impacts: all, text: '' }).map((e) => e.country)).toEqual(['US', 'JP'])
-    expect(MAJOR_COUNTRIES).toEqual(['US', 'EU', 'JP', 'GB', 'CN'])
+    expect(MAJOR_COUNTRIES).toEqual(['US', 'EU', 'JP', 'UK', 'GB', 'CN'])
   })
 
   it("'all' keeps everything, including countries not in MAJOR_COUNTRIES", () => {
     expect(applyFilter(events, { countries: 'all', impacts: all, text: '' })).toHaveLength(3)
+  })
+
+  // MAJOR_COUNTRIES を観測データに縛る回帰テスト（FMP は 'GB' でなく 'UK' を返す）。
+  it("'major' matches every US/EU/UK row actually seen in the two live captures", () => {
+    const observed = [...fx('fmp-economic-calendar.json'), ...fx('fmp-economic-calendar-winter.json')]
+    const expectedMajors = observed.filter((e) => ['US', 'EU', 'UK'].includes(e.country))
+    expect(expectedMajors.length).toBeGreaterThan(0)
+    const kept = applyFilter(expectedMajors as EconomicEvent[], { countries: 'major', impacts: all, text: '' })
+    expect(kept).toHaveLength(expectedMajors.length)
   })
 })
 

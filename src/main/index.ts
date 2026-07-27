@@ -90,7 +90,8 @@ function createWindow(): void {
 }
 
 // One hardened, per-key satellite window keyed in `map`. Reopening a live key focuses it; a new key
-// spawns another. Cleared on 'closed'. Backs both the company (per-symbol) and chart (per-cellId) windows.
+// spawns another. Cleared on 'closed'. Backs the company (per-symbol), chart (per-cellId), and
+// economic calendar (fixed key 'calendar', so a second open always focuses instead of creating) windows.
 function openHashWindow(map: Map<string, BrowserWindow>, key: string, width: number, height: number, hash: string): void {
   const existing = map.get(key)
   if (existing) {

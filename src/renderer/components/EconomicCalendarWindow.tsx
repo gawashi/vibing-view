@@ -105,7 +105,12 @@ function CalendarBody(): React.JSX.Element {
   const today = new Date()
   const nowSec = Math.floor(today.getTime() / 1000)
   const weekLabel = `${format(weekStart, 'MMM d')} – ${format(addDays(weekStart, 6), 'MMM d, yyyy')}`
-  const asOf = q.data ? format(new Date(q.data.fetchedAt * 1000), 'HH:mm') : null
+  // fetchedAt は週の全日のうち最も古い取得時刻なので、過去の週では今日の日付ではないことが多い
+  // （EC-06 の確定行）。同日なら時刻だけ、そうでなければ日付を添えて古さが伝わるようにする。
+  const asOfDate = q.data ? new Date(q.data.fetchedAt * 1000) : null
+  const asOf = asOfDate
+    ? isSameDay(asOfDate, today) ? format(asOfDate, 'HH:mm') : format(asOfDate, 'yyyy-MM-dd HH:mm')
+    : null
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
