@@ -172,3 +172,27 @@ export type CompanyProfileData = {
 // fetchedAt は列で持ちダイアログの「as of YYYY-MM-DD」表記に使う（blob には含めない）。
 // stale は「取得に失敗してキャッシュを返した」フラグ。永続化はしない（blob 外）。
 export type CompanyInfo = CompanyProfileData & { fetchedAt: number; stale?: boolean }
+
+// ── 経済カレンダー ──────────────────────────────────────────────────────────
+export type EconomicImpact = 'High' | 'Medium' | 'Low'
+
+export type EconomicEvent = {
+  time: number            // UTC epoch 秒（Bar.time と同じ規約）
+  country: string         // 'US' など、FMP が返すコードそのまま
+  currency: string | null
+  event: string           // 指標名。FMP は説明文を返さない
+  impact: EconomicImpact
+  previous: number | null
+  estimate: number | null
+  actual: number | null   // 未発表なら null
+}
+
+// getRange の戻り。fetchedAt は要求した日のうち最も古い取得時刻（一番古い情報がいつのものか）。
+// stale は「古い行を返した、再取得は失敗した」— fetchedAt だけでは区別できない（CompanyInfo と同じ）。
+// events は常に要求範囲の全日をカバーする（欠けがあれば throw、EC-18）。部分的な範囲は返らない。
+export type EconomicRange = { events: EconomicEvent[]; fetchedAt: number; stale?: boolean }
+
+// 国フィルタは単一選択のプリセット（EC-11）。データ由来の動的な国リストは持たない。
+export type EconomicCountryPreset = 'us' | 'major' | 'all'
+// settings.json の economicFilter。テキストフィルタは永続化しない（EC-13）。
+export type EconomicFilterPref = { countries: EconomicCountryPreset; impacts: EconomicImpact[] }

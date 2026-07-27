@@ -3,6 +3,7 @@ import { join } from 'path'
 import { randomBytes } from 'crypto'
 import { readJsonFile, writeJsonFile } from './jsonStore'
 import type { McpConfig, McpConfigView } from '@shared/ipc'
+import type { EconomicCountryPreset, EconomicFilterPref, EconomicImpact } from '@shared/types'
 
 // ponytail: one small JSON under userData, not electron-store — no dependency for one field (design doc)
 const settingsPath = (): string => join(app.getPath('userData'), 'settings.json')
@@ -58,6 +59,25 @@ export function getAutoRefresh(): boolean {
 
 export function setAutoRefresh(on: boolean): void {
   writeJsonFile(settingsPath(), { ...read(), autoRefresh: on })
+}
+
+// 経済カレンダーのフィルタ（UI chrome, JSON）。テキストフィルタは含めない — 次に開いたとき前回の
+// 検索語が残っていると、イベントが少ないのがデータの都合か絞り込みの結果か分からない（EC-13）。
+// 手編集や旧形式で壊れた値は既定に落とす（読みで throw させない）。impacts: [] は
+// 「全トグル off」というユーザーの正当な状態なので、空配列は既定に巻き戻さない。
+export function getEconomicFilter(): EconomicFilterPref {
+  const raw = read().economicFilter
+  const v = typeof raw === 'object' && raw !== null ? (raw as Partial<EconomicFilterPref>) : {}
+  const isPreset = (c: unknown): c is EconomicCountryPreset => c === 'us' || c === 'major' || c === 'all'
+  const isImpact = (i: unknown): i is EconomicImpact => i === 'High' || i === 'Medium' || i === 'Low'
+  return {
+    countries: isPreset(v.countries) ? v.countries : 'us',
+    impacts: Array.isArray(v.impacts) ? v.impacts.filter(isImpact) : ['High', 'Medium']
+  }
+}
+
+export function setEconomicFilter(filter: EconomicFilterPref): void {
+  writeJsonFile(settingsPath(), { ...read(), economicFilter: filter })
 }
 
 const MCP_DEFAULT_PORT = 39100

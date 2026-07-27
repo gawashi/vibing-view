@@ -7,6 +7,7 @@ import App from './App'
 import { CompanyWindow } from './components/CompanyWindow'
 import { ChartWindow } from './components/ChartWindow'
 import { SymbolChartWindow } from './components/SymbolChartWindow'
+import { EconomicCalendarWindow } from './components/EconomicCalendarWindow'
 import './index.css'
 
 const queryClient = new QueryClient({
@@ -28,6 +29,8 @@ const queryClient = new QueryClient({
 const companySymbol = parseHash('company', window.location.hash)
 const chartCellId = parseHash('chart', window.location.hash)
 const symbolChartSymbol = parseHash('symbolChart', window.location.hash)
+// 経済カレンダーは 1 つしか開かないので値に意味はない。有無だけ見る（週は renderer state — EC-09/EC-10）。
+const isEconomic = parseHash('economic', window.location.hash) !== null
 
 // Seed the symbol window's cell here, before the first render: this window gets its own fresh store
 // (one 1x1 cell, no useWorkspaceSync), so setting it now means SymbolChartWindow never has to render
@@ -43,7 +46,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           ? <ChartWindow cellId={chartCellId} />
           : symbolChartSymbol
             ? <SymbolChartWindow symbol={symbolChartSymbol} />
-            : <App />}
+            : isEconomic
+              ? <EconomicCalendarWindow />
+              : <App />}
     </QueryClientProvider>
   </React.StrictMode>
 )

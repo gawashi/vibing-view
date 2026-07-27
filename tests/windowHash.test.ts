@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { buildHash, parseHash, type WindowKind } from '../src/shared/windowHash'
 
-const KINDS: WindowKind[] = ['company', 'chart', 'symbolChart']
+const KINDS: WindowKind[] = ['company', 'chart', 'symbolChart', 'economic']
 
 describe('satellite window hash', () => {
   it('round-trips values needing encoding, with or without the leading #', () => {
@@ -23,5 +23,12 @@ describe('satellite window hash', () => {
     expect(parseHash('chart', hash)).toBeNull()
     expect(parseHash('company', hash)).toBeNull()
     expect(parseHash('symbolChart', '#' + buildHash('chart', '5'))).toBeNull()
+  })
+
+  // 経済カレンダーは値を見ず有無だけで判定するので、他の窓の hash で誤って開かないことを押さえる。
+  it('only reports the economic window for its own hash', () => {
+    expect(parseHash('economic', '#' + buildHash('economic', '1'))).toBe('1')
+    expect(parseHash('economic', '#' + buildHash('company', 'AAPL'))).toBeNull()
+    expect(parseHash('company', '#' + buildHash('economic', '1'))).toBeNull()
   })
 })

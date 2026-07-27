@@ -47,7 +47,11 @@ epoch が 4〜5 時間ずれ、イベントの並び順・UTC 日キー・ロー
 - **`from`/`to` の基準**: 要求した範囲の端の日が返ってくるか。ET 基準なら UTC 日の端が欠けるので、
   `EconomicCalendarService` が要求する範囲を 1 日広げる必要がある
 
-確定した基準はこの設計書に追記し、`FmpProvider` の変換関数の直上にコメントで残す。
+**確定した基準（2026-07-26 実測）**: `date` は **UTC** 基準。米 CPI（08:30 ET）の行は
+夏週 `tests/fixtures/fmp-economic-calendar.json` で `"2026-07-14 12:30:00"`、冬週
+`tests/fixtures/fmp-economic-calendar-winter.json` で `"2026-01-13 13:30:00"`。`from`/`to` は要求した端の日が
+`返る`。`FmpProvider` は要求範囲を両端 1 日広げる（基準に依らず安全で、リクエスト数は
+変わらない）。変換関数の直上に同じ内容をコメントで残す。
 
 将来 FMP 側が基準を変えた場合は、既存行のキーが無効になるので `client.ts` で
 `DROP TABLE economic_days` する（1 週あたり 1 リクエストの再取得で済む安いキャッシュなので、
@@ -80,7 +84,6 @@ renderer: EconomicCalendarWindow                 ← 週ナビ、フィルタ、
 
 | ファイル | 役割 |
 |---|---|
-| `src/shared/economicWindow.ts` | `buildEconomicHash()` → `'economic=1'`、`parseEconomicWindow(hash)` → `boolean`。`companyWindow.ts` の双子 |
 | `src/main/db/economicDayStore.ts` | `economic_days` の read/write（純粋な blob 出し入れのみ） |
 | `src/main/calendar/EconomicCalendarService.ts` | 日単位 read-through + 確定判定 + 欠け範囲 |
 | `src/renderer/components/EconomicCalendarWindow.tsx` | ウィンドウ本体 |
@@ -98,7 +101,8 @@ renderer: EconomicCalendarWindow                 ← 週ナビ、フィルタ、
 | `src/main/core.ts` | `economicCalendar.getRange`、`economicOutOfPlan` フラグ、`ProviderLike` に 1 メソッド追加 |
 | `src/main/settings.ts` | `getEconomicFilter` / `setEconomicFilter` |
 | `src/main/ipc.ts` | チャンネル 4 本 |
-| `src/main/index.ts` | `economicWindows` Map + `CH.economicOpenWindow` ハンドラ |
+| `src/shared/windowHash.ts` | `WindowKind` に `'economic'` を追加。値は固定 `'1'`（窓は 1 枚だけなので有無しか見ない） |
+| `src/main/index.ts` | `CH.economicOpenWindow` ハンドラ（`satelliteWindows` を使い回す。固定キーなので 2 度目は focus） |
 | `src/preload/index.ts` | `api.economic` / `api.settings.*EconomicFilter` |
 | `src/renderer/main.tsx` | ハッシュ分岐に 1 本追加 |
 | `src/renderer/api.ts` | `qk.economicCalendar(from, to)` |
@@ -143,12 +147,18 @@ fetched_at >= その日の翌 00:00 UTC   → 確定。以後フェッチしな�
 
 ### 欠け範囲の取得（EC-07）
 
-必要日（ローカル週 ±1 日 = 最大 9 日）のうち fresh でない日を集め、その **min..max を 1
-リクエスト**で取る。日付が飛んでいても 1 回で済む。範囲内に混ざった fresh な日も上書きされるが、
-新しいデータなので無害。
+必要日（ローカル週 ±1 日 = 最大 9 日）のうち fresh でない日（`missing`）を集め、その **min..max を
+1 リクエスト**で取る。日付が飛んでいても 1 回で済む。
 
-レスポンスは UTC 日で groupBy し、**要求範囲の全日に行を書く**。返ってこなかった日は `'[]'`
-（EC-08）。これを省くと土日祝が毎回ミス判定になり、その週を開くたびに API を空撃ちする。
+レスポンスは UTC 日で groupBy するが、**書き込むのは `missing` の日だけ**。min..max の範囲内に
+混ざった fresh な確定済み日は書き換えない。当初は範囲内の全日を上書きしていたが、レビューで
+恒久的なデータ損失を再現された: プロバイダのレスポンスが打ち切られて一部の日が欠けると、
+その日は確定済みだったにもかかわらず `'[]'` かつ新しい `fetchedAt` で上書きされ、確定 = 再取得
+しない扱いのまま空データが固定されてしまう（手動リロード以外に復旧手段が無い）。
+
+`missing` の全日に行を書く。返ってこなかった日は `'[]'`（EC-08）。これを省くと土日祝が毎回ミス
+判定になり、その週を開くたびに API を空撃ちする。「要求範囲の全日に行がある」という保証は
+これでも成り立つ — `missing` でない日はすでに行を持っているため。
 
 ### フェッチ失敗時の stale（EC-18）
 
@@ -220,7 +230,14 @@ export type EconomicRange = { events: EconomicEvent[]; fetchedAt: number; stale?
 ```
 
 主時刻はローカル、右に小さく ET。`●` は重要度（High = 赤 / Medium = 琥珀 / Low = 灰）。
-今日の日付見出しをハイライトし、過去のイベント行は輝度を落とす。
+今日の日付見出しをハイライトする。
+
+過去と現在の区別は、境界に引く `now` ライン 1 本だけで示す。行の見た目は過去/未来で変えない
+（当初は過去行を `opacity` で落としていたが、透明度は文字のコントラストごと下げるため、過去行で
+いちばん見たい `act` が読みにくくなっていた）。リストは時系列順なので、線 1 本の上下がリスト全体で
+過去/未来に一致する。線は今週を見ているときだけ出す — 他の週では上端か下端に張り付くだけで
+情報にならない。週内の全イベントが終わっている場合は末尾に出す（消すと判断に迷う）。
+`now` は 1 分ごとに進める。開いたままの窓で線と時刻表示が固まらないようにするため。
 
 ### 週
 
@@ -232,18 +249,20 @@ export type EconomicRange = { events: EconomicEvent[]; fetchedAt: number; stale?
 - ローカル週の開始/終了 instant → 必要な UTC 日リスト（週 ±1 日）
 - イベント配列 → ローカル週に入るものだけ、日付ごとにグループ化
 - フィルタ適用
+- グループ + 現在時刻 → `now` ラインを挿す位置（今週でなければ「出さない」）
 
 ### Country フィルタ（EC-11）
 
 `US only` / `Major` / `All` の単一選択プルダウン。永続値は `'us' | 'major' | 'all'` の文字列 1 個。
-`Major` は `US` / `EU` / `JP` / `GB` / `CN` で、定数は `economicWeek.ts` に置く（フィルタ関数と同じ場所）。
+`Major` は `US` / `EU` / `JP` / `UK` / `GB` / `CN` で、定数は `economicWeek.ts` に置く（フィルタ関数と同じ場所）。
+FMP は英国を非 ISO の `UK` で返す（`GB` ではない）ため両方を含める。
 
 その週のデータに実在する国からチェックボックスのリストを作る案は採らない。永続化される選択集合と
 データ由来の動的リストが噛み合わないためである。選択中の国がイベントを持たない週ではリストから
 消え、`All` の意味が週ごとに変わり（「その週に実在する国の全部」を settings に書くので翌週は前週の
 国リストになる）、リストは fetch 完了後にしか作れないのでローディング中と失敗した週は操作不能になる。
 
-`Major` の 5 コードはハードコードする。全世界の国リスト（40 前後）はハードコードしない — 列挙を
+`Major` のコードはハードコードする。全世界の国リスト（40 前後）はハードコードしない — 列挙を
 誤ると選べない国が生まれ、それを埋めるメンテが要る。
 
 ### Impact フィルタ
@@ -277,6 +296,7 @@ CPI が並ぶ。国プルダウンでは表現できない絞り込みをここ�
 | 状況 | 表示 |
 |---|---|
 | `NO_API_KEY` | Settings で FMP API キーを設定してください |
+| `FmpHttpError` 401 | FMP API キーが拒否されました。Settings で確認してください |
 | `FmpHttpError` 402 / 403 | 経済カレンダーは現在の FMP プランでは利用できません |
 | 429 | FMP のリクエスト上限に達しました。しばらく待ってから再試行してください |
 | 通信エラー | 接続を確認してください |
@@ -330,9 +350,9 @@ renderer 側は Company info が既に持つ `/FMP HTTP (200|40[0-9])/` の判�
 - Impact フィルタ
 - テキストフィルタが国コードと指標名の両方に当たる
 
-**`tests/economicWindow.test.ts`**（`companyWindow.test.ts` と同型）
+**`tests/windowHash.test.ts`**（既存。`'economic'` を kind として追加）
 
-- `buildEconomicHash` / `parseEconomicWindow` の往復
+- `buildHash('economic', '1')` / `parseHash` の往復と、他の窓の hash で開かないこと
 
 ## 将来枠
 

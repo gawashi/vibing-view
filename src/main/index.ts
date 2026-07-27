@@ -9,6 +9,7 @@ import { createCore } from './core'
 import * as barStore from './db/barStore'
 import * as profileStore from './db/profileStore'
 import * as companyProfileStore from './db/companyProfileStore'
+import * as economicDayStore from './db/economicDayStore'
 import * as workspaceStore from './workspaceStore'
 import * as capabilityCache from './capabilityCache'
 import { getApiKey, setApiKey, getKeyStatus, clearApiKey } from './keystore'
@@ -18,8 +19,9 @@ import * as mcp from './mcp'
 import { getMcpConfig } from './settings'
 
 // One satellite window per (kind, key): company-info per symbol, enlarge-chart per cellId, watchlist
-// symbol window per symbol. Reopening a live key focuses it; a new key spawns another. Keyed
-// `kind:value` so the three kinds never collide. Cleared on 'closed'.
+// symbol window per symbol, economic calendar as a singleton (fixed value, so a second open always
+// focuses — 週は renderer の state なので週ごとに窓を増やす意味がない、EC-09). Reopening a live key
+// focuses it; a new key spawns another. Keyed `kind:value` so the kinds never collide. Cleared on 'closed'.
 const satelliteWindows = new Map<string, BrowserWindow>()
 
 // Load the shared renderer bundle, optionally with a hash (e.g. company=AAPL) that main.tsx reads
@@ -77,7 +79,7 @@ function createWindow(): void {
   loadRenderer(win)
 }
 
-// One hardened satellite window per (kind, value); backs all three window kinds.
+// One hardened satellite window per (kind, value); backs every window kind.
 function openHashWindow(kind: WindowKind, value: string, width: number, height: number): void {
   const key = `${kind}:${value}`
   const existing = satelliteWindows.get(key)
@@ -147,6 +149,7 @@ function buildCore(): ReturnType<typeof createCore> {
     barStore,
     profileStore,
     companyProfileStore,
+    economicDayStore,
     workspaceStore,
     capabilityCache,
     keystore: { getApiKey, setApiKey, getKeyStatus, clearApiKey },
@@ -167,6 +170,7 @@ app.whenReady().then(async () => {
   ipcMain.handle(CH.companyOpenWindow, (_e, symbol: string) => openHashWindow('company', symbol, 600, 800))
   ipcMain.handle(CH.chartOpenWindow, (_e, cellId: string) => openHashWindow('chart', cellId, 1100, 760))
   ipcMain.handle(CH.symbolChartOpenWindow, (_e, symbol: string) => openHashWindow('symbolChart', symbol, 1100, 760))
+  ipcMain.handle(CH.economicOpenWindow, () => openHashWindow('economic', '1', 720, 900))
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { PanelLeftClose, PanelLeftOpen, RefreshCw, Timer, TimerOff } from 'lucide-react'
+import { CalendarDays, PanelLeftClose, PanelLeftOpen, RefreshCw, Timer, TimerOff } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { api, qk } from './api'
@@ -289,6 +289,19 @@ export default function App(): React.JSX.Element {
               </Tooltip>
             </div>
             <SearchBar />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => void api.economic.openWindow()}
+                  aria-label="Economic calendar"
+                >
+                  <CalendarDays className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Economic calendar</TooltipContent>
+            </Tooltip>
             <SettingsDialog />
           </div>
         </header>

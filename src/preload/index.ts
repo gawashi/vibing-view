@@ -30,7 +30,9 @@ const api: Api = {
     getTheme: () => ipcRenderer.invoke(CH.settingsGetTheme),
     setTheme: (theme) => ipcRenderer.invoke(CH.settingsSetTheme, theme),
     getAutoRefresh: () => ipcRenderer.invoke(CH.settingsGetAutoRefresh),
-    setAutoRefresh: (on) => ipcRenderer.invoke(CH.settingsSetAutoRefresh, on)
+    setAutoRefresh: (on) => ipcRenderer.invoke(CH.settingsSetAutoRefresh, on),
+    getEconomicFilter: () => ipcRenderer.invoke(CH.settingsGetEconomicFilter),
+    setEconomicFilter: (filter) => ipcRenderer.invoke(CH.settingsSetEconomicFilter, filter)
   },
   capabilities: { get: () => ipcRenderer.invoke(CH.capabilitiesGet) },
   workspaces: {
@@ -54,6 +56,10 @@ const api: Api = {
   company: {
     info: (symbol, opts) => ipcRenderer.invoke(CH.companyInfo, symbol, opts),
     openWindow: (symbol) => ipcRenderer.invoke(CH.companyOpenWindow, symbol)
+  },
+  economic: {
+    getRange: (from, to, opts) => ipcRenderer.invoke(CH.economicCalendar, from, to, opts),
+    openWindow: () => ipcRenderer.invoke(CH.economicOpenWindow)
   },
   chart: {
     openWindow: (cellId) => ipcRenderer.invoke(CH.chartOpenWindow, cellId)

@@ -1,0 +1,93 @@
+[
+  {
+    "date": "2026-01-13 13:30:00",
+    "country": "US",
+    "event": "Core CPI MoM (Dec)",
+    "currency": "USD",
+    "previous": 0.2,
+    "estimate": 0.3,
+    "actual": 0.2,
+    "change": 0,
+    "impact": "High",
+    "changePercentage": 0,
+    "unit": "%"
+  },
+  {
+    "date": "2026-01-13 13:30:00",
+    "country": "US",
+    "event": "CPI YoY (Dec)",
+    "currency": "USD",
+    "previous": 2.7,
+    "estimate": 2.7,
+    "actual": 2.7,
+    "change": 0,
+    "impact": "High",
+    "changePercentage": 0,
+    "unit": "%"
+  },
+  {
+    "date": "2026-01-16 20:30:00",
+    "country": "US",
+    "event": "CFTC Copper Speculative net positions",
+    "currency": "USD",
+    "previous": 57.9,
+    "estimate": null,
+    "actual": 53.4,
+    "change": -4.5,
+    "impact": "Low",
+    "changePercentage": -7.772,
+    "unit": "K"
+  },
+  {
+    "date": "2026-01-16 20:30:00",
+    "country": "US",
+    "event": "CFTC Nasdaq 100 speculative net positions",
+    "currency": "USD",
+    "previous": 32.6,
+    "estimate": null,
+    "actual": 29.1,
+    "change": -3.5,
+    "impact": "Medium",
+    "changePercentage": -10.736,
+    "unit": "K"
+  },
+  {
+    "date": "2026-01-16 20:30:00",
+    "country": "MX",
+    "event": "CFTC MXN speculative net positions",
+    "currency": "MXN",
+    "previous": 109.3,
+    "estimate": null,
+    "actual": 103.6,
+    "change": -5.7,
+    "impact": "Low",
+    "changePercentage": -5.215,
+    "unit": "K"
+  },
+  {
+    "date": "2026-01-16 20:30:00",
+    "country": "NZ",
+    "event": "CFTC NZD speculative net positions",
+    "currency": "NZD",
+    "previous": -43.4,
+    "estimate": null,
+    "actual": -48.9,
+    "change": -5.5,
+    "impact": "Low",
+    "changePercentage": -12.673,
+    "unit": "K"
+  },
+  {
+    "date": "2026-01-16 20:30:00",
+    "country": "EU",
+    "event": "CFTC EUR speculative net positions",
+    "currency": "EUR",
+    "previous": 162.8,
+    "estimate": null,
+    "actual": 132.7,
+    "change": -30.1,
+    "impact": "Medium",
+    "changePercentage": -18.489,
+    "unit": "K"
+  }
+]

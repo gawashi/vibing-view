@@ -23,6 +23,7 @@ function build(initial = collection()) {
     barStore: {} as CoreDeps['barStore'],
     profileStore: {} as CoreDeps['profileStore'],
     companyProfileStore: {} as CoreDeps['companyProfileStore'],
+    economicDayStore: { getDays: vi.fn(() => []), upsertDays: vi.fn() },
     workspaceStore: { getWorkspaces: () => stored, setWorkspaces },
     capabilityCache: {} as CoreDeps['capabilityCache'],
     keystore: {} as CoreDeps['keystore'],
