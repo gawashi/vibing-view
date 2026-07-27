@@ -53,10 +53,12 @@ describe('core.economicCalendar.getRange', () => {
       country: 'US', currency: 'USD', event: 'CPI MoM', impact: 'High' as const,
       previous: 0.2, estimate: 0.3, actual: 0.3
     }])
-    const core = createCore(deps(getEconomicCalendar))
+    const d = deps(getEconomicCalendar)
+    const core = createCore(d)
     const r = await core.economicCalendar.getRange(FROM, TO)
     expect(getEconomicCalendar).toHaveBeenCalledExactlyOnceWith(FROM, TO)
     expect(r.events.map((e) => e.event)).toEqual(['CPI MoM'])
+    expect(d.economicDayStore.getDays).toHaveBeenCalledWith(['2026-07-27'])
   })
 
   it('throws NO_API_KEY without a key, without building a provider', async () => {
@@ -65,6 +67,7 @@ describe('core.economicCalendar.getRange', () => {
     d.keystore.getApiKey = vi.fn(() => null)
     await expect(createCore(d).economicCalendar.getRange(FROM, TO)).rejects.toThrow('NO_API_KEY')
     expect(getEconomicCalendar).not.toHaveBeenCalled()
+    expect(d.makeProvider).not.toHaveBeenCalled()
   })
 })
 
@@ -72,11 +75,13 @@ describe('core.economicCalendar — off-plan short-circuit (EC-15)', () => {
   it.each([402, 403])('stops hitting the network after a %i and rethrows the same error', async (status) => {
     const err = new FmpHttpError(status, { 'Error Message': 'Exclusive Endpoint' })
     const getEconomicCalendar = vi.fn(async () => { throw err })
-    const core = createCore(deps(getEconomicCalendar))
+    const d = deps(getEconomicCalendar)
+    const core = createCore(d)
 
     await expect(core.economicCalendar.getRange(FROM, TO)).rejects.toBe(err)
     await expect(core.economicCalendar.getRange('2026-08-03', '2026-08-03')).rejects.toBe(err)
     expect(getEconomicCalendar).toHaveBeenCalledOnce() // 2 度目はネットワークに出ない
+    expect(d.makeProvider).toHaveBeenCalledOnce() // latched call must not construct a provider
   })
 
   it('does not latch on a 429 (transient)', async () => {
