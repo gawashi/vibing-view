@@ -5,6 +5,7 @@ import { registerIpc } from './ipc'
 import { configureProxy } from './net/httpClient'
 import { CH } from '@shared/ipc'
 import { buildCompanyHash } from '@shared/companyWindow'
+import { buildEconomicHash } from '@shared/economicWindow'
 import { buildChartHash } from '@shared/chartWindow'
 import { createCore } from './core'
 import * as barStore from './db/barStore'
@@ -26,6 +27,10 @@ const companyWindows = new Map<string, BrowserWindow>()
 // One enlarge-chart window per cellId (spec: cellId keying; the same cell re-focuses, a different
 // cell spawns another). Cleared on 'closed'. Twin of companyWindows.
 const chartWindows = new Map<string, BrowserWindow>()
+
+// 経済カレンダーは 1 枚だけ。週は renderer の state なので、週ごとにウィンドウを増やす意味がない
+// （EC-09）。固定キー 'calendar' で openHashWindow を使い回し、2 度目のクリックは既存を focus する。
+const economicWindows = new Map<string, BrowserWindow>()
 
 // Load the shared renderer bundle, optionally with a hash (e.g. company=AAPL) that main.tsx reads
 // to mount CompanyWindow instead of App. Dev serves from ELECTRON_RENDERER_URL; prod loads the file.
@@ -79,6 +84,7 @@ function createWindow(): void {
     mainWindow = null
     for (const w of companyWindows.values()) w.close()
     for (const w of chartWindows.values()) w.close()
+    for (const w of economicWindows.values()) w.close()
   })
   loadRenderer(win)
 }
@@ -172,6 +178,7 @@ app.whenReady().then(async () => {
   mcp.onStatusChanged((status) => broadcast(CH.mcpStatusChanged, status))
   void mcp.applyConfig(core, getMcpConfig()) // no-op unless the user enabled it (M-06)
   ipcMain.handle(CH.companyOpenWindow, (_e, symbol: string) => openHashWindow(companyWindows, symbol, 600, 800, buildCompanyHash(symbol)))
+  ipcMain.handle(CH.economicOpenWindow, () => openHashWindow(economicWindows, 'calendar', 720, 900, buildEconomicHash()))
   ipcMain.handle(CH.chartOpenWindow, (_e, cellId: string) => openHashWindow(chartWindows, cellId, 1100, 760, buildChartHash(cellId)))
   createWindow()
   app.on('activate', () => {

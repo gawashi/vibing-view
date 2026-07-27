@@ -1,11 +1,12 @@
 import { ipcMain, BrowserWindow } from 'electron'
-import type { Timeframe, DateRange, WorkspaceCollection, ClipboardCell } from '@shared/types'
+import type { Timeframe, DateRange, WorkspaceCollection, ClipboardCell, EconomicFilterPref } from '@shared/types'
 import { CH, type RefreshAppliedPayload, type RefreshDonePayload } from '@shared/ipc'
 import { toBars, type Core } from './core'
 import {
   getLastSymbol, setLastSymbol, getSidebarOpen, setSidebarOpen, getSidebarWidth, setSidebarWidth,
   getTheme, setTheme, getAutoRefresh, setAutoRefresh, type Theme,
-  getMcpConfigView, setMcpConfig, generateMcpToken
+  getMcpConfigView, setMcpConfig, generateMcpToken,
+  getEconomicFilter, setEconomicFilter
 } from './settings'
 import * as mcp from './mcp'
 
@@ -15,6 +16,9 @@ export function registerIpc(core: Core): void {
   ipcMain.handle(CH.symbolsSearch, (_e, query: string) => core.symbols.search(query))
   ipcMain.handle(CH.symbolsProfile, (_e, symbol: string) => core.symbols.profile(symbol))
   ipcMain.handle(CH.companyInfo, (_e, symbol: string, opts?: { force?: boolean }) => core.company.info(symbol, opts))
+  ipcMain.handle(CH.economicCalendar, (_e, from: string, to: string, opts?: { force?: boolean }) =>
+    core.economicCalendar.getRange(from, to, opts)
+  )
 
   ipcMain.handle(CH.ohlcvGet, async (_e, symbol: string, timeframe: Timeframe, range: DateRange) =>
     toBars(await core.ohlcv.get(symbol, timeframe, range))
@@ -40,6 +44,8 @@ export function registerIpc(core: Core): void {
   ipcMain.handle(CH.settingsSetTheme, (_e, theme: Theme) => setTheme(theme))
   ipcMain.handle(CH.settingsGetAutoRefresh, () => getAutoRefresh())
   ipcMain.handle(CH.settingsSetAutoRefresh, (_e, on: boolean) => setAutoRefresh(on))
+  ipcMain.handle(CH.settingsGetEconomicFilter, () => getEconomicFilter())
+  ipcMain.handle(CH.settingsSetEconomicFilter, (_e, filter: EconomicFilterPref) => setEconomicFilter(filter))
 
   ipcMain.handle(CH.workspacesGet, () => core.workspaces.get())
   ipcMain.handle(CH.workspacesSet, (e, c: WorkspaceCollection) => core.workspaces.set(c, e.sender.id))

@@ -1,4 +1,4 @@
-import type { Bar, SymbolResult, Timeframe, DateRange, WorkspaceCollection, Quote, MarketStatus, CompanyInfo, ClipboardCell } from './types'
+import type { Bar, SymbolResult, Timeframe, DateRange, WorkspaceCollection, Quote, MarketStatus, CompanyInfo, ClipboardCell, EconomicFilterPref, EconomicRange } from './types'
 
 export const CH = {
   symbolsSearch: 'symbols:search',
@@ -20,11 +20,15 @@ export const CH = {
   settingsSetTheme: 'settings:setTheme',
   settingsGetAutoRefresh: 'settings:getAutoRefresh',
   settingsSetAutoRefresh: 'settings:setAutoRefresh',
+  settingsGetEconomicFilter: 'settings:getEconomicFilter',
+  settingsSetEconomicFilter: 'settings:setEconomicFilter',
   capabilitiesGet: 'capabilities:get',
   workspacesGet: 'workspaces:get',
   workspacesSet: 'workspaces:set',
   companyInfo: 'company:info',
   companyOpenWindow: 'company:openWindow',
+  economicCalendar: 'economic:calendar',
+  economicOpenWindow: 'economic:openWindow',
   chartOpenWindow: 'chart:openWindow',
   workspacesChanged: 'workspaces:changed',
   clipboardGet: 'clipboard:get',
@@ -99,6 +103,9 @@ export interface Api {
     // 自動更新トグル（settings.json、既定 false）。sidebarOpen と同じ UI-chrome 永続化。
     getAutoRefresh(): Promise<boolean>
     setAutoRefresh(on: boolean): Promise<void>
+    // 経済カレンダーの国/重要度フィルタ。テキストフィルタは永続化しない（EC-13）。
+    getEconomicFilter(): Promise<EconomicFilterPref>
+    setEconomicFilter(filter: EconomicFilterPref): Promise<void>
   }
   capabilities: { get(): Promise<Record<Timeframe, CapabilityStatus>> }
   workspaces: {
@@ -118,6 +125,12 @@ export interface Api {
   company: {
     info(symbol: string, opts?: { force?: boolean }): Promise<CompanyInfo>
     openWindow(symbol: string): Promise<void>
+  }
+  // 経済カレンダー。from/to は UTC 日の 'YYYY-MM-DD'（どの日が必要かは renderer が決める）。
+  // ウィンドウは 1 枚だけなので openWindow は引数を取らない（EC-09）。
+  economic: {
+    getRange(from: string, to: string, opts?: { force?: boolean }): Promise<EconomicRange>
+    openWindow(): Promise<void>
   }
   chart: {
     openWindow(cellId: string): Promise<void>
