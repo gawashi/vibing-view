@@ -4,7 +4,7 @@ import type { EconomicCountryPreset, EconomicEvent, EconomicImpact } from '@shar
 
 // 'Major' のコードはハードコードする（EC-11）。全世界の国リスト（40 前後）はハードコードしない —
 // 列挙を誤ると選べない国が生まれ、それを埋めるメンテが要る。'all' はフィルタ自体を素通しにする。
-// FMP は英国を非 ISO の 'UK' で返す（2026-07-26 実測、夏冬 2 fixture 計 1089 行中 UK 46 / GB 0）。
+// FMP は英国を非 ISO の 'UK' で返す（EC-02 実測時の未コミット夏冬 API キャプチャ計 1089 行中 UK 46 / GB 0、コミット済み fixture にも UK 行あり）。
 // 'GB' は将来 FMP が ISO 表記に変えた場合のゼロコストな保険として残す。
 export const MAJOR_COUNTRIES = ['US', 'EU', 'JP', 'UK', 'GB', 'CN'] as const
 
