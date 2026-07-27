@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { X, Star, GripVertical } from 'lucide-react'
+import { X, Star, GripVertical, RefreshCw } from 'lucide-react'
 import { api, qk } from '@/api'
 import { useAppStore, selectActiveItems } from '@/store'
 import { cellCount } from '@shared/workspace'
@@ -113,7 +113,7 @@ function useProfile(symbol: string): ReturnType<typeof useQuery<SymbolResult>> {
 // 各セルの銘柄＋現在値＋騰落率。データは Chart / gating フックが埋めた ohlcv キャッシュを
 // subscribe-only(enabled:false)で読むだけ(追加フェッチ無し)。intraday の前日終値は日足が要るため、
 // intraday セルのみ日足を1回実フェッチ(1銘柄1リクエスト・永続キャッシュ、週足/月足にも再利用)。
-function SymbolLabel({ symbol, timeframe }: { symbol: string; timeframe: Timeframe }): React.JSX.Element {
+function SymbolLabel({ symbol, timeframe, minimal }: { symbol: string; timeframe: Timeframe; minimal?: boolean }): React.JSX.Element {
   const isDaily = timeframe === '1d'
   const barsQ = useQuery<Bar[]>({
     queryKey: qk.ohlcv(symbol, timeframe),
@@ -156,7 +156,7 @@ function SymbolLabel({ symbol, timeframe }: { symbol: string; timeframe: Timefra
   return (
     <div className="flex min-w-0 items-baseline gap-2">
       <span className="shrink-0 text-lg font-semibold">{symbol}</span>
-      <FavoriteStar symbol={symbol} />
+      {!minimal && <FavoriteStar symbol={symbol} />}
       {exchange && <span className="shrink-0 text-sm text-muted-foreground">· {exchange}</span>}
       {name && <span className="truncate text-sm text-muted-foreground" title={name}>{name}</span>}
       {change && (
@@ -202,10 +202,53 @@ function FavoriteStar({ symbol }: { symbol: string }): React.JSX.Element {
   )
 }
 
+// 銘柄ウィンドウ専用の更新ボタン。全体リロード(App のツールバー)はこの窓に無く、スケジューラの
+// 配信対象(可視セル＋サイドバー表示中のウォッチリスト 1d)からも外れうるので、自分の
+// symbol+timeframe だけを強制取得する手動経路を1つ持つ。api.ohlcv.refresh は差分取得(キャッシュ
+// 最新→現在)なので、押しても丸ごと再取得にはならない。broadcast はしない(自分の窓だけ更新)。
+function RefreshButton({ symbol, timeframe }: { symbol: string; timeframe: Timeframe }): React.JSX.Element {
+  const queryClient = useQueryClient()
+  const [busy, setBusy] = React.useState(false)
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          disabled={busy}
+          className="ml-auto h-6 w-6 [&_svg]:size-3.5"
+          aria-label={`Refresh ${symbol}`}
+          onClick={async () => {
+            setBusy(true)
+            try {
+              const bars = await api.ohlcv.refresh(symbol, timeframe)
+              queryClient.setQueryData(qk.ohlcv(symbol, timeframe), bars)
+            } catch {
+              toast(`Could not refresh ${symbol}. Showing cached data.`)
+            } finally {
+              setBusy(false)
+            }
+          }}
+        >
+          <RefreshCw className={cn(busy && 'animate-spin')} />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>Refresh this chart</TooltipContent>
+    </Tooltip>
+  )
+}
+
 // The chart toolbar + chart body for one symbol-bearing cell. Rendered fragment (no outer box) so
 // GridCell can wrap it as a ContextMenu trigger and ChartWindow can render it full-screen. Owns the
 // per-cell capability gating so both the grid and the enlarge window gate their own row.
-export function ChartPanel({ cell }: { cell: Cell }): React.JSX.Element {
+//
+// minimal: the watchlist symbol window. That window has no write path back to the workspace, so ★
+// (would report "not watched" and silently drop the click) and × (would just blank the window) are
+// hidden. It also has no toolbar of its own, hence its own refresh button — see the refresh-coverage
+// note in the 2026-07-27 spec: the scheduler only pushes visible cells + watchlist 1d, so a symbol
+// window sitting on any other timeframe would otherwise never update.
+export function ChartPanel({ cell, minimal }: { cell: Cell; minimal?: boolean }): React.JSX.Element {
   const setCellTimeframe = useAppStore((s) => s.setCellTimeframe)
   const clearCell = useAppStore((s) => s.clearCell)
   useCellCapabilityGating(cell.id, cell.symbol, cell.timeframe)
@@ -213,18 +256,22 @@ export function ChartPanel({ cell }: { cell: Cell }): React.JSX.Element {
   return (
     <>
       <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
-        <SymbolLabel symbol={cell.symbol!} timeframe={cell.timeframe} />
+        <SymbolLabel symbol={cell.symbol!} timeframe={cell.timeframe} minimal={minimal} />
         <TimeframeRow value={cell.timeframe} onChange={(tf) => setCellTimeframe(cell.id, tf)} />
         <AddIndicatorMenu cellId={cell.id} />
-        <Button
-          variant="ghost"
-          size="icon"
-          className="ml-auto h-6 w-6 [&_svg]:size-3.5"
-          aria-label={`Remove ${cell.symbol} chart`}
-          onClick={(e) => { e.stopPropagation(); clearCell(cell.id) }}
-        >
-          <X />
-        </Button>
+        {minimal
+          ? <RefreshButton symbol={cell.symbol!} timeframe={cell.timeframe} />
+          : (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="ml-auto h-6 w-6 [&_svg]:size-3.5"
+              aria-label={`Remove ${cell.symbol} chart`}
+              onClick={(e) => { e.stopPropagation(); clearCell(cell.id) }}
+            >
+              <X />
+            </Button>
+            )}
       </div>
       <div className="min-h-0 flex-1">
         <Chart cellId={cell.id} symbol={cell.symbol!} timeframe={cell.timeframe} />

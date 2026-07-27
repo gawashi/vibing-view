@@ -3,9 +3,11 @@ import ReactDOM from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { parseCompanySymbol } from '@shared/companyWindow'
 import { parseChartCellId } from '@shared/chartWindow'
+import { parseSymbolChartSymbol } from '@shared/symbolChartWindow'
 import App from './App'
 import { CompanyWindow } from './components/CompanyWindow'
 import { ChartWindow } from './components/ChartWindow'
+import { SymbolChartWindow } from './components/SymbolChartWindow'
 import './index.css'
 
 const queryClient = new QueryClient({
@@ -26,6 +28,7 @@ const queryClient = new QueryClient({
 // mount the standalone CompanyWindow instead of the full App (see src/shared/companyWindow.ts).
 const companySymbol = parseCompanySymbol(window.location.hash)
 const chartCellId = parseChartCellId(window.location.hash)
+const symbolChartSymbol = parseSymbolChartSymbol(window.location.hash)
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -34,7 +37,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         ? <CompanyWindow symbol={companySymbol} />
         : chartCellId
           ? <ChartWindow cellId={chartCellId} />
-          : <App />}
+          : symbolChartSymbol
+            ? <SymbolChartWindow symbol={symbolChartSymbol} />
+            : <App />}
     </QueryClientProvider>
   </React.StrictMode>
 )
