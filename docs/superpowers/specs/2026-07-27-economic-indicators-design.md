@@ -28,14 +28,20 @@ FMP の `/stable/economic-indicators` を使い、マクロ経済指標の過去
 ### 着手前に確定させること（EI-01）
 
 以下は FMP のドキュメント由来で、実 API で検証していない。実 API を 1 回叩いて
-`tests/fixtures/fmp-economic-indicators.json` として保存し、fixture 上で 4 点を確定させてから永続化
+`tests/fixtures/fmp-economic-indicators.json` として保存し、fixture 上で 5 点を確定させてから永続化
 コードを書く。
 
 1. 受け付ける `name` の実際の集合（下の 23 本と一致するか）
 2. `from`/`to` を省略したとき全履歴が返るか、既定の窓に切られるか（キャッシュ方式の前提そのもの）
 3. レスポンスのフィールド（`{ name, date, value }` 以外に `unit` 等が付くか。付くなら
    `EconomicIndicatorMeta.unit` のハードコードは不要になる）
-4. 無料プランに含まれるか（含まれないなら EI-04 の空撃ち対策が実際に効くか確認できる）
+4. プラン拒否の**HTTP status と body 形状**。`403` + `{ "Error Message": ... }` なのか、`200` +
+   エラー body なのか。EI-04 の latch 判定がこれに依存する。判定が状況に依らないよう `classify()` を
+   使う設計にしてあるが、実測した status と body は
+   `tests/fixtures/fmp-economic-indicators-denied.json` に保存し、`classify` がそれを
+   `'requires-plan'` に落とすことをテストで固定する
+5. `name` に無効な値を渡したときの応答（`200` + `[]` なのか、エラーなのか）。EI-10 の空レスポンス
+   ガードがこれに依存する
 
 2 が「既定の窓に切られる」だった場合は、`from` に固定の古い日付（`1950-01-01`）を渡す。それでも
 全履歴が来ないなら方式の再検討が必要なので、実装前に確定させる。
@@ -78,14 +84,14 @@ renderer: EconomicIndicatorWindow                ← プルダウン、範囲ボ
 | ファイル | 変更 |
 |---|---|
 | `src/shared/types.ts` | `EconomicIndicatorPoint` / `EconomicIndicatorSeries` |
-| `src/shared/ipc.ts` | `CH` に `economicIndicator` / `economicIndicatorOpenWindow` / `economicIndicatorSelect`、`Api.economicIndicator`（`getSeries` / `openWindow` / `onSelect`） |
+| `src/shared/ipc.ts` | `CH` に `economicIndicator` / `economicIndicatorOpenWindow` / `economicIndicatorSelected` / `economicIndicatorSelect`、`Api.economicIndicator`（`getSeries` / `openWindow` / `getSelected` / `onSelect`） |
 | `src/shared/windowHash.ts` | `WindowKind` に `'economicIndicator'` |
 | `src/main/providers/fmp.schema.ts` | `fmpEconomicIndicatorResponse` |
 | `src/main/providers/FmpProvider.ts` | `getEconomicIndicator(name)` |
 | `src/main/db/schema.ts` | `economicIndicators` テーブル |
-| `src/main/core.ts` | `economicIndicator.getSeries`、`economicIndicatorOutOfPlan` フラグ、`ProviderLike` に 1 メソッド追加 |
+| `src/main/core.ts` | `economicIndicator.getSeries`、`economicIndicatorOutOfPlan` フラグ（`classify` を import）、`economicOutOfPlan` の latch 条件を `classify` に変更、`ProviderLike` に 1 メソッド追加 |
 | `src/main/ipc.ts` | チャンネル 1 本（`economicIndicator`） |
-| `src/main/index.ts` | `openHashWindow` に `keyValue` 引数、`CH.economicIndicatorOpenWindow` ハンドラ |
+| `src/main/index.ts` | `selectedIndicator` の state、`CH.economicIndicatorOpenWindow` / `CH.economicIndicatorSelected` ハンドラ |
 | `src/preload/index.ts` | `api.economicIndicator` |
 | `src/renderer/main.tsx` | ハッシュ分岐に 1 本追加 |
 | `src/renderer/api.ts` | `qk.economicIndicator(name)` |
@@ -128,6 +134,25 @@ economic_indicators(name TEXT PRIMARY KEY, data TEXT NOT NULL, fetched_at INTEGE
   1 リクエストあたり数十 KB
 - **日単位キャッシュ**（`economic_days` と同形）: 指標は月次・四半期発表なので、日単位のキーは
   ほぼ空行になる
+
+### 空レスポンスで既存履歴を上書きしない（EI-10）
+
+フェッチが成功して `points` が空だったとき、**既存行が空でなければ `data` を上書きしない**。古い
+`points` を `stale: true` で返す。`fetched_at` は進める。
+
+`fetched_at` を進めるのは API 節約のため。進めないと TTL が切れたままなので、窓を開くたびに空応答を
+取りに行く。進めておけば 12 時間は静かになり、その間も古い `points` は残る。一時的な空応答から
+すぐ復帰したいときはリロードボタン（`force`）がある。守るのは履歴データであって鮮度ではない。
+
+素朴に書くと毎回のフェッチ結果でまるごと上書きするので、一時的な空応答・FMP 側の仕様変更・
+`name` の打ち間違いのどれでも、埋まっていたキャッシュが `'[]'` に置き換わり、12 時間「データが
+ありません」と表示される。例外が飛んでいないので `stale` フォールバックは効かない。カレンダーで
+同じ形の欠陥を EC-07 のレビューで指摘されて直したのと同じ話で、TTL があるぶん永久ではないという
+点だけが違う。
+
+引き換えに、本当に廃止された系列は空にならず、古い履歴を stale 表示し続ける。23 本のハードコード
+系列が廃止されるのは稀で、そのとき失うのは「(更新に失敗)」というラベルの正確さだけであり、守るのは
+履歴データである。`force` も同じガードを通す（`force` は TTL を無視するだけで、空上書きは許さない）。
 
 ### force
 
@@ -241,33 +266,45 @@ prev/est/act は前月比 % だが、`CPI` 系列が返すのは指数の水準�
 完全一致テーブルを採らない理由は、実測できる `event` 文字列を網羅できず、FMP 側の表記が変わると
 黙ってリンクが消えるため。部分一致なら `CPI MoM` / `CPI YoY` / `CPI s.a` がまとめて当たる。
 
-### 窓の同一性（EI-06）
+### 窓の同一性と選択の受け渡し（EI-06）
 
-窓は 1 枚だが、初期指標はハッシュで渡す。既存の `openHashWindow` はキーが `kind:value` なので、
-`value` に指標名を入れると指標ごとに窓が増える。キー用の値だけを分離する省略可能な第 5 引数を足す
-（既存 3 箇所の呼び出しは無変更）。
-
-```ts
-function openHashWindow(kind, value, width, height, keyValue = value): void
-```
+窓は 1 枚。選択中の指標は **main が持ち、renderer がマウント時に取りに行く**。ハッシュは
+`#economicIndicator=1` の singleton マーカーだけで、指標名を載せない（`#economic=1` と同形）。
 
 ```ts
+let selectedIndicator = 'CPI'
+
 ipcMain.handle(CH.economicIndicatorOpenWindow, (_e, name: string) => {
+  selectedIndicator = name                     // 窓の状態より先に更新する
   const existing = satelliteWindows.get('economicIndicator:1')
   if (existing) {
     existing.focus()
-    existing.webContents.send(CH.economicIndicatorSelect, name) // 既存窓の選択を差し替える
+    existing.webContents.send(CH.economicIndicatorSelect, name)
     return
   }
-  openHashWindow('economicIndicator', name, 900, 760, '1') // 初回はハッシュで初期指標を渡す
+  openHashWindow('economicIndicator', '1', 900, 760)
 })
+ipcMain.handle(CH.economicIndicatorSelected, () => selectedIndicator)
 ```
 
-renderer は初期値をハッシュから読み、`api.economicIndicator.onSelect(cb)` を購読して差し替える。
-`workspaces.onChanged` / `mcp.onStatusChanged` と同じ形なので新しい仕組みは増えない。
+renderer はマウント時に `api.economicIndicator.getSelected()` で初期値を取り、
+`api.economicIndicator.onSelect(cb)` を購読して以降の差し替えを受ける。
 
-窓を `loadURL` で再読込して指標を差し替える案は採らない。範囲選択と TanStack Query のキャッシュを
+指標名をハッシュに載せて push だけで差し替える案は採らない。`openHashWindow` は
+`satelliteWindows.set(key, win)` を `loadRenderer` より先に実行する（`index.ts:104` と `107`）ので、
+窓が「存在する」と判定できてから renderer が `onSelect` を張るまでに隙間がある。1 秒以内に別の行を
+クリックすると送信が捨てられ、最初の指標が表示されたまま、エラーも出ずに残る。
+
+`did-finish-load` を待つ案も直らない。あれは React のマウント前に発火するので、`onSelect` はまだ
+張られていない。main を真実の置き場にして renderer が pull すれば、送信が落ちてもマウント時の
+`getSelected()` が最新値を返すので、競合が原理的に消える。`value` が固定 `'1'` になるので、
+`openHashWindow` のシグネチャも変えずに済む。
+
+窓を `loadURL` で再読込して指標を差し替える案も採らない。範囲選択と TanStack Query のキャッシュを
 まとめて捨てることになる。
+
+`selectedIndicator` は main のプロセス内 state で永続化しない（EI-03）。窓を閉じても値は残るが、
+次に開いたとき同じ指標が出るだけで害はない。
 
 ## UI
 
@@ -320,15 +357,16 @@ renderer は初期値をハッシュから読み、`api.economicIndicator.onSele
 
 ### 永続化しない（EI-03）
 
-選択中の指標も表示範囲も `settings.json` に保存しない。開くたび既定（`CPI` / `5Y`）になる。
-カレンダーから飛ぶ場合は指標がクリック側から来るので、保存しても効かない。ヘッダーから開く用途で
-前回の指標を覚えていてほしくなったら、`economicFilter` と同じ形で settings に 1 エントリと IPC
-2 本を足す。
+選択中の指標も表示範囲も `settings.json` に保存しない。アプリを起動し直せば既定（`CPI` / `5Y`）に
+戻る。カレンダーから飛ぶ場合は指標がクリック側から来るので、保存しても効かない。ヘッダーから開く
+用途で前回の指標をアプリ再起動後も覚えていてほしくなったら、`economicFilter` と同じ形で settings に
+1 エントリを足し、EI-06 の `selectedIndicator` の初期値をそこから読む。
 
 ### 0 件のとき
 
-`points` が空なら「この指標のデータがありません」と出す。fixture 上ではありえないが、系列が
-廃止された場合に空配列が返る。
+`points` が空なら「この指標のデータがありません」と出す。EI-10 のガードにより、この状態になるのは
+**その指標を一度も取得できていない**場合に限られる（キャッシュが埋まっていれば空応答では上書き
+されない）。したがって「一度は取れていたのに空になった」という紛らわしい状態は表示に出てこない。
 
 ## エラー処理
 
@@ -339,11 +377,13 @@ renderer は初期値をハッシュから読み、`api.economicIndicator.onSele
 |---|---|
 | `NO_API_KEY` | Settings で FMP API キーを設定してください |
 | `FmpHttpError` 401 | FMP API キーが拒否されました。Settings で確認してください |
-| `FmpHttpError` 402 / 403 | 経済指標は現在の FMP プランでは利用できません |
+| `classify` が `'requires-plan'`（402 / 403、または 200 + プラン拒否 body） | 経済指標は現在の FMP プランでは利用できません |
 | 429 | FMP のリクエスト上限に達しました。しばらく待ってから再試行してください |
 | 通信エラー | 接続を確認してください |
 | フェッチ失敗 + 行あり | 古い行を返し（`stale: true`）、ヘッダーに `As of …（更新に失敗）` |
 | フェッチ失敗 + 行なし | throw。上の通信エラー / HTTP エラー表示に落ちる |
+| フェッチ成功で空 + 埋まった行あり | 上書きせず古い行を `stale: true` で返す（EI-10） |
+| フェッチ成功で空 + 行なし | 空を返す。UI は「この指標のデータがありません」 |
 
 ### プラン外の空撃ち対策（EI-04）
 
@@ -352,6 +392,27 @@ renderer は初期値をハッシュから読み、`api.economicIndicator.onSele
 
 対策が無いと、queryKey が指標ごとに違うためプルダウンを 23 本たどるだけで 403 を 23 回踏む。
 `apikey.set` / `apikey.clear` でクリアする（既存の `economicOutOfPlan = null` の隣に 1 行）。
+
+latch の条件は status ではなく `capabilityClassifier.classify(err.status, err.body)` の結果で切る。
+
+```ts
+if (err instanceof FmpHttpError && classify(err.status, err.body) === 'requires-plan')
+  economicIndicatorOutOfPlan = err
+```
+
+`economicCalendar`（EC-15）と `dailyOutOfPlan` は `status === 402 || status === 403` で判定している
+が、これでは HTTP 200 のプラン拒否をすり抜ける。`FmpProvider.parseOrThrowHttpError` はスキーマに
+合わない body を `FmpHttpError(200, rawBody)` にして投げるので、FMP がプラン拒否を 200 +
+`{ "Error Message": ... }` で返す場合、latch が効かず 23 本ぶん空撃ちする。EI-04 が防ぐと言っている
+挙動そのものである。
+
+status を無条件に 200 まで広げるのは採らない。純粋なスキーマ不一致（FMP の仕様変更）でも latch が
+かかり、23 本すべてが無効化されて復旧手段が API キーの再設定だけになる。`classify` は
+`Error Message` を持たない body には `'available'` を返すので、この誤検知が起きない。
+
+`economicOutOfPlan` にも同じ穴があるので、同じ 1 行で同時に直す。`dailyOutOfPlan` は触らない —
+`core.ts` のコメントにあるとおり、`'1d'` の 402/403 は「その銘柄がプラン外」を意味するので
+status 駆動が意図的であり、`classify` に寄せると D グレー化バグが戻る。
 
 ## テスト
 
@@ -364,6 +425,10 @@ fixture は `tests/fixtures/fmp-economic-indicators.json`（EI-01 で保存し�
 - `force: true` で TTL を無視して取り直す
 - フェッチ失敗 + 行あり → `stale: true` で古い行を返す
 - フェッチ失敗 + 行なし → throw
+- **EI-10**: フェッチが空を返し、埋まった行がある → `data` を上書きせず `stale: true` で古い
+  `points` を返す。`fetched_at` は進むので、直後にもう一度呼んでもネットワークに出ない
+- **EI-10**: フェッチが空を返し、行が無い → 空の `points` を返す。行は書く（毎回の空撃ちを防ぐ）
+- **EI-10**: `force: true` でも空上書きは起きない
 
 **`tests/main/providers/`**（既存の FmpProvider テストに追加）
 
@@ -376,8 +441,13 @@ fixture は `tests/fixtures/fmp-economic-indicators.json`（EI-01 で保存し�
 **`tests/main/core/`**（既存の core テストに追加）
 
 - 402/403 を一度見たら以降ネットワークに出ない
+- **EI-04**: HTTP 200 + プラン拒否 body（`tests/fixtures/fmp-economic-indicators-denied.json`）でも
+  latch が効き、別の `name` を要求してもネットワークに出ない
+- **EI-04**: `Error Message` を持たない純粋なスキーマ不一致（`FmpHttpError(200, [{ bogus: 1 }])`）では
+  latch しない。その指標だけエラーになり、他の 22 本は取得できる
+- **EI-04**: `economicCalendar` も HTTP 200 のプラン拒否で latch する（EC-15 の穴を塞いだ回帰テスト）
 - `apikey.set` / `apikey.clear` でフラグが解除される
-- `economicOutOfPlan` と独立に動く（カレンダーの 403 が指標を止めない、逆も同じ）
+- `economicOutOfPlan` と独立に動く（カレンダーの拒否が指標を止めない、逆も同じ）
 
 **`tests/shared/economicIndicators.test.ts`**
 
@@ -402,8 +472,16 @@ fixture は `tests/fixtures/fmp-economic-indicators.json`（EI-01 で保存し�
 
 **`tests/windowHash.test.ts`**（既存）
 
-- `buildHash('economicIndicator', 'CPI')` / `parseHash` の往復
+- `buildHash('economicIndicator', '1')` / `parseHash` の往復
 - 他の窓のハッシュで開かないこと
+
+### テストしないもの
+
+EI-06 の競合（窓のロード中に 2 回目のクリックが来る）は自動テストを書かない。`BrowserWindow` と
+`webContents` のライフサイクルをモックする必要があり、テスト自体が Electron の内部挙動に依存する。
+pull 方式は「送信が落ちても `getSelected()` が最新値を返す」構造なので、競合が起きても壊れない。
+手動確認だけ実装計画に入れる: カレンダーで 2 つの異なる行を 1 秒以内に連続クリックし、後にクリック
+した指標が表示されること。
 
 ## 将来枠
 
