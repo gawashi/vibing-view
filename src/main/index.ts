@@ -10,6 +10,7 @@ import { createCore } from './core'
 import * as barStore from './db/barStore'
 import * as profileStore from './db/profileStore'
 import * as companyProfileStore from './db/companyProfileStore'
+import * as economicDayStore from './db/economicDayStore'
 import * as workspaceStore from './workspaceStore'
 import * as capabilityCache from './capabilityCache'
 import { getApiKey, setApiKey, getKeyStatus, clearApiKey } from './keystore'
@@ -152,6 +153,7 @@ function buildCore(): ReturnType<typeof createCore> {
     barStore,
     profileStore,
     companyProfileStore,
+    economicDayStore,
     workspaceStore,
     capabilityCache,
     keystore: { getApiKey, setApiKey, getKeyStatus, clearApiKey },

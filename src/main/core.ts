@@ -1,7 +1,7 @@
 import {
   TIMEFRAMES, DERIVED_TIMEFRAMES, DAILY_BACKED_TIMEFRAMES,
   type Bar, type Timeframe, type DateRange, type WorkspaceCollection, type SymbolResult,
-  type Quote, type MarketStatus, type CompanyInfo, type ClipboardCell
+  type Quote, type MarketStatus, type CompanyInfo, type ClipboardCell, type EconomicRange
 } from '@shared/types'
 import type { CapabilityStatus, KeyStatus, RefreshDonePayload, SetKeyResult } from '@shared/ipc'
 import { CH } from '@shared/ipc'
@@ -10,6 +10,7 @@ import { FmpHttpError } from './providers/FmpProvider'
 import type * as barStoreModule from './db/barStore'
 import type * as profileStoreModule from './db/profileStore'
 import type * as companyProfileStoreModule from './db/companyProfileStore'
+import type * as economicDayStoreModule from './db/economicDayStore'
 import type * as workspaceStoreModule from './workspaceStore'
 import type * as capabilityCacheModule from './capabilityCache'
 import type * as keystoreModule from './keystore'
@@ -19,6 +20,7 @@ import { classify } from './capabilityClassifier'
 import { createSearchCache } from './searchCache'
 import { createProfileService } from './profile/ProfileService'
 import { createCompanyInfoService } from './profile/CompanyInfoService'
+import { createEconomicCalendarService } from './calendar/EconomicCalendarService'
 import type { EditResult } from './mcp/edits'
 
 export type { BarSummary } from './db/barStore'
@@ -39,7 +41,8 @@ export function toBars(outcome: OhlcvOutcome): Bar[] {
 }
 
 export type ProviderLike = Pick<
-  FmpProvider, 'getOHLCV' | 'searchSymbols' | 'getQuote' | 'getMarketStatus' | 'getCompanyProfile'
+  FmpProvider,
+  'getOHLCV' | 'searchSymbols' | 'getQuote' | 'getMarketStatus' | 'getCompanyProfile' | 'getEconomicCalendar'
 >
 
 // Every electron/sqlite touchpoint arrives by injection so the core loads under plain-Node Vitest
@@ -49,6 +52,7 @@ export type CoreDeps = {
   barStore: Pick<typeof barStoreModule, 'getCoverage' | 'getBars' | 'upsertBarsAndCoverage' | 'summarizeBars'>
   profileStore: Pick<typeof profileStoreModule, 'getProfile' | 'upsertProfile'>
   companyProfileStore: Pick<typeof companyProfileStoreModule, 'getCompanyProfile' | 'upsertCompanyProfile'>
+  economicDayStore: Pick<typeof economicDayStoreModule, 'getDays' | 'upsertDays'>
   workspaceStore: Pick<typeof workspaceStoreModule, 'getWorkspaces' | 'setWorkspaces'>
   capabilityCache: Pick<typeof capabilityCacheModule, 'getStatus' | 'setStatus' | 'clearForKeyChange'>
   keystore: Pick<typeof keystoreModule, 'getApiKey' | 'setApiKey' | 'getKeyStatus' | 'clearApiKey'>
@@ -67,6 +71,11 @@ export function createCore(deps: CoreDeps) {
   // Symbols whose '1d' EOD is not on the current plan (402/403). In-memory, cleared on key change.
   // Once known, D/W/M short-circuit instead of re-hitting FMP on every timeframe switch.
   const dailyOutOfPlan = new Set<string>()
+
+  // EC-15: /economic-calendar は現在のプランに含まれない可能性があり、queryKey は週ごとに違うので
+  // 素朴に作ると週をめくるたび 402/403 を踏む。一度見たらネットワークに出ず同じエラーを投げる。
+  // エラー実体を保持するのは「同じ FmpHttpError を投げる」の最短実装（boolean + 再構築より小さい）。
+  let economicOutOfPlan: FmpHttpError | null = null
 
   const searchCache = createSearchCache({ ttlMs: 5 * 60 * 1000, now: () => Date.now() })
 
@@ -124,6 +133,19 @@ export function createCore(deps: CoreDeps) {
   const companyInfoService = createCompanyInfoService({
     store: deps.companyProfileStore,
     fetch: (symbol) => providerFor().getCompanyProfile(symbol)
+  })
+
+  const economicCalendarService = createEconomicCalendarService({
+    store: deps.economicDayStore,
+    fetch: async (from, to) => {
+      if (economicOutOfPlan) throw economicOutOfPlan
+      try {
+        return await providerFor().getEconomicCalendar(from, to)
+      } catch (err) {
+        if (err instanceof FmpHttpError && (err.status === 402 || err.status === 403)) economicOutOfPlan = err
+        throw err
+      }
+    }
   })
 
   // Shared bookkeeping for every real OHLCV fetch (get + refresh): short-circuit known off-plan
@@ -197,6 +219,7 @@ export function createCore(deps: CoreDeps) {
         const result = keystore.setApiKey(key)
         capabilityCache.clearForKeyChange() // D-21: drop stale verdicts, never eagerly re-probe
         dailyOutOfPlan.clear() // a new key may cover previously-off-plan symbols
+        economicOutOfPlan = null // a new key may cover the calendar endpoint
         return result
       },
       status: (): KeyStatus => keystore.getKeyStatus(),
@@ -204,6 +227,7 @@ export function createCore(deps: CoreDeps) {
         keystore.clearApiKey()
         capabilityCache.clearForKeyChange()
         dailyOutOfPlan.clear()
+        economicOutOfPlan = null
       }
     },
 
@@ -233,6 +257,13 @@ export function createCore(deps: CoreDeps) {
     company: {
       info: (symbol: string, opts?: { force?: boolean }): Promise<CompanyInfo> =>
         companyInfoService.getInfo(symbol, opts)
+    },
+
+    // どの UTC 日が必要かは呼び出し側（renderer の economicWeek.ts）が決める。ここは from..to を
+    // そのまま日単位 read-through に渡すだけ。
+    economicCalendar: {
+      getRange: (from: string, to: string, opts?: { force?: boolean }): Promise<EconomicRange> =>
+        economicCalendarService.getRange(from, to, opts)
     },
 
     workspaces: {
