@@ -84,7 +84,6 @@ renderer: EconomicCalendarWindow                 ← 週ナビ、フィルタ、
 
 | ファイル | 役割 |
 |---|---|
-| `src/shared/economicWindow.ts` | `buildEconomicHash()` → `'economic=1'`、`parseEconomicWindow(hash)` → `boolean`。`companyWindow.ts` の双子 |
 | `src/main/db/economicDayStore.ts` | `economic_days` の read/write（純粋な blob 出し入れのみ） |
 | `src/main/calendar/EconomicCalendarService.ts` | 日単位 read-through + 確定判定 + 欠け範囲 |
 | `src/renderer/components/EconomicCalendarWindow.tsx` | ウィンドウ本体 |
@@ -102,7 +101,8 @@ renderer: EconomicCalendarWindow                 ← 週ナビ、フィルタ、
 | `src/main/core.ts` | `economicCalendar.getRange`、`economicOutOfPlan` フラグ、`ProviderLike` に 1 メソッド追加 |
 | `src/main/settings.ts` | `getEconomicFilter` / `setEconomicFilter` |
 | `src/main/ipc.ts` | チャンネル 4 本 |
-| `src/main/index.ts` | `economicWindows` Map + `CH.economicOpenWindow` ハンドラ |
+| `src/shared/windowHash.ts` | `WindowKind` に `'economic'` を追加。値は固定 `'1'`（窓は 1 枚だけなので有無しか見ない） |
+| `src/main/index.ts` | `CH.economicOpenWindow` ハンドラ（`satelliteWindows` を使い回す。固定キーなので 2 度目は focus） |
 | `src/preload/index.ts` | `api.economic` / `api.settings.*EconomicFilter` |
 | `src/renderer/main.tsx` | ハッシュ分岐に 1 本追加 |
 | `src/renderer/api.ts` | `qk.economicCalendar(from, to)` |
@@ -350,9 +350,9 @@ renderer 側は Company info が既に持つ `/FMP HTTP (200|40[0-9])/` の判�
 - Impact フィルタ
 - テキストフィルタが国コードと指標名の両方に当たる
 
-**`tests/economicWindow.test.ts`**（`companyWindow.test.ts` と同型）
+**`tests/windowHash.test.ts`**（既存。`'economic'` を kind として追加）
 
-- `buildEconomicHash` / `parseEconomicWindow` の往復
+- `buildHash('economic', '1')` / `parseHash` の往復と、他の窓の hash で開かないこと
 
 ## 将来枠
 

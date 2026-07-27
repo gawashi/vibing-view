@@ -4,9 +4,7 @@ import { join } from 'path'
 import { registerIpc } from './ipc'
 import { configureProxy } from './net/httpClient'
 import { CH } from '@shared/ipc'
-import { buildCompanyHash } from '@shared/companyWindow'
-import { buildEconomicHash } from '@shared/economicWindow'
-import { buildChartHash } from '@shared/chartWindow'
+import { buildHash, type WindowKind } from '@shared/windowHash'
 import { createCore } from './core'
 import * as barStore from './db/barStore'
 import * as profileStore from './db/profileStore'
@@ -20,17 +18,11 @@ import { electronHttpGetJson } from './net/httpClient'
 import * as mcp from './mcp'
 import { getMcpConfig } from './settings'
 
-// One company-info window per symbol (spec: side-by-side compare). Reopening a live symbol focuses
-// its window; a new symbol spawns another. Cleared on 'closed'.
-const companyWindows = new Map<string, BrowserWindow>()
-
-// One enlarge-chart window per cellId (spec: cellId keying; the same cell re-focuses, a different
-// cell spawns another). Cleared on 'closed'. Twin of companyWindows.
-const chartWindows = new Map<string, BrowserWindow>()
-
-// 経済カレンダーは 1 枚だけ。週は renderer の state なので、週ごとにウィンドウを増やす意味がない
-// （EC-09）。固定キー 'calendar' で openHashWindow を使い回し、2 度目のクリックは既存を focus する。
-const economicWindows = new Map<string, BrowserWindow>()
+// One satellite window per (kind, key): company-info per symbol, enlarge-chart per cellId, watchlist
+// symbol window per symbol, economic calendar as a singleton (fixed value, so a second open always
+// focuses — 週は renderer の state なので週ごとに窓を増やす意味がない、EC-09). Reopening a live key
+// focuses it; a new key spawns another. Keyed `kind:value` so the kinds never collide. Cleared on 'closed'.
+const satelliteWindows = new Map<string, BrowserWindow>()
 
 // Load the shared renderer bundle, optionally with a hash (e.g. company=AAPL) that main.tsx reads
 // to mount CompanyWindow instead of App. Dev serves from ELECTRON_RENDERER_URL; prod loads the file.
@@ -79,21 +71,18 @@ function createWindow(): void {
   mainWindow = win
   win.setMenuBarVisibility(false) // hide the top menu bar; accelerators (zoom/fullscreen/close) still fire from the app menu
   win.on('ready-to-show', () => win.show())
-  // Closing the main window tears down company windows so window-all-closed fires → app quits.
+  // Closing the main window tears down satellite windows so window-all-closed fires → app quits.
   win.on('closed', () => {
     mainWindow = null
-    for (const w of companyWindows.values()) w.close()
-    for (const w of chartWindows.values()) w.close()
-    for (const w of economicWindows.values()) w.close()
+    for (const w of satelliteWindows.values()) w.close()
   })
   loadRenderer(win)
 }
 
-// One hardened, per-key satellite window keyed in `map`. Reopening a live key focuses it; a new key
-// spawns another. Cleared on 'closed'. Backs the company (per-symbol), chart (per-cellId), and
-// economic calendar (fixed key 'calendar', so a second open always focuses instead of creating) windows.
-function openHashWindow(map: Map<string, BrowserWindow>, key: string, width: number, height: number, hash: string): void {
-  const existing = map.get(key)
+// One hardened satellite window per (kind, value); backs every window kind.
+function openHashWindow(kind: WindowKind, value: string, width: number, height: number): void {
+  const key = `${kind}:${value}`
+  const existing = satelliteWindows.get(key)
   if (existing) {
     existing.focus()
     return
@@ -112,10 +101,10 @@ function openHashWindow(map: Map<string, BrowserWindow>, key: string, width: num
   })
   hardenWindow(win)
   win.setMenuBarVisibility(false)
-  map.set(key, win)
+  satelliteWindows.set(key, win)
   win.on('ready-to-show', () => win.show())
-  win.on('closed', () => map.delete(key))
-  loadRenderer(win, hash)
+  win.on('closed', () => satelliteWindows.delete(key))
+  loadRenderer(win, buildHash(kind, value))
 }
 
 // The default Electron menu binds Ctrl+R / Ctrl+Shift+R to page reload — accelerators the main
@@ -178,9 +167,10 @@ app.whenReady().then(async () => {
   registerIpc(core)
   mcp.onStatusChanged((status) => broadcast(CH.mcpStatusChanged, status))
   void mcp.applyConfig(core, getMcpConfig()) // no-op unless the user enabled it (M-06)
-  ipcMain.handle(CH.companyOpenWindow, (_e, symbol: string) => openHashWindow(companyWindows, symbol, 600, 800, buildCompanyHash(symbol)))
-  ipcMain.handle(CH.economicOpenWindow, () => openHashWindow(economicWindows, 'calendar', 720, 900, buildEconomicHash()))
-  ipcMain.handle(CH.chartOpenWindow, (_e, cellId: string) => openHashWindow(chartWindows, cellId, 1100, 760, buildChartHash(cellId)))
+  ipcMain.handle(CH.companyOpenWindow, (_e, symbol: string) => openHashWindow('company', symbol, 600, 800))
+  ipcMain.handle(CH.chartOpenWindow, (_e, cellId: string) => openHashWindow('chart', cellId, 1100, 760))
+  ipcMain.handle(CH.symbolChartOpenWindow, (_e, symbol: string) => openHashWindow('symbolChart', symbol, 1100, 760))
+  ipcMain.handle(CH.economicOpenWindow, () => openHashWindow('economic', '1', 720, 900))
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

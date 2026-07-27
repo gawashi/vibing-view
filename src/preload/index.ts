@@ -64,6 +64,9 @@ const api: Api = {
   chart: {
     openWindow: (cellId) => ipcRenderer.invoke(CH.chartOpenWindow, cellId)
   },
+  symbolChart: {
+    openWindow: (symbol) => ipcRenderer.invoke(CH.symbolChartOpenWindow, symbol)
+  },
   refresh: {
     broadcast: (p: RefreshAppliedPayload) => ipcRenderer.invoke(CH.refreshBroadcast, p),
     onApplied: (cb) => {

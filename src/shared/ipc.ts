@@ -30,6 +30,7 @@ export const CH = {
   economicCalendar: 'economic:calendar',
   economicOpenWindow: 'economic:openWindow',
   chartOpenWindow: 'chart:openWindow',
+  symbolChartOpenWindow: 'symbolChart:openWindow',
   workspacesChanged: 'workspaces:changed',
   clipboardGet: 'clipboard:get',
   clipboardSet: 'clipboard:set',
@@ -134,6 +135,11 @@ export interface Api {
   }
   chart: {
     openWindow(cellId: string): Promise<void>
+  }
+  // ウォッチリスト銘柄の拡大窓（銘柄キー、使い捨て）。chart 窓と違いセルにもワークスペースにも
+  // 紐づかないので、開くのに必要なのは symbol だけ。
+  symbolChart: {
+    openWindow(symbol: string): Promise<void>
   }
   // スケジューラ（メインウィンドウ）が取得済みデータを他ウィンドウへ配信。受信側は setQueryData
   // するだけで FMP を叩かない。workspaces と同じく main が送信元以外へ転送する。
