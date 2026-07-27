@@ -10,5 +10,6 @@ export const qk = {
   capabilities: () => ['capabilities'] as const,
   quote: (symbol: string) => ['quote', symbol] as const,
   marketStatus: () => ['market-status'] as const,
-  companyInfo: (symbol: string) => ['company-info', symbol] as const
+  companyInfo: (symbol: string) => ['company-info', symbol] as const,
+  economicCalendar: (from: string, to: string) => ['economic-calendar', from, to] as const
 }
