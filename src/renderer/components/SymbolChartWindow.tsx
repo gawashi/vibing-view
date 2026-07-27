@@ -18,7 +18,7 @@ export function SymbolChartWindow({ symbol }: { symbol: string }): React.JSX.Ele
   useEffect(() => { document.title = symbol }, [symbol])
   useEffect(() => { useAppStore.getState().setActiveSymbol(symbol) }, [symbol])
 
-  const cell = useAppStore((s) => s.cells[0])
+  const cell = useAppStore((s) => s.cells.find((c) => c.id === s.activeCellId))
 
   return (
     <TooltipProvider>

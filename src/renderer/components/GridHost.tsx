@@ -224,6 +224,8 @@ function RefreshButton({ symbol, timeframe }: { symbol: string; timeframe: Timef
             try {
               const bars = await api.ohlcv.refresh(symbol, timeframe)
               queryClient.setQueryData(qk.ohlcv(symbol, timeframe), bars)
+              // Capability verdicts may have changed (a refresh re-probes the fetched tf); re-gate the row.
+              void queryClient.invalidateQueries({ queryKey: qk.capabilities() })
             } catch {
               toast(`Could not refresh ${symbol}. Showing cached data.`)
             } finally {

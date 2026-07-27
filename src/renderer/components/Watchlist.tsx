@@ -81,7 +81,7 @@ function Row({
       {...reorderDropHandlers(index, setOverIndex)}
       // border-t-2 always reserved (transparent) so the accent insertion marker never shifts layout.
       className={cn(
-        'group flex items-center gap-1 border-t-2 border-transparent px-2 py-2 hover:bg-secondary',
+        'group flex select-none items-center gap-1 border-t-2 border-transparent px-2 py-2 hover:bg-secondary',
         isOver && 'border-primary'
       )}
     >
