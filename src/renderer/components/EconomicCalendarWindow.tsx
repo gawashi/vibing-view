@@ -52,6 +52,7 @@ function EventRow({ e, past }: { e: EconomicEvent; past: boolean }): React.JSX.E
 function errorMessage(err: unknown): string {
   const m = String((err as Error)?.message ?? '')
   if (/NO_API_KEY/.test(m)) return 'Set your FMP API key in Settings.'
+  if (/FMP HTTP 401/.test(m)) return 'Your FMP API key was rejected. Check it in Settings.'
   if (/FMP HTTP 429/.test(m)) return 'FMP request limit reached. Wait a moment and try again.'
   if (/FMP HTTP (200|40[0-9])/.test(m)) return 'The economic calendar isn’t available on your current FMP plan.'
   return 'Couldn’t load the economic calendar. Check your connection.'
