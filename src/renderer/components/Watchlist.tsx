@@ -71,14 +71,17 @@ function Row({
     <li
       role="button"
       tabIndex={0}
-      onClick={() => setActiveSymbol(item.symbol)}
+      // クリックでグリッドに入れるのは廃止(ダブルクリックの先行 click がアクティブセルを書き換えて
+      // しまうため)。グリッドへ置く経路は Enter とドラッグ&ドロップ、拡大窓はダブルクリックと
+      // コンテキストメニュー(キーボードからは Shift+F10)。
       onKeyDown={(e) => { if (e.key === 'Enter') setActiveSymbol(item.symbol) }}
+      onDoubleClick={() => void api.symbolChart.openWindow(item.symbol)}
       // Whole row is the drop target — dragOver must preventDefault or the browser shows the
       // not-allowed cursor and never fires drop. Drag is only *initiated* from the grip (D-66).
       {...reorderDropHandlers(index, setOverIndex)}
       // border-t-2 always reserved (transparent) so the accent insertion marker never shifts layout.
       className={cn(
-        'group flex items-center gap-1 border-t-2 border-transparent px-2 py-2 hover:bg-secondary',
+        'group flex select-none items-center gap-1 border-t-2 border-transparent px-2 py-2 hover:bg-secondary',
         isOver && 'border-primary'
       )}
     >
@@ -127,6 +130,9 @@ function Row({
     </li>
       </ContextMenuTrigger>
       <ContextMenuContent>
+        <ContextMenuItem onSelect={() => void api.symbolChart.openWindow(item.symbol)}>
+          Open enlarged chart
+        </ContextMenuItem>
         <ContextMenuItem onSelect={() => void api.company.openWindow(item.symbol)}>
           Show company info
         </ContextMenuItem>
