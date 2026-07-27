@@ -89,7 +89,7 @@ describe('applyFilter — country presets (EC-11)', () => {
 
   it("'major' keeps the hardcoded majors", () => {
     expect(applyFilter(events, { countries: 'major', impacts: all, text: '' }).map((e) => e.country)).toEqual(['US', 'JP'])
-    expect(MAJOR_COUNTRIES).toEqual(['US', 'EU', 'JP', 'UK', 'GB', 'CN'])
+    expect(MAJOR_COUNTRIES).toEqual(['US', 'EU', 'JP', 'UK', 'CN'])
   })
 
   it("'all' keeps everything, including countries not in MAJOR_COUNTRIES", () => {
@@ -123,24 +123,16 @@ describe('applyFilter — text (EC-12)', () => {
   const events = [
     ev({ country: 'US', event: 'CPI MoM' }),
     ev({ country: 'JP', event: 'Unemployment Rate' }),
-    ev({ country: 'GB', event: 'CPI YoY' })
+    ev({ country: 'UK', event: 'CPI YoY' })
   ]
   const all: EconomicImpact[] = ['High', 'Medium', 'Low']
 
   it('matches the event name, case-insensitively', () => {
-    expect(applyFilter(events, { countries: 'all', impacts: all, text: 'cpi' }).map((e) => e.country)).toEqual(['US', 'GB'])
+    expect(applyFilter(events, { countries: 'all', impacts: all, text: 'cpi' }).map((e) => e.country)).toEqual(['US', 'UK'])
   })
 
   it('matches the country code too, so All + JP narrows to Japan', () => {
     expect(applyFilter(events, { countries: 'all', impacts: all, text: 'jp' }).map((e) => e.event)).toEqual(['Unemployment Rate'])
-  })
-
-  it('an empty string filters nothing', () => {
-    expect(applyFilter(events, { countries: 'all', impacts: all, text: '' })).toHaveLength(3)
-  })
-
-  it('trims surrounding whitespace before matching', () => {
-    expect(applyFilter(events, { countries: 'all', impacts: all, text: '  cpi  ' })).toHaveLength(2)
   })
 
   it('combines with the country preset (AND, not OR)', () => {

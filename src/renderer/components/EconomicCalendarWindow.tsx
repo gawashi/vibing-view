@@ -72,7 +72,8 @@ function errorMessage(err: unknown): string {
   return 'Couldn’t load the economic calendar. Check your connection.'
 }
 
-function CalendarBody(): React.JSX.Element {
+export function EconomicCalendarWindow(): React.JSX.Element {
+  useEffect(() => { document.title = 'Economic calendar' }, [])
   const qc = useQueryClient()
   // 週の位置は永続化しない。開いたら常に今週（EC-10）。起点は月曜。
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }))
@@ -240,9 +241,4 @@ function CalendarBody(): React.JSX.Element {
       </div>
     </div>
   )
-}
-
-export function EconomicCalendarWindow(): React.JSX.Element {
-  useEffect(() => { document.title = 'Economic calendar' }, [])
-  return <CalendarBody />
 }

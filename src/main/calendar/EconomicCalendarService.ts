@@ -1,11 +1,11 @@
 import type { EconomicEvent, EconomicRange } from '@shared/types'
+// 型だけ（`import type` は消えるので sqlite は読み込まれない — core.ts と同じ扱い）。
+import type { EconomicDayRow } from '../db/economicDayStore'
 
 // その日の翌 00:00 UTC 以降に取得した行は確定 — 以後フェッチしない。それ以外は TTL 3600 秒（EC-06）。
 // 「過去日は永続」では穴が空く: 金曜 10:00 UTC に取った金曜の行は 13:30 UTC 発表分の actual が
 // null のまま固定されてしまう。条件は取得時刻で切る。
 const TTL_SECONDS = 3600
-
-export type EconomicDayRow = { date: string; events: EconomicEvent[]; fetchedAt: number }
 
 const utcYmd = (epochSeconds: number): string => new Date(epochSeconds * 1000).toISOString().slice(0, 10)
 const dayStart = (day: string): number => Date.parse(`${day}T00:00:00Z`) / 1000

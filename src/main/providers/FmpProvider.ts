@@ -71,8 +71,8 @@ function shiftUtcDay(day: string, n: number): string {
   return ymd(new Date(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000))
 }
 
-const ECONOMIC_IMPACT: Record<string, EconomicImpact> =
-  Object.assign(Object.create(null), { high: 'High', medium: 'Medium', low: 'Low' })
+// Map なので 'constructor' のような prototype 由来のキーが引っかからない（未知の値は 'Low'）。
+const ECONOMIC_IMPACT = new Map<string, EconomicImpact>([['high', 'High'], ['medium', 'Medium'], ['low', 'Low']])
 
 // ponytail: 1m span approximated as 7 calendar days (covers "last 5 trading days" across a
 // weekend); swap to an exchange-calendar trading-day count if coverage proves short (§4).
@@ -320,7 +320,7 @@ export class FmpProvider {
         country: r.country,
         currency: r.currency ?? null,
         event: r.event,
-        impact: ECONOMIC_IMPACT[(r.impact ?? '').toLowerCase()] ?? 'Low',
+        impact: ECONOMIC_IMPACT.get((r.impact ?? '').toLowerCase()) ?? 'Low',
         previous: r.previous ?? null,
         estimate: r.estimate ?? null,
         actual: r.actual ?? null

@@ -1,7 +1,7 @@
 import {
   TIMEFRAMES, DERIVED_TIMEFRAMES, DAILY_BACKED_TIMEFRAMES,
   type Bar, type Timeframe, type DateRange, type WorkspaceCollection, type SymbolResult,
-  type Quote, type MarketStatus, type CompanyInfo, type ClipboardCell, type EconomicRange
+  type Quote, type MarketStatus, type CompanyInfo, type ClipboardCell
 } from '@shared/types'
 import type { CapabilityStatus, KeyStatus, RefreshDonePayload, SetKeyResult } from '@shared/ipc'
 import { CH } from '@shared/ipc'
@@ -259,12 +259,8 @@ export function createCore(deps: CoreDeps) {
         companyInfoService.getInfo(symbol, opts)
     },
 
-    // どの UTC 日が必要かは呼び出し側（renderer の economicWeek.ts）が決める。ここは from..to を
-    // そのまま日単位 read-through に渡すだけ。
-    economicCalendar: {
-      getRange: (from: string, to: string, opts?: { force?: boolean }): Promise<EconomicRange> =>
-        economicCalendarService.getRange(from, to, opts)
-    },
+    // どの UTC 日が必要かは呼び出し側（renderer の economicWeek.ts）が決める。
+    economicCalendar: economicCalendarService,
 
     workspaces: {
       get: (): { collection: WorkspaceCollection; rev: number } => ({
