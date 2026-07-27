@@ -78,6 +78,7 @@ renderer: EconomicIndicatorWindow                ← プルダウン、範囲ボ
 | `src/renderer/components/EconomicIndicatorWindow.tsx` | ウィンドウ本体 |
 | `src/renderer/components/EconomicIndicatorChart.tsx` | 折れ線 1 本 |
 | `src/renderer/lib/economicIndicatorSeries.ts` | 範囲スライスと Δ の純関数 |
+| `src/renderer/lib/chartTheme.ts` | `Chart.tsx` に閉じている `cssHsl` / `chartThemeOptions` を出して折れ線と共有する |
 
 ### 変更ファイル
 
@@ -89,6 +90,8 @@ renderer: EconomicIndicatorWindow                ← プルダウン、範囲ボ
 | `src/main/providers/fmp.schema.ts` | `fmpEconomicIndicatorResponse` |
 | `src/main/providers/FmpProvider.ts` | `getEconomicIndicator(name)` |
 | `src/main/db/schema.ts` | `economicIndicators` テーブル |
+| `src/main/db/client.ts` | `economic_indicators` の `CREATE TABLE IF NOT EXISTS` |
+| `src/renderer/components/Chart.tsx` | `cssHsl` / `chartThemeOptions` を `lib/chartTheme.ts` へ移して import に置き換える |
 | `src/main/core.ts` | `economicIndicator.getSeries`、`economicIndicatorOutOfPlan` フラグ（`classify` を import）、`economicOutOfPlan` の latch 条件を `classify` に変更、`ProviderLike` に 1 メソッド追加 |
 | `src/main/ipc.ts` | チャンネル 1 本（`economicIndicator`） |
 | `src/main/index.ts` | `selectedIndicator` の state、`CH.economicIndicatorOpenWindow` / `CH.economicIndicatorSelected` ハンドラ |
@@ -143,6 +146,11 @@ economic_indicators(name TEXT PRIMARY KEY, data TEXT NOT NULL, fetched_at INTEGE
 `fetched_at` を進めるのは API 節約のため。進めないと TTL が切れたままなので、窓を開くたびに空応答を
 取りに行く。進めておけば 12 時間は静かになり、その間も古い `points` は残る。一時的な空応答から
 すぐ復帰したいときはリロードボタン（`force`）がある。守るのは履歴データであって鮮度ではない。
+
+**戻り値の `fetchedAt` は行に書いた新しい値ではなく、元の行の値を返す。** 返すのは古い `points` なので、
+「いつ時点のデータか」は古い取得時刻である。ヘッダーの `As of` が更新されないまま
+`（更新に失敗）` が付くので、フェッチ失敗のケースと同じ見た目になる。DB の `fetched_at`（TTL 用）と
+戻り値の `fetchedAt`（データの古さ）がこの分岐だけ食い違うので、実装時に取り違えないよう注意する。
 
 素朴に書くと毎回のフェッチ結果でまるごと上書きするので、一時的な空応答・FMP 側の仕様変更・
 `name` の打ち間違いのどれでも、埋まっていたキャッシュが `'[]'` に置き換わり、12 時間「データが
@@ -272,7 +280,7 @@ prev/est/act は前月比 % だが、`CPI` 系列が返すのは指数の水準�
 `#economicIndicator=1` の singleton マーカーだけで、指標名を載せない（`#economic=1` と同形）。
 
 ```ts
-let selectedIndicator = 'CPI'
+let selectedIndicator: string | null = null
 
 ipcMain.handle(CH.economicIndicatorOpenWindow, (_e, name: string) => {
   selectedIndicator = name                     // 窓の状態より先に更新する
@@ -302,6 +310,10 @@ renderer はマウント時に `api.economicIndicator.getSelected()` で初期�
 
 窓を `loadURL` で再読込して指標を差し替える案も採らない。範囲選択と TanStack Query のキャッシュを
 まとめて捨てることになる。
+
+`selectedIndicator` の初期値は `null`（誰もまだ指定していない）で、既定の指標名は main に持たせない。
+renderer の `useState` 初期値が唯一の既定なので、`getSelected()` が `null` を返したら renderer は
+そのまま既定を使う。main に既定を置くと同じ値が 2 箇所に散る。
 
 `selectedIndicator` は main のプロセス内 state で永続化しない（EI-03）。窓を閉じても値は残るが、
 次に開いたとき同じ指標が出るだけで害はない。
