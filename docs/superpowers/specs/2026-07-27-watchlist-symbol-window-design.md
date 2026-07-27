@@ -165,10 +165,15 @@ The window has two sources of fresh data, and one documented gap.
 
 - Unit: `parseSymbolChartSymbol('#symbolChart=AAPL')` → `'AAPL'`; no hash →
   `null`; round-trips a symbol through `buildSymbolChartHash`.
-- Unit: a watchlist row's single click does not call `setActiveSymbol`, while
-  Enter still does.
-- Unit: the row's context menu exposes an "Open enlarged chart" item that calls
-  `api.symbolChart.openWindow` with the row's symbol (the keyboard path).
+The repo has no component-test harness (`vitest.config.ts` runs
+`environment: 'node'` over `tests/**/*.test.ts`, and there is no
+testing-library dependency), so the row's gestures and the window's chrome are
+verified manually rather than by adding a rendering stack for three handlers.
+
+- Manual: single-click a watchlist row → the active grid cell does **not**
+  change; press Enter on the focused row → it still places the symbol.
+- Manual: the row's context menu (right-click, and Shift+F10 from the focused
+  row) shows "Open enlarged chart" and opens the window — the keyboard path.
 - Manual: double-click a watchlist row → an enlarged chart window opens and the
   grid is unchanged; change its timeframe and add an indicator → the grid and
   the persisted workspace stay unchanged; press the window's refresh button →
