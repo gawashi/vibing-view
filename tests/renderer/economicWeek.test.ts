@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, it, expect } from 'vitest'
 import {
-  MAJOR_COUNTRIES, applyFilter, eventsInWeek, groupByLocalDay, weekUtcDays
+  MAJOR_COUNTRIES, applyFilter, eventsInWeek, groupByLocalDay, nowMarker, weekUtcDays
 } from '../../src/renderer/lib/economicWeek'
 import type { EconomicEvent, EconomicImpact } from '@shared/types'
 
@@ -174,5 +174,60 @@ describe('groupByLocalDay', () => {
 
   it('returns an empty array for no events', () => {
     expect(groupByLocalDay([])).toEqual([])
+  })
+})
+
+describe('nowMarker', () => {
+  const weekStart = new Date('2026-07-27T00:00:00Z')
+  const start = weekStart.getTime() / 1000
+  const end = start + 7 * 86400
+  // 火・水・木に 1 件ずつ。groupByLocalDay を通すのでキーは実際のローカル日になる（TZ 非依存）。
+  const times = [start + 86400, start + 2 * 86400, start + 3 * 86400]
+  const groups = groupByLocalDay(times.map((time) => ev({ time })))
+
+  // マーカー位置を「時系列順に平坦化した配列の何番目の手前か」に直す。
+  const flatIndex = (m: { key: string | null; index: number }): number =>
+    m.key === null
+      ? groups.flatMap((g) => g.events).length
+      : groups.slice(0, groups.findIndex((g) => g.key === m.key)).reduce((n, g) => n + g.events.length, 0) + m.index
+
+  it('returns null when the viewed week is not the current one', () => {
+    expect(nowMarker(groups, start - 1, weekStart)).toBeNull()   // 未来の週を見ている
+    expect(nowMarker(groups, end, weekStart)).toBeNull()         // 過去の週を見ている
+  })
+
+  it('returns null when there is nothing to divide', () => {
+    expect(nowMarker([], times[1], weekStart)).toBeNull()
+  })
+
+  // 線 1 本で全体の過去/未来が言い切れることが唯一の要件。境界の位置をこの不変条件で押さえる。
+  it('splits the chronological list exactly at now', () => {
+    for (const nowSec of [start, times[0] - 1, times[0], times[0] + 1, times[1], times[2] + 1, end - 1]) {
+      const m = nowMarker(groups, nowSec, weekStart)
+      expect(m).not.toBeNull()
+      const flat = groups.flatMap((g) => g.events)
+      const at = flatIndex(m!)
+      expect(flat.slice(0, at).map((e) => e.time < nowSec)).not.toContain(false)
+      expect(flat.slice(at).map((e) => e.time >= nowSec)).not.toContain(false)
+    }
+  })
+
+  it('puts the line above everything when the whole week is still ahead', () => {
+    expect(nowMarker(groups, start, weekStart)).toEqual({ key: groups[0].key, index: 0 })
+  })
+
+  it('puts the line at the end once every event in the week is over', () => {
+    expect(nowMarker(groups, times[2] + 1, weekStart)).toEqual({ key: null, index: 0 })
+  })
+
+  // 発表時刻ちょうどは「まだ過去ではない」— 線はその行の手前に来る。
+  it('treats an event starting exactly now as upcoming', () => {
+    expect(flatIndex(nowMarker(groups, times[1], weekStart)!)).toBe(1)
+  })
+
+  it('can land mid-day, not just between days', () => {
+    const sameDay = groupByLocalDay([ev({ time: times[0] }), ev({ time: times[0] + 3600 })])
+    expect(nowMarker(sameDay, times[0] + 60, weekStart)).toEqual({ key: sameDay[0].key, index: 1 })
+    expect(sameDay).toHaveLength(1)
   })
 })

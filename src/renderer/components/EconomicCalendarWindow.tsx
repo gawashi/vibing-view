@@ -10,7 +10,7 @@ import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu'
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group'
-import { applyFilter, eventsInWeek, groupByLocalDay, weekUtcDays } from '@/lib/economicWeek'
+import { applyFilter, eventsInWeek, groupByLocalDay, nowMarker, weekUtcDays } from '@/lib/economicWeek'
 import type { EconomicCountryPreset, EconomicEvent, EconomicImpact, EconomicRange } from '@shared/types'
 
 const IMPACTS: EconomicImpact[] = ['High', 'Medium', 'Low']
@@ -22,12 +22,15 @@ const COUNTRY_PRESETS: EconomicCountryPreset[] = ['us', 'major', 'all']
 
 const fmtValue = (n: number | null): string => (n == null ? '—' : String(n))
 
-// 主時刻はローカル、右に小さく ET（EC-04: 変換は表示時だけ）。過去のイベント行は輝度を落とす。
-function EventRow({ e, past }: { e: EconomicEvent; past: boolean }): React.JSX.Element {
+// 主時刻はローカル、右に小さく ET（EC-04: 変換は表示時だけ）。
+// 過去/未来で行の見た目は変えない — 以前は過去行を opacity で落としていたが、透明度は文字の
+// コントラストごと下げるので、過去の行でいちばん見たい act（実績値）まで読みにくくなっていた。
+// 区別は NowMarker の線 1 本に任せる。
+function EventRow({ e }: { e: EconomicEvent }): React.JSX.Element {
   const d = new Date(e.time * 1000)
   const hasValues = e.previous != null || e.estimate != null || e.actual != null
   return (
-    <div className={cn('flex flex-col gap-0.5 px-3 py-1.5', past && 'opacity-50')}>
+    <div className="flex flex-col gap-0.5 px-3 py-1.5">
       <div className="flex items-center gap-2 text-sm">
         <span className="w-11 shrink-0 tabular-nums">{format(d, 'HH:mm')}</span>
         <span className="w-16 shrink-0 text-xs tabular-nums text-muted-foreground">
@@ -44,6 +47,17 @@ function EventRow({ e, past }: { e: EconomicEvent; past: boolean }): React.JSX.E
           <span>act {fmtValue(e.actual)}</span>
         </div>
       )}
+    </div>
+  )
+}
+
+// 過去と未来の境界。行を装飾する代わりにこれ 1 本で示す。
+function NowMarker({ now }: { now: Date }): React.JSX.Element {
+  return (
+    <div className="flex items-center gap-2 px-3 py-1" aria-label={`Current time ${format(now, 'HH:mm')}`}>
+      <div className="h-px flex-1 bg-primary" />
+      <span className="text-[11px] font-medium tabular-nums text-primary">now {format(now, 'HH:mm')}</span>
+      <div className="h-px flex-1 bg-primary" />
     </div>
   )
 }
@@ -66,6 +80,14 @@ function CalendarBody(): React.JSX.Element {
   const [impacts, setImpacts] = useState<EconomicImpact[]>(['High', 'Medium'])
   // テキストフィルタは永続化しない（EC-13）— 前回の検索語が残るとデータの都合か絞り込みか分からない。
   const [text, setText] = useState('')
+  // now ライン用。表示は分単位なので 1 分ごとに進めれば足りる。レンダー時の new Date() だけだと
+  // 窓を開いたままにしたときに線と時刻表示が固まる（今日の見出しも日付が変わって追従しなくなる）。
+  const [now, setNow] = useState(() => new Date())
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 60_000)
+    return () => clearInterval(t)
+  }, [])
 
   useEffect(() => {
     void api.settings.getEconomicFilter().then((f) => {
@@ -102,14 +124,14 @@ function CalendarBody(): React.JSX.Element {
     [inWeek, countries, impacts, text]
   )
 
-  const today = new Date()
-  const nowSec = Math.floor(today.getTime() / 1000)
+  const nowSec = Math.floor(now.getTime() / 1000)
+  const marker = useMemo(() => nowMarker(groups, nowSec, weekStart), [groups, nowSec, weekStart])
   const weekLabel = `${format(weekStart, 'MMM d')} – ${format(addDays(weekStart, 6), 'MMM d, yyyy')}`
   // fetchedAt は週の全日のうち最も古い取得時刻なので、過去の週では今日の日付ではないことが多い
   // （EC-06 の確定行）。同日なら時刻だけ、そうでなければ日付を添えて古さが伝わるようにする。
   const asOfDate = q.data ? new Date(q.data.fetchedAt * 1000) : null
   const asOf = asOfDate
-    ? isSameDay(asOfDate, today) ? format(asOfDate, 'HH:mm') : format(asOfDate, 'yyyy-MM-dd HH:mm')
+    ? isSameDay(asOfDate, now) ? format(asOfDate, 'HH:mm') : format(asOfDate, 'yyyy-MM-dd HH:mm')
     : null
 
   return (
@@ -199,17 +221,22 @@ function CalendarBody(): React.JSX.Element {
               <h2
                 className={cn(
                   'sticky top-0 border-b border-border bg-card px-3 py-1.5 text-xs font-semibold',
-                  isSameDay(day, today) ? 'text-primary' : 'text-muted-foreground'
+                  isSameDay(day, now) ? 'text-primary' : 'text-muted-foreground'
                 )}
               >
                 {format(day, 'EEE MMM d')}
               </h2>
               {g.events.map((e, i) => (
-                <EventRow key={`${e.time}-${e.country}-${e.event}-${i}`} e={e} past={e.time < nowSec} />
+                <React.Fragment key={`${e.time}-${e.country}-${e.event}-${i}`}>
+                  {marker?.key === g.key && marker.index === i && <NowMarker now={now} />}
+                  <EventRow e={e} />
+                </React.Fragment>
               ))}
             </section>
           )
         })}
+        {/* 週内のイベントが全部終わっている場合の末尾（線が消えると判断に迷うので出す） */}
+        {marker?.key === null && <NowMarker now={now} />}
       </div>
     </div>
   )

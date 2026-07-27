@@ -27,11 +27,39 @@ export function weekUtcDays(weekStart: Date): string[] {
   return Array.from({ length: 9 }, (_, i) => utcYmd(new Date(first + i * 86_400_000)))
 }
 
+// ローカル週の [start, end) を epoch 秒で。addDays はここでは正しい — weekStart はローカル月曜
+// 00:00 で、週の終わりも「次のローカル月曜 00:00」だから、DST をまたぐ週は 167h/169h になるのが
+// 正しい（固定 168h ではない）。weekUtcDays の epoch ms 演算とは逆で、こちらはローカル境界。
+function weekRange(weekStart: Date): { start: number; end: number } {
+  return {
+    start: Math.floor(weekStart.getTime() / 1000),
+    end: Math.floor(addDays(weekStart, 7).getTime() / 1000)
+  }
+}
+
 // ローカル週に入るものだけ残す（UTC 日で余分に取った両端を落とす）。境界は半開区間。
 export function eventsInWeek(events: EconomicEvent[], weekStart: Date): EconomicEvent[] {
-  const start = Math.floor(weekStart.getTime() / 1000)
-  const end = Math.floor(addDays(weekStart, 7).getTime() / 1000)
+  const { start, end } = weekRange(weekStart)
   return events.filter((e) => e.time >= start && e.time < end)
+}
+
+// 「今」の境界を引く位置。groups は日昇順・日内も時刻昇順なので、平坦に見れば時系列順 —
+// よって線 1 本の上下がリスト全体で過去/未来に一致する（行の見た目は一切変えない）。
+// key が null なら末尾（週内の全イベントが終了）。今週を見ていないときは null を返す —
+// 線が上端か下端に張り付くだけで情報にならないため。
+export function nowMarker(
+  groups: { key: string; events: EconomicEvent[] }[],
+  nowSec: number,
+  weekStart: Date
+): { key: string | null; index: number } | null {
+  const { start, end } = weekRange(weekStart)
+  if (!groups.length || nowSec < start || nowSec >= end) return null
+  for (const g of groups) {
+    // 開始時刻ちょうどのイベントはまだ「過去」ではない（線はその手前）。
+    const index = g.events.findIndex((e) => e.time >= nowSec)
+    if (index >= 0) return { key: g.key, index }
+  }
+  return { key: null, index: 0 }
 }
 
 // 国プリセット・重要度・テキストの AND。テキストは国コードと指標名の両方に部分一致（EC-12）—
