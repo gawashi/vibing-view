@@ -224,12 +224,13 @@ function RefreshButton({ symbol, timeframe }: { symbol: string; timeframe: Timef
             try {
               const bars = await api.ohlcv.refresh(symbol, timeframe)
               queryClient.setQueryData(qk.ohlcv(symbol, timeframe), bars)
-              // Capability verdicts may have changed (a refresh re-probes the fetched tf); re-gate the row.
-              void queryClient.invalidateQueries({ queryKey: qk.capabilities() })
             } catch {
               toast(`Could not refresh ${symbol}. Showing cached data.`)
             } finally {
               setBusy(false)
+              // Re-gate the row on failure too: a 402/429 records its verdict before rethrowing
+              // (core.ts runTracked). capabilities:get is a local read, no FMP call.
+              void queryClient.invalidateQueries({ queryKey: qk.capabilities() })
             }
           }}
         >

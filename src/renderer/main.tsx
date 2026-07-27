@@ -1,9 +1,8 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { parseCompanySymbol } from '@shared/companyWindow'
-import { parseChartCellId } from '@shared/chartWindow'
-import { parseSymbolChartSymbol } from '@shared/symbolChartWindow'
+import { parseHash } from '@shared/windowHash'
+import { useAppStore } from '@/store'
 import App from './App'
 import { CompanyWindow } from './components/CompanyWindow'
 import { ChartWindow } from './components/ChartWindow'
@@ -24,11 +23,16 @@ const queryClient = new QueryClient({
   }
 })
 
-// Company-info windows reuse this same bundle; the hash carries the target symbol. When present,
-// mount the standalone CompanyWindow instead of the full App (see src/shared/companyWindow.ts).
-const companySymbol = parseCompanySymbol(window.location.hash)
-const chartCellId = parseChartCellId(window.location.hash)
-const symbolChartSymbol = parseSymbolChartSymbol(window.location.hash)
+// Satellite windows reuse this same bundle; the hash carries the target. When present, mount that
+// standalone window instead of the full App (see src/shared/windowHash.ts).
+const companySymbol = parseHash('company', window.location.hash)
+const chartCellId = parseHash('chart', window.location.hash)
+const symbolChartSymbol = parseHash('symbolChart', window.location.hash)
+
+// Seed the symbol window's cell here, before the first render: this window gets its own fresh store
+// (one 1x1 cell, no useWorkspaceSync), so setting it now means SymbolChartWindow never has to render
+// a symbol-less frame.
+if (symbolChartSymbol) useAppStore.getState().setActiveSymbol(symbolChartSymbol)
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
