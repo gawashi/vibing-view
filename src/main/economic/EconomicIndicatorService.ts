@@ -59,7 +59,10 @@ export function createEconomicIndicatorService(deps: {
       const cached = opts?.force ? null : row
 
       const needBackfill = !cached || cached.coveredFrom > wantFrom
-      const needRefresh = !cached || now() - cached.fetchedAt >= TTL_SECONDS
+      // fetchedAt が未来なら差が負になって TTL を永久に満たさない（時計を進めて書いたあと戻した
+      // 場合）。下の Math.min はフルカバー行では needRefresh が false なので到達しない。ここで
+      // 未来を「取り直す」側に倒して fetchedAt を正常な値に書き戻す。
+      const needRefresh = !cached || cached.fetchedAt > now() || now() - cached.fetchedAt >= TTL_SECONDS
       if (!needBackfill && !needRefresh) {
         return { name, points: cached.points, coveredFrom: cached.coveredFrom, fetchedAt: cached.fetchedAt }
       }
@@ -96,11 +99,20 @@ export function createEconomicIndicatorService(deps: {
       // 書き込みは date キーの union（EI-10 改訂）。フェッチ結果でまるごと置き換えないので、
       // 空応答は「何も足さない」で終わる — 一時的な空応答も、FMP の仕様変更も、name の打ち間違いも、
       // 既存履歴を壊せない。四半期系列は合法的に空窓を返すので、空を異常扱いしてはいけない。
+      // 直列フェッチの最中に別の getSeries（別ウィンドウの 5Y など）が書き込んでいることがある。
+      // 判定に使った snapshot のまま書くと、狭い地平の要求が後に書いたときに相手の履歴と
+      // coveredFrom を丸ごと捨て、次の 5Y 表示で 22 窓を取り直すことになる。書く直前に読み直して
+      // union する。取り直した値のほうが新しいので、同じ date は自分の値を残す。
+      // force は「行を捨てて現在の地平を取り直す」契約なので対象外（狭まるのは意図どおり）。
+      const prior = opts?.force ? null : store.getIndicator(name)
+      if (prior) for (const p of prior.points) if (!merged.has(p.date)) merged.set(p.date, p.value)
+
       const points = [...merged]
         .map(([date, value]) => ({ date, value }))
         .sort((a, b) => a.date.localeCompare(b.date))
       // 地平を狭めても記録上のカバー範囲は狭めない（5Y を取ったあと 1Y に戻しても再取得しない）。
-      const coveredFrom = cached && cached.coveredFrom < wantFrom ? cached.coveredFrom : wantFrom
+      let coveredFrom = wantFrom
+      for (const c of [cached?.coveredFrom, prior?.coveredFrom]) if (c && c < coveredFrom) coveredFrom = c
       const fetchedAt = now()
 
       store.upsertIndicator(name, points, coveredFrom, fetchedAt)

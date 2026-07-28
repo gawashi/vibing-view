@@ -162,6 +162,16 @@ describe('getSeries — キャッシュ判定', () => {
     expect(oldestLowerBound.getTime()).toBeLessThanOrEqual(staleFetchedAt * 1000)
   })
 
+  it('refreshes a row whose fetchedAt is in the future (時計の後退)', async () => {
+    // 時計が進んだ状態で書かれた行。差が負なので TTL 判定だけでは永久に新鮮扱いになる。
+    const store = fakeStore({ CPI: { points: PTS, coveredFrom: FROM_1Y, fetchedAt: T0 + 30 * 86400 } })
+    const fetch = vi.fn(async () => [])
+    const r = await svc(store, fetch).getSeries('CPI', { years: 1 })
+
+    expect(tos(fetch)).toEqual([TODAY]) // 今日の窓だけ取り直す（遡りは走らない）
+    expect(r.fetchedAt).toBe(T0) // 未来日付が正常な値に書き戻る
+  })
+
   it('does not refetch when narrowing the horizon back to 1Y', async () => {
     const store = fakeStore({ CPI: { points: PTS, coveredFrom: FROM_5Y, fetchedAt: T0 } })
     const fetch = vi.fn()
@@ -185,6 +195,35 @@ describe('getSeries — キャッシュ判定', () => {
     expect(r.coveredFrom).toBe(FROM_1Y)
     expect(store.rows.get('CPI')!.coveredFrom).toBe(FROM_1Y)
     expect(store.rows.get('CPI')!.fetchedAt).toBe(T0)
+  })
+})
+
+describe('getSeries — 同時実行', () => {
+  it('does not undo a wider write that landed while it was fetching', async () => {
+    // 1Y の要求が空キャッシュを snapshot したあと、5Y の要求が先に書き終わるケース。
+    const store = fakeStore()
+    const wide: EconomicIndicatorPoint[] = [{ date: '2022-01-01', value: 1 }, { date: '2026-06-01', value: 2 }]
+    let n = 0
+    const fetch = vi.fn(async () => {
+      // 3 窓目の途中で 5Y の要求が完了したことにする。
+      if (++n === 3) store.upsertIndicator('CPI', wide, FROM_5Y, T0)
+      return [{ date: '2026-07-01', value: 323 }]
+    })
+    const r = await svc(store, fetch).getSeries('CPI', { years: 1 })
+
+    expect(r.coveredFrom).toBe(FROM_5Y) // 記録上のカバー範囲を巻き戻さない
+    expect(r.points).toEqual([...wide, { date: '2026-07-01', value: 323 }])
+    expect(store.rows.get('CPI')).toEqual({ points: r.points, coveredFrom: FROM_5Y, fetchedAt: T0 })
+  })
+
+  it('keeps its own freshly fetched value for a date the other write also touched', async () => {
+    const store = fakeStore()
+    const fetch = vi.fn(async () => {
+      store.upsertIndicator('CPI', [{ date: '2026-06-01', value: 100 }], FROM_1Y, T0)
+      return [{ date: '2026-06-01', value: 322.1 }]
+    })
+    const r = await svc(store, fetch).getSeries('CPI', { years: 1 })
+    expect(r.points).toEqual([{ date: '2026-06-01', value: 322.1 }])
   })
 })
 
