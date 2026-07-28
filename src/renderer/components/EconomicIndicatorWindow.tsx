@@ -76,7 +76,7 @@ export function EconomicIndicatorWindow(): React.JSX.Element {
   const data = q.data?.name === name ? q.data : undefined
   // name が null の間（pull 未解決）と、指標を切り替えて data がまだ前の指標のままの間は
   // どちらも「表示できるものがない」なので、まとめて loading に乗せて「No data」を出さない。
-  const loading = name === null || q.isLoading || !data
+  const loading = !q.isError && (name === null || q.isLoading || !data)
 
   const all = data?.points ?? []
   const visible = useMemo(() => sliceRange(all, range), [all, range])
@@ -163,8 +163,10 @@ export function EconomicIndicatorWindow(): React.JSX.Element {
               <span className="tabular-nums">Δ {formatDelta(latest.delta)}</span>
             </>
           )}
-          {/* 地平を広げる操作は 90 日窓を直列に取るので待たされる。無言で固まらせない。 */}
-          {q.isFetching && !loading && <span>Fetching {range} history…</span>}
+          {/* 地平を広げる操作は 90 日窓を直列に取るので待たされる。無言で固まらせない。
+              !q.isError も付けるのは、失敗した行のバックグラウンド再取得（あれば）で
+              isFetching と isError が両立する一瞬に、エラー表示の上にヒントを重ねないため。 */}
+          {q.isFetching && !loading && !q.isError && <span>Fetching {range} history…</span>}
         </div>
       </div>
 
