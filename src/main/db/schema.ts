@@ -48,3 +48,15 @@ export const economicDays = sqliteTable('economic_days', {
   data: text('data').notNull(),
   fetchedAt: integer('fetched_at').notNull()
 })
+
+// 統計指標のキャッシュ。name は FMP の系列名、data は取得済み観測（EconomicIndicatorPoint[]、
+// date 昇順）の JSON blob。covered_from は「どこまで遡って取得済みか」の 'YYYY-MM-DD' —
+// 90 日窓を連続に遡るのでカバー範囲は常に [covered_from, 最新] の 1 区間で表せ、bars のような
+// 区間リストは要らない。確定判定は持たない（EI-02: FRED 系列は改訂されるので過去分を固定すると
+// 古い速報値が残る）。TTL 12h は直近窓の取り直しにだけ掛かる。
+export const economicIndicators = sqliteTable('economic_indicators', {
+  name: text('name').primaryKey(),
+  data: text('data').notNull(),
+  coveredFrom: text('covered_from').notNull(),
+  fetchedAt: integer('fetched_at').notNull()
+})

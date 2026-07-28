@@ -34,6 +34,10 @@ export function getDb(): BetterSQLite3Database {
     CREATE TABLE IF NOT EXISTS economic_days (
       date TEXT PRIMARY KEY, data TEXT NOT NULL, fetched_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS economic_indicators (
+      name TEXT PRIMARY KEY, data TEXT NOT NULL, covered_from TEXT NOT NULL,
+      fetched_at INTEGER NOT NULL
+    );
   `)
   _db = drizzle(sqlite) as BetterSQLite3Database
   return _db
