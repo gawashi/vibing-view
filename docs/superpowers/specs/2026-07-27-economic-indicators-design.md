@@ -25,26 +25,41 @@ FMP の `/stable/economic-indicators` を使い、マクロ経済指標の過去
 1 観測あたり `name` / `date` / `value` の 3 フィールドだけ。単位も国も返らない。`name` は FMP が
 定義した固定の系列名しか受け付けず、任意の指標を要求できない。
 
-### 着手前に確定させること（EI-01）
+### 実測結果（EI-01 — 2026-07-27 に確定）
 
-以下は FMP のドキュメント由来で、実 API で検証していない。実 API を 1 回叩いて
-`tests/fixtures/fmp-economic-indicators.json` として保存し、fixture 上で 5 点を確定させてから永続化
-コードを書く。
+実 API で確認済み。**当初の「全履歴が 1 リクエストで返る」という前提は誤りだった**ため、
+下記「データモデルとキャッシュ」を書き換えてある。以下は実測値。
 
-1. 受け付ける `name` の実際の集合（下の 23 本と一致するか）
-2. `from`/`to` を省略したとき全履歴が返るか、既定の窓に切られるか（キャッシュ方式の前提そのもの）
-3. レスポンスのフィールド（`{ name, date, value }` 以外に `unit` 等が付くか。付くなら
-   `EconomicIndicatorMeta.unit` のハードコードは不要になる）
-4. プラン拒否の**HTTP status と body 形状**。`403` + `{ "Error Message": ... }` なのか、`200` +
-   エラー body なのか。EI-04 の latch 判定がこれに依存する。判定が状況に依らないよう `classify()` を
-   使う設計にしてあるが、実測した status と body は
-   `tests/fixtures/fmp-economic-indicators-denied.json` に保存し、`classify` がそれを
-   `'requires-plan'` に落とすことをテストで固定する
-5. `name` に無効な値を渡したときの応答（`200` + `[]` なのか、エラーなのか）。EI-10 の空レスポンス
-   ガードがこれに依存する
+| 確認項目 | 実測 |
+|---|---|
+| フィールド | `{ name, date, value }` の 3 つのみ。`unit` は**返らない** → レジストリの `unit` ハードコードは必要 |
+| `date` の形 | `"2025-09-01"` の日付のみ。時刻なし → 「タイムゾーン問題は無い」は成立 |
+| 返る範囲 | **`to` から遡って 90 日ちょうどの窓のみ**。`from` では窓を広げられない |
+| `name` の集合 | 代表 7 本（CPI / unemploymentRate / federalFunds / GDP / consumerSentiment / 30YearFixedRateMortgageAverage / smoothedUSRecessionProbabilities）すべて観測配列を返す → 23 本の表は維持 |
+| 無効なキー | HTTP `401` + `{ "Error Message": "Invalid API KEY. Feel free to create a Free API Key..." }`。`classify()` は小文字化して `/invalid api key/` に当たるので `'requires-plan'` を返す → EI-04 の前提は成立 |
 
-2 が「既定の窓に切られる」だった場合は、`from` に固定の古い日付（`1950-01-01`）を渡す。それでも
-全履歴が来ないなら方式の再検討が必要なので、実装前に確定させる。
+窓が 90 日である証拠（週次系列で計測）:
+
+```
+name=30YearFixedRateMortgageAverage&to=2025-12-31 → 14 行 [2025-10-02 .. 2025-12-31]  span 90d
+name=30YearFixedRateMortgageAverage&to=2025-06-30 → 13 行 [2025-04-03 .. 2025-06-26]
+name=CPI&from=1900-01-01                          →  0 行（from は窓を広げない）
+name=CPI&from=2015-01-01&to=2025-12-31            →  2 行 [2025-11-01 .. 2025-12-01]
+name=GDP&from=2015-01-01&to=2025-12-31            →  0 行（四半期系列は窓に観測が無いと空）
+```
+
+ここから確定した 3 点:
+
+1. **窓は `[to - 90日, to]` の閉区間で、境界に隙間が無い。** `to` を 90 日ずつ後ろへずらせば連続に
+   遡れる（実装では 85 日ステップにして 5 日重ね、date でデデュープする）。
+2. **四半期系列は合法的に空を返す。** 窓にたまたま観測が無いだけで、廃止でも障害でもない。
+   EI-10 の空応答ガードは「空 = 異常」と決め打ちしてはいけない（下記）。
+3. **実データに欠測日がある。** CPI の `2025-10-01` は存在しない（窓の継ぎ目の取りこぼしではなく、
+   FMP 側にその観測が無い）。欠測を前提に、日付の連続性でキャッシュ充足を判定してはいけない。
+
+全履歴を取るなら CPI で約 450 リクエスト、10 年 × 23 本で約 920 リクエストになり、
+「API リクエストの節約が最優先」と正面から衝突する。したがって**取得地平を 1Y / 5Y に絞り、
+必要になった時だけ遡る**（下記）。
 
 ### タイムゾーン問題は無い
 
@@ -59,7 +74,7 @@ Company info の経路をなぞる。カレンダーの `EconomicCalendarService
 持たない（理由は下記「なぜ確定判定を持たないか」）。
 
 ```
-FmpProvider.getEconomicIndicator(name)           ← /economic-indicators?name= + zod
+FmpProvider.getEconomicIndicator(name, to)       ← /economic-indicators?name=&to= （90 日窓）+ zod
         ↓
 EconomicIndicatorService                         ← TTL 12h read-through（CompanyInfoService と同型）
         ↓  db/economicIndicatorStore (get / upsert)
@@ -88,8 +103,8 @@ renderer: EconomicIndicatorWindow                ← プルダウン、範囲ボ
 | `src/shared/ipc.ts` | `CH` に `economicIndicator` / `economicIndicatorOpenWindow` / `economicIndicatorSelected` / `economicIndicatorSelect`、`Api.economicIndicator`（`getSeries` / `openWindow` / `getSelected` / `onSelect`） |
 | `src/shared/windowHash.ts` | `WindowKind` に `'economicIndicator'` |
 | `src/main/providers/fmp.schema.ts` | `fmpEconomicIndicatorResponse` |
-| `src/main/providers/FmpProvider.ts` | `getEconomicIndicator(name)` |
-| `src/main/db/schema.ts` | `economicIndicators` テーブル |
+| `src/main/providers/FmpProvider.ts` | `getEconomicIndicator(name, to)`（90 日窓 1 本） |
+| `src/main/db/schema.ts` | `economicIndicators` テーブル（`covered_from` を含む） |
 | `src/main/db/client.ts` | `economic_indicators` の `CREATE TABLE IF NOT EXISTS` |
 | `src/renderer/components/Chart.tsx` | `cssHsl` / `chartThemeOptions` を `lib/chartTheme.ts` へ移して import に置き換える |
 | `src/main/core.ts` | `economicIndicator.getSeries`、`economicIndicatorOutOfPlan` フラグ（`classify` を import）、`economicOutOfPlan` の latch 条件を `classify` に変更、`ProviderLike` に 1 メソッド追加 |
@@ -110,61 +125,78 @@ renderer: EconomicIndicatorWindow                ← プルダウン、範囲ボ
 ## データモデルとキャッシュ
 
 ```
-economic_indicators(name TEXT PRIMARY KEY, data TEXT NOT NULL, fetched_at INTEGER NOT NULL)
+economic_indicators(
+  name TEXT PRIMARY KEY, data TEXT NOT NULL, covered_from TEXT NOT NULL, fetched_at INTEGER NOT NULL
+)
 ```
 
 - `name` は FMP の系列名そのまま
-- `data` はその系列の全履歴（`EconomicIndicatorPoint[]`）の JSON blob。`company_profiles` と同じ
-  blob 方針で、フィールド追加時のマイグレーションを不要にする
-- `fetched_at` は epoch 秒。TTL は 12 時間（43200 秒）
+- `data` は取得済み観測（`EconomicIndicatorPoint[]`、date 昇順）の JSON blob。`company_profiles` と
+  同じ blob 方針で、フィールド追加時のマイグレーションを不要にする
+- `covered_from` は**どこまで遡って取得済みか**の `'YYYY-MM-DD'`。窓を 90 日ずつ連続に遡るので、
+  カバー範囲は常に `[covered_from, 最新]` の 1 区間で表せる。`bars` のような区間リストは要らない
+- `fetched_at` は epoch 秒。TTL 12 時間（43200 秒）は**直近窓の取り直しにだけ**掛かる
 
-`from`/`to` を付けずに 1 リクエストで全期間を取り、1 行に入れる。月次・四半期系列なので全履歴でも
-数百〜千観測、数十 KB。表示範囲（1Y/5Y/10Y/Max）は取得済みデータのクライアント側スライスで、
-リクエストは増えない。API リクエストは 1 指標あたり 12 時間に 1 回で、23 本すべて見ても半日で 23
-リクエストに収まる。
+### 取得地平を絞って必要な時だけ遡る
 
-### なぜ確定判定を持たないか（EI-02）
+エンドポイントが 90 日窓しか返さない（EI-01）ため、全履歴は現実的な回数で取れない。代わりに
+**表示できる地平を 1Y / 5Y に限定**し、その地平に足りない分だけ遡る。
+
+`getSeries(name, { years, force })` の手順:
+
+1. `wantFrom = 今日 - years`（文字列で計算）
+2. `needBackfill = 行が無い || covered_from > wantFrom`
+3. `needRefresh = force || 行が無い || now - fetched_at >= TTL`
+4. どちらも false ならキャッシュをそのまま返す（ネットワークに出ない）
+5. 取りに行く窓:
+   - `needRefresh` なら最新窓（`to = 今日`）を 1 本
+   - `needBackfill` なら `to` を `covered_from` から **85 日ずつ**後ろへずらして `wantFrom` を
+     下回るまで。90 日窓に対し 5 日重ねるのは、境界の inclusive/exclusive の取り違えと
+     月末日のずれを吸収するため
+6. 取得した観測を既存 `data` に**date キーでマージ**する（後から取った値が勝つ）
+7. `covered_from = min(wantFrom, 旧 covered_from)`、`fetched_at = now` で書き戻す
+
+リクエスト数は 1Y の初回で約 5、5Y へ広げる時に追加で約 17。以後その指標は 12 時間ごとに
+最新窓 1 本だけ。永続キャッシュなので遡りは一度きり。
+
+### なぜ確定判定を持たないか（EI-02 — 改訂）
 
 カレンダーは「その日の翌 00:00 UTC 以降に取得した行は確定」として以後フェッチしない（EC-06）。
 指標にはこれを適用しない。FRED 由来の系列は改訂されるため（GDP は速報・改定・確定で 3 回変わる）、
-過去分を確定として固定すると古い速報値が残り続ける。全履歴を TTL で取り直すことが改訂を吸収する
-方法であり、同時に一番短いコードでもある。
+過去分を確定として固定すると古い速報値が残り続ける。
+
+ただし当初案の「全履歴を TTL で取り直して改訂を吸収する」は 90 日窓では成立しない。
+**改訂を吸収できるのは直近 90 日窓の範囲だけ**で、それより古い観測の改訂は取り込まれない。
+これは地平を絞るコストとして受け入れる。古い改訂まで反映したい時はリロードボタン（`force`）が
+その指標の行を捨てて現在の地平を取り直す。
 
 ### 却下した方式
 
-- **表示範囲ごとのキャッシュ**（`bars` / `coverage` と同じ range 管理）: 改訂があるため「取得済み
-  範囲は再取得しない」が成立せず、範囲管理と改訂対応の両方を書くことになる。節約できるのは
-  1 リクエストあたり数十 KB
+- **全履歴の一括バックフィル**: CPI で約 450 リクエスト、10 年 × 23 本で約 920。
+  「API リクエストの節約が最優先」と衝突する
 - **日単位キャッシュ**（`economic_days` と同形）: 指標は月次・四半期発表なので、日単位のキーは
   ほぼ空行になる
+- **`bars` と同じ区間リスト管理**: 遡りが常に連続なのでカバー範囲は 1 区間で足り、区間の
+  マージ・分割は不要
 
-### 空レスポンスで既存履歴を上書きしない（EI-10）
+### 空レスポンスで既存履歴を上書きしない（EI-10 — 改訂）
 
-フェッチが成功して `points` が空だったとき、**既存行が空でなければ `data` を上書きしない**。古い
-`points` を `stale: true` で返す。`fetched_at` は進める。
+**マージ方式にしたことで、当初の「空なら上書きしない」ガードは不要になった。** 書き込みは
+既存 `data` への date キーでの union であり、フェッチ結果でまるごと置き換えないので、空応答は
+単に「何も足さない」で終わる。一時的な空応答も、FMP 側の仕様変更も、`name` の打ち間違いも、
+既存履歴を壊せない。
 
-`fetched_at` を進めるのは API 節約のため。進めないと TTL が切れたままなので、窓を開くたびに空応答を
-取りに行く。進めておけば 12 時間は静かになり、その間も古い `points` は残る。一時的な空応答から
-すぐ復帰したいときはリロードボタン（`force`）がある。守るのは履歴データであって鮮度ではない。
+これは重要で、**四半期系列は合法的に空窓を返す**（EI-01 実測: `GDP` の 90 日窓に観測が無い）。
+当初案の「空 = 異常なので `stale: true`」という決め打ちは、GDP を毎回 stale 表示にしてしまう。
 
-**戻り値の `fetchedAt` は行に書いた新しい値ではなく、元の行の値を返す。** 返すのは古い `points` なので、
-「いつ時点のデータか」は古い取得時刻である。ヘッダーの `As of` が更新されないまま
-`（更新に失敗）` が付くので、フェッチ失敗のケースと同じ見た目になる。DB の `fetched_at`（TTL 用）と
-戻り値の `fetchedAt`（データの古さ）がこの分岐だけ食い違うので、実装時に取り違えないよう注意する。
-
-素朴に書くと毎回のフェッチ結果でまるごと上書きするので、一時的な空応答・FMP 側の仕様変更・
-`name` の打ち間違いのどれでも、埋まっていたキャッシュが `'[]'` に置き換わり、12 時間「データが
-ありません」と表示される。例外が飛んでいないので `stale` フォールバックは効かない。カレンダーで
-同じ形の欠陥を EC-07 のレビューで指摘されて直したのと同じ話で、TTL があるぶん永久ではないという
-点だけが違う。
-
-引き換えに、本当に廃止された系列は空にならず、古い履歴を stale 表示し続ける。23 本のハードコード
-系列が廃止されるのは稀で、そのとき失うのは「(更新に失敗)」というラベルの正確さだけであり、守るのは
-履歴データである。`force` も同じガードを通す（`force` は TTL を無視するだけで、空上書きは許さない）。
+残る 1 ケースだけ明示的に扱う: **行が無く、遡った窓がすべて空だった場合**は、`points: []` と
+`covered_from = wantFrom` を持つ行を書く。書かないと窓を開くたびに空撃ちを繰り返す。
 
 ### force
 
-リロードボタンは `{ force: true }` で TTL を無視して取り直す（`company.info` と同じ）。
+リロードボタンは `{ force: true }` で、その指標の行を捨てて現在の地平ぶんを取り直す
+（1Y なら約 5 リクエスト）。TTL を無視するだけの `company.info` とは違い、遡り分も取り直すので
+古い観測の改訂も反映される。押した時だけコストが出る、明示的な操作。
 
 ## 型
 
@@ -173,13 +205,19 @@ export type EconomicIndicatorPoint = { date: string; value: number } // date は
 
 // fetchedAt は行の取得時刻。stale は「古い行を返した、再取得は失敗した」
 // — fetchedAt だけでは区別できない（CompanyInfo と同じ理由）。
+// coveredFrom は遡って取得済みの下限 'YYYY-MM-DD'。renderer が「この地平はもう出せる」を
+// 判断するのではなく、表示中の地平が実際にどこまで埋まっているかを As of 行に出すために持つ。
 export type EconomicIndicatorSeries = {
   name: string
   points: EconomicIndicatorPoint[] // date 昇順
+  coveredFrom: string
   fetchedAt: number
   stale?: boolean
 }
 ```
+
+取得地平は `1Y | 5Y` の 2 つだけ（EI-01 の 90 日窓により 10Y / Max は落とした）。既定は `1Y`
+— 初回に開いた指標で約 5 リクエストに収まる方を既定にする。
 
 `value` が `null` の観測（FRED の欠測）は provider で落とす。折れ線に穴を開ける表現は要らないし、
 表の Δ 計算が `null` を持ち回らずに済む。
@@ -331,7 +369,7 @@ renderer の `useState` 初期値が唯一の既定なので、`getSelected()` �
 
 ```
 ┌─ Economic indicators ─────────────────────────────────────────┐
-│ [ Consumer Price Index ▾ ]  [1Y][5Y][10Y][Max]  As of 09:12 ⟳ │
+│ [ Consumer Price Index ▾ ]  [1Y][5Y]  As of 09:12 ⟳           │
 │ Index (1982-84=100)    Latest 322.1 (2026-06-01)    Δ +0.7    │
 ├───────────────────────────────────────────────────────────────┤
 │      ╱╲          ╱─────                                       │
@@ -357,8 +395,11 @@ renderer の `useState` 初期値が唯一の既定なので、`getSelected()` �
 
 ### 範囲スライスの基準日（EI-08）
 
-1Y/5Y/10Y は**最新観測の日付**から遡る。今日から遡ると、四半期系列や発表が遅れている系列で
-1Y ビューが空になる。`Max` は全件。
+表示上のスライスは**最新観測の日付**から遡る。今日から遡ると、四半期系列や発表が遅れている
+系列で 1Y ビューが空になる。
+
+取得地平（どこまで遡って API を叩くか）と表示スライス（取得済みのどこを見せるか）は別物。
+地平を 1Y → 5Y に広げた時だけバックフィルが走り、同じ地平内での再描画はネットワークに出ない。
 
 ### 折れ線
 
@@ -477,7 +518,7 @@ fixture は `tests/fixtures/fmp-economic-indicators.json`（EI-01 で保存し�
 
 **`tests/renderer/economicIndicatorSeries.test.ts`**
 
-- 範囲スライス（1Y / 5Y / 10Y / Max）が最新観測日から遡る（EI-08）
+- 範囲スライス（1Y / 5Y）が最新観測日から遡る（EI-08）
 - 発表が遅れている系列でも 1Y が空にならない
 - `Δ` の計算。範囲の先頭行の `Δ` がスライス外の 1 つ前の観測を使う
 - 1 点のみ、空配列
