@@ -30,6 +30,7 @@ function deps(over: Partial<CoreDeps> = {}) {
     profileStore: { getProfile: vi.fn(() => null), upsertProfile: vi.fn() },
     companyProfileStore: { getCompanyProfile: vi.fn(() => null), upsertCompanyProfile: vi.fn() },
     economicDayStore: { getDays: vi.fn(() => []), upsertDays: vi.fn() },
+    economicIndicatorStore: { getIndicator: vi.fn(() => null), upsertIndicator: vi.fn() },
     workspaceStore: {
       getWorkspaces: vi.fn(() => ({ version: 3 as const, active: 'W', workspaces: [{ name: 'W', items: [], layout: { schemaVersion: 1 as const, cells: [], shape: { rows: 1, cols: 1 }, activeCellId: '1' } }] })),
       setWorkspaces: vi.fn()
@@ -47,7 +48,7 @@ function deps(over: Partial<CoreDeps> = {}) {
       getQuote: vi.fn(),
       getMarketStatus: vi.fn(),
       getCompanyProfile: vi.fn(),
-      getEconomicCalendar: vi.fn()
+      getEconomicCalendar: vi.fn(), getEconomicIndicator: vi.fn()
     })),
     nowSec: () => 1_000
   }
@@ -71,7 +72,7 @@ describe('core.ohlcv.get', () => {
   it('returns unknown-symbol when the provider yields nothing and nothing is cached', async () => {
     const d = deps({
       makeProvider: () => ({
-        getOHLCV: vi.fn(async () => []), searchSymbols: vi.fn(), getQuote: vi.fn(), getMarketStatus: vi.fn(), getCompanyProfile: vi.fn(), getEconomicCalendar: vi.fn()
+        getOHLCV: vi.fn(async () => []), searchSymbols: vi.fn(), getQuote: vi.fn(), getMarketStatus: vi.fn(), getCompanyProfile: vi.fn(), getEconomicCalendar: vi.fn(), getEconomicIndicator: vi.fn()
       })
     })
     const core = createCore(d)
@@ -87,7 +88,7 @@ describe('core.ohlcv.get', () => {
   it('returns out-of-plan on a 402 for a daily-backed timeframe, and short-circuits after that', async () => {
     const getOHLCV = vi.fn(async () => { throw new FmpHttpError(402, null) })
     const core = createCore(deps({
-      makeProvider: () => ({ getOHLCV, searchSymbols: vi.fn(), getQuote: vi.fn(), getMarketStatus: vi.fn(), getCompanyProfile: vi.fn(), getEconomicCalendar: vi.fn() })
+      makeProvider: () => ({ getOHLCV, searchSymbols: vi.fn(), getQuote: vi.fn(), getMarketStatus: vi.fn(), getCompanyProfile: vi.fn(), getEconomicCalendar: vi.fn(), getEconomicIndicator: vi.fn() })
     }))
     expect(await core.ohlcv.get('XYZ', '1d', undefined)).toEqual({ kind: 'out-of-plan' })
     expect(await core.ohlcv.get('XYZ', '1w', undefined)).toEqual({ kind: 'out-of-plan' })
@@ -98,7 +99,7 @@ describe('core.ohlcv.get', () => {
     const core = createCore(deps({
       makeProvider: () => ({
         getOHLCV: vi.fn(async () => { throw new FmpHttpError(402, null) }),
-        searchSymbols: vi.fn(), getQuote: vi.fn(), getMarketStatus: vi.fn(), getCompanyProfile: vi.fn(), getEconomicCalendar: vi.fn()
+        searchSymbols: vi.fn(), getQuote: vi.fn(), getMarketStatus: vi.fn(), getCompanyProfile: vi.fn(), getEconomicCalendar: vi.fn(), getEconomicIndicator: vi.fn()
       })
     }))
     await expect(core.ohlcv.get('NVDA', '5m', undefined)).rejects.toBeInstanceOf(FmpHttpError)
@@ -114,7 +115,7 @@ describe('core.ohlcv.get', () => {
     const d = deps({
       makeProvider: () => ({
         getOHLCV: vi.fn(async () => { throw new FmpHttpError(403, null) }),
-        searchSymbols: vi.fn(), getQuote: vi.fn(), getMarketStatus: vi.fn(), getCompanyProfile: vi.fn(), getEconomicCalendar: vi.fn()
+        searchSymbols: vi.fn(), getQuote: vi.fn(), getMarketStatus: vi.fn(), getCompanyProfile: vi.fn(), getEconomicCalendar: vi.fn(), getEconomicIndicator: vi.fn()
       })
     })
     await createCore(d).ohlcv.get('XYZ', '1d', undefined)
@@ -131,7 +132,7 @@ describe('core.ohlcv.get', () => {
     let resolve!: (v: Bar[]) => void
     const getOHLCV = vi.fn(() => new Promise<Bar[]>((r) => { resolve = r }))
     const core = createCore(deps({
-      makeProvider: () => ({ getOHLCV, searchSymbols: vi.fn(), getQuote: vi.fn(), getMarketStatus: vi.fn(), getCompanyProfile: vi.fn(), getEconomicCalendar: vi.fn() })
+      makeProvider: () => ({ getOHLCV, searchSymbols: vi.fn(), getQuote: vi.fn(), getMarketStatus: vi.fn(), getCompanyProfile: vi.fn(), getEconomicCalendar: vi.fn(), getEconomicIndicator: vi.fn() })
     }))
 
     const a = core.ohlcv.get('NVDA', '1d', undefined)

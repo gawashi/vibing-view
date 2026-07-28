@@ -24,6 +24,7 @@ function deps(over: Partial<CoreDeps> = {}): CoreDeps {
     profileStore: { getProfile: vi.fn(() => null), upsertProfile: vi.fn() },
     companyProfileStore: { getCompanyProfile: vi.fn(() => null), upsertCompanyProfile: vi.fn() },
     economicDayStore: { getDays: vi.fn(() => []), upsertDays: vi.fn() },
+    economicIndicatorStore: { getIndicator: vi.fn(() => null), upsertIndicator: vi.fn() },
     workspaceStore: { getWorkspaces: vi.fn(() => collection('W')), setWorkspaces: vi.fn() },
     capabilityCache: { getStatus: vi.fn(() => 'requires-plan' as const), setStatus: vi.fn(), clearForKeyChange: vi.fn() },
     keystore: {
@@ -38,7 +39,8 @@ function deps(over: Partial<CoreDeps> = {}): CoreDeps {
       getQuote: vi.fn(async () => ({ price: 1, open: 1, dayHigh: 1, dayLow: 1, previousClose: 1, changePercentage: 0, timestamp: 0, exchange: 'NASDAQ' })),
       getMarketStatus: vi.fn(async () => ({ isOpen: true })),
       getCompanyProfile: vi.fn(),
-      getEconomicCalendar: vi.fn()
+      getEconomicCalendar: vi.fn(),
+      getEconomicIndicator: vi.fn()
     })),
     nowSec: () => 1_000
   }
