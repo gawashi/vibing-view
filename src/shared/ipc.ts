@@ -1,4 +1,4 @@
-import type { Bar, SymbolResult, Timeframe, DateRange, WorkspaceCollection, Quote, MarketStatus, CompanyInfo, ClipboardCell, EconomicFilterPref, EconomicRange } from './types'
+import type { Bar, SymbolResult, Timeframe, DateRange, WorkspaceCollection, Quote, MarketStatus, CompanyInfo, ClipboardCell, EconomicFilterPref, EconomicRange, EconomicIndicatorSeries, EconomicIndicatorYears } from './types'
 
 export const CH = {
   symbolsSearch: 'symbols:search',
@@ -29,6 +29,10 @@ export const CH = {
   companyOpenWindow: 'company:openWindow',
   economicCalendar: 'economic:calendar',
   economicOpenWindow: 'economic:openWindow',
+  economicIndicator: 'economicIndicator:series',
+  economicIndicatorOpenWindow: 'economicIndicator:openWindow',
+  economicIndicatorSelected: 'economicIndicator:selected',
+  economicIndicatorSelect: 'economicIndicator:select',
   chartOpenWindow: 'chart:openWindow',
   symbolChartOpenWindow: 'symbolChart:openWindow',
   workspacesChanged: 'workspaces:changed',
@@ -132,6 +136,22 @@ export interface Api {
   economic: {
     getRange(from: string, to: string, opts?: { force?: boolean }): Promise<EconomicRange>
     openWindow(): Promise<void>
+  }
+  // 統計指標。窓は 1 枚で、選択中の指標は main が持つ（EI-06）。openWindow は「この指標を出せ」の
+  // 意味で、既存窓があればフォーカスして選択を差し替える。renderer はマウント時に getSelected で
+  // 初期値を取り、onSelect で以降の差し替えを受ける（push が落ちても getSelected が最新を返す）。
+  economicIndicator: {
+    // years は取得地平（EI-01 の 90 日窓により 1 | 5 の 2 つだけ）。省略時は 1。
+    // 地平を広げる呼び出しだけがバックフィルを起こし、同じ地平の再取得はキャッシュで返る。
+    getSeries(
+      name: string,
+      opts?: { years?: EconomicIndicatorYears; force?: boolean }
+    ): Promise<EconomicIndicatorSeries>
+    openWindow(name: string): Promise<void>
+    // まだ一度も openWindow が呼ばれていなければ null。既定値は renderer 側が持つので、
+    // main は「誰も指定していない」を表現するだけでよい。
+    getSelected(): Promise<string | null>
+    onSelect(cb: (name: string) => void): () => void
   }
   chart: {
     openWindow(cellId: string): Promise<void>

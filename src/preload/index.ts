@@ -61,6 +61,16 @@ const api: Api = {
     getRange: (from, to, opts) => ipcRenderer.invoke(CH.economicCalendar, from, to, opts),
     openWindow: () => ipcRenderer.invoke(CH.economicOpenWindow)
   },
+  economicIndicator: {
+    getSeries: (name, opts) => ipcRenderer.invoke(CH.economicIndicator, name, opts),
+    openWindow: (name) => ipcRenderer.invoke(CH.economicIndicatorOpenWindow, name),
+    getSelected: () => ipcRenderer.invoke(CH.economicIndicatorSelected),
+    onSelect: (cb) => {
+      const listener = (_e: unknown, name: string): void => cb(name)
+      ipcRenderer.on(CH.economicIndicatorSelect, listener)
+      return () => ipcRenderer.removeListener(CH.economicIndicatorSelect, listener)
+    }
+  },
   chart: {
     openWindow: (cellId) => ipcRenderer.invoke(CH.chartOpenWindow, cellId)
   },

@@ -1,5 +1,5 @@
 import { ipcMain, BrowserWindow } from 'electron'
-import type { Timeframe, DateRange, WorkspaceCollection, ClipboardCell, EconomicFilterPref } from '@shared/types'
+import type { Timeframe, DateRange, WorkspaceCollection, ClipboardCell, EconomicFilterPref, EconomicIndicatorYears } from '@shared/types'
 import { CH, type RefreshAppliedPayload, type RefreshDonePayload } from '@shared/ipc'
 import { toBars, type Core } from './core'
 import {
@@ -18,6 +18,11 @@ export function registerIpc(core: Core): void {
   ipcMain.handle(CH.companyInfo, (_e, symbol: string, opts?: { force?: boolean }) => core.company.info(symbol, opts))
   ipcMain.handle(CH.economicCalendar, (_e, from: string, to: string, opts?: { force?: boolean }) =>
     core.economicCalendar.getRange(from, to, opts)
+  )
+  ipcMain.handle(
+    CH.economicIndicator,
+    (_e, name: string, opts?: { years?: EconomicIndicatorYears; force?: boolean }) =>
+      core.economicIndicator.getSeries(name, opts)
   )
 
   ipcMain.handle(CH.ohlcvGet, async (_e, symbol: string, timeframe: Timeframe, range: DateRange) =>
