@@ -60,7 +60,9 @@ export function EconomicIndicatorWindow(): React.JSX.Element {
     enabled: name !== null,
     // 地平を広げる（1Y → 5Y）と query key が変わり、素の TanStack なら新 key に data が無いので
     // isLoading に戻って下の Fetching… ヒントが出せない。前の地平の画面を残しつつ isLoading を
-    // 落とすことで、バックフィル中のヒントを表示可能にする。
+    // 落とすことで、バックフィル中のヒントを表示可能にする。ただし指標を切り替えても key は
+    // 変わるので、これだけだと前の指標の値が新しい指標のラベル・unit の下に残ってしまう —
+    // 下の data ガード（series.name === name）で「前の指標のプレースホルダ」を弾く。
     placeholderData: keepPreviousData
   })
   const reload = useMutation({
@@ -68,18 +70,22 @@ export function EconomicIndicatorWindow(): React.JSX.Element {
     onSuccess: (data) => qc.setQueryData(qk.economicIndicator(name ?? '', years), data)
   })
 
-  // name の pull が終わるまで（enabled: false）は q.isLoading が false のままなので、
-  // ここに乗せて「No data」を一瞬フラッシュさせない。
-  const loading = name === null || q.isLoading
+  // keepPreviousData は query key が変われば必ず残る。地平（years）の変化なら前の地平の
+  // データで問題ないが、指標（name）の変化だと前の指標の値が新しい指標として表示されてしまう
+  // （unit・meta は name から即時に切り替わるのに、series はそのまま）。series.name で選別する。
+  const data = q.data?.name === name ? q.data : undefined
+  // name が null の間（pull 未解決）と、指標を切り替えて data がまだ前の指標のままの間は
+  // どちらも「表示できるものがない」なので、まとめて loading に乗せて「No data」を出さない。
+  const loading = name === null || q.isLoading || !data
 
-  const all = q.data?.points ?? []
+  const all = data?.points ?? []
   const visible = useMemo(() => sliceRange(all, range), [all, range])
   const rows = useMemo(() => tableRows(all, visible), [all, visible])
   const latest = useMemo(() => latestRow(all), [all])
 
-  const asOf = q.data ? new Date(q.data.fetchedAt * 1000) : null
-  const asOfLabel = asOf && q.data
-    ? `As of ${asOf.getFullYear()}-${String(asOf.getMonth() + 1).padStart(2, '0')}-${String(asOf.getDate()).padStart(2, '0')} ${String(asOf.getHours()).padStart(2, '0')}:${String(asOf.getMinutes()).padStart(2, '0')}${q.data.stale ? ' (update failed)' : ''} · from ${q.data.coveredFrom}`
+  const asOf = data ? new Date(data.fetchedAt * 1000) : null
+  const asOfLabel = asOf && data
+    ? `As of ${asOf.getFullYear()}-${String(asOf.getMonth() + 1).padStart(2, '0')}-${String(asOf.getDate()).padStart(2, '0')} ${String(asOf.getHours()).padStart(2, '0')}:${String(asOf.getMinutes()).padStart(2, '0')}${data.stale ? ' (update failed)' : ''} · from ${data.coveredFrom}`
     : ''
 
   const grouped = ECONOMIC_INDICATOR_CATEGORIES.map((c) => ({
