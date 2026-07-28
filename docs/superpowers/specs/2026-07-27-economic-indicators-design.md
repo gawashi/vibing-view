@@ -76,7 +76,7 @@ Company info の経路をなぞる。カレンダーの `EconomicCalendarService
 ```
 FmpProvider.getEconomicIndicator(name, to)       ← /economic-indicators?name=&to= （90 日窓）+ zod
         ↓
-EconomicIndicatorService                         ← TTL 12h read-through（CompanyInfoService と同型）
+EconomicIndicatorService                         ← TTL 12h read-through ＋ 地平に足りない分の遡り
         ↓  db/economicIndicatorStore (get / upsert)
 core.economicIndicator.getSeries(name, opts)     ← electron 非依存、Vitest から直接叩ける
         ↓  ipc.ts
@@ -89,7 +89,7 @@ renderer: EconomicIndicatorWindow                ← プルダウン、範囲ボ
 |---|---|
 | `src/shared/economicIndicators.ts` | 23 件のレジストリ + カレンダー `event` → `name` のキーワード表と `resolveIndicator` |
 | `src/main/db/economicIndicatorStore.ts` | `economic_indicators` の read/write（純粋な blob 出し入れのみ） |
-| `src/main/economic/EconomicIndicatorService.ts` | TTL 12h read-through |
+| `src/main/economic/EconomicIndicatorService.ts` | TTL 12h read-through ＋ 90 日窓の遡りと date マージ |
 | `src/renderer/components/EconomicIndicatorWindow.tsx` | ウィンドウ本体 |
 | `src/renderer/components/EconomicIndicatorChart.tsx` | 折れ線 1 本 |
 | `src/renderer/lib/economicIndicatorSeries.ts` | 範囲スライスと Δ の純関数 |
@@ -410,16 +410,26 @@ renderer の `useState` 初期値が唯一の既定なので、`getSelected()` �
 
 ### 永続化しない（EI-03）
 
-選択中の指標も表示範囲も `settings.json` に保存しない。アプリを起動し直せば既定（`CPI` / `5Y`）に
-戻る。カレンダーから飛ぶ場合は指標がクリック側から来るので、保存しても効かない。ヘッダーから開く
+選択中の指標も表示範囲も `settings.json` に保存しない。アプリを起動し直せば既定（`CPI` / `1Y`）に
+戻る。取得済みデータは SQLite に残るので、再起動後に `1Y` を開いてもリクエストは出ない（TTL 内なら
+最新窓も取り直さない）。カレンダーから飛ぶ場合は指標がクリック側から来るので、保存しても効かない。ヘッダーから開く
 用途で前回の指標をアプリ再起動後も覚えていてほしくなったら、`economicFilter` と同じ形で settings に
 1 エントリを足し、EI-06 の `selectedIndicator` の初期値をそこから読む。
 
 ### 0 件のとき
 
-`points` が空なら「この指標のデータがありません」と出す。EI-10 のガードにより、この状態になるのは
-**その指標を一度も取得できていない**場合に限られる（キャッシュが埋まっていれば空応答では上書き
-されない）。したがって「一度は取れていたのに空になった」という紛らわしい状態は表示に出てこない。
+`points` が空なら「この指標のデータがありません」と出す。書き込みが date キーの union である以上
+（EI-10）、この状態になるのは**地平ぶんの窓すべてが空だった**場合に限られる。一度でも観測が入った
+指標が空表示に戻ることはない。
+
+四半期系列でも、地平が 1Y なら 5 窓のうち少なくとも 1 つは観測を含むので空にはならない。本当に
+空になるのは廃止された系列か `name` の打ち間違いで、どちらも「データがありません」で正しい。
+
+### 地平を広げている間の表示
+
+`1Y` → `5Y` は 90 日窓を約 17 本直列に取るので十数秒かかる。無言で固まらせず、ヘッダーに
+`Fetching 5Y history…` を出す（TanStack Query の `isFetching` で足りる）。狭める方向と、
+一度広げた地平への再切替はキャッシュで即座に返る。
 
 ## エラー処理
 
@@ -433,10 +443,14 @@ renderer の `useState` 初期値が唯一の既定なので、`getSelected()` �
 | `classify` が `'requires-plan'`（402 / 403、または 200 + プラン拒否 body） | 経済指標は現在の FMP プランでは利用できません |
 | 429 | FMP のリクエスト上限に達しました。しばらく待ってから再試行してください |
 | 通信エラー | 接続を確認してください |
-| フェッチ失敗 + 行あり | 古い行を返し（`stale: true`）、ヘッダーに `As of …（更新に失敗）` |
-| フェッチ失敗 + 行なし | throw。上の通信エラー / HTTP エラー表示に落ちる |
-| フェッチ成功で空 + 埋まった行あり | 上書きせず古い行を `stale: true` で返す（EI-10） |
-| フェッチ成功で空 + 行なし | 空を返す。UI は「この指標のデータがありません」 |
+| どれかの窓でフェッチ失敗 + 行あり | 行を**書かずに**古い行を返し（`stale: true`）、ヘッダーに `As of …（更新に失敗）` |
+| どれかの窓でフェッチ失敗 + 行なし | throw。上の通信エラー / HTTP エラー表示に落ちる |
+| フェッチ成功で空窓 + 埋まった行あり | union なので何も足さない。`stale` は付けない（空窓は異常ではない） |
+| 地平ぶんの全窓が空 + 行なし | 空を返し、空の行を書く。UI は「この指標のデータがありません」 |
+
+途中の窓で失敗したときに **`covered_from` を進めないことが重要**。部分的に取れた分を書いて
+`covered_from` だけ地平まで進めると、埋まっていない範囲を「取得済み」と記録することになり、
+その穴は以後どのリクエストでも埋まらない。取れた分を捨てるほうが安い（次回また取り直せる）。
 
 ### プラン外の空撃ち対策（EI-04）
 
@@ -469,26 +483,38 @@ status 駆動が意図的であり、`classify` に寄せると D グレー化�
 
 ## テスト
 
-fixture は `tests/fixtures/fmp-economic-indicators.json`（EI-01 で保存したもの）。
+fixture は EI-01 で保存した 3 本: `tests/fixtures/fmp-economic-indicators.json`（CPI の 90 日窓、
+3 観測）、`-weekly.json`（週次系列の 90 日窓ちょうど、14 観測）、`-denied.json`（拒否 body）。
 
 **`tests/main/economic/EconomicIndicatorService.test.ts`**
 
-- TTL 12h 内はネットワークに出ない
-- TTL 超過で再取得し、行を上書きする
-- `force: true` で TTL を無視して取り直す
-- フェッチ失敗 + 行あり → `stale: true` で古い行を返す
+ここが一番厚い。90 日窓から地平ぶんを組み立てる計算がすべてここにある。
+
+- 遡り: `to` が 85 日ステップで並び、最後の窓の下端が地平を下回る。1Y で 5 リクエスト、5Y で 22
+- 窓が必ず重なる（連続する `to` の差が 90 日未満 = 継ぎ目で観測を落とさない）
+- マージ: 窓をまたいだ観測が date キーで union され、date 昇順で返る
+- マージ: 同じ date は後から取った窓の値が勝つ（改訂の取り込み）
+- マージ: 新しい窓に含まれないキャッシュ済み観測が消えない
+- 地平がカバー済みかつ TTL 内はネットワークに出ない
+- TTL 超過 + カバー済み → 最新窓 1 本だけ取り、`covered_from` は動かない
+- カバー不足 + TTL 内 → 最新窓を取り直さず、遡りだけ走る
+- 地平を狭める（5Y → 1Y）→ 1 本も取らず、`covered_from` も狭めない
+- `force: true` → 行を捨てて現在の地平ぶんを取り直す（TTL とカバー範囲の両方を無視）
+- フェッチ失敗 + 行あり → 行を書かず `stale: true` で古い行を返す
+- **途中の窓で失敗 → `upsert` を一度も呼ばない**（`covered_from` を進めて穴を恒久化させない）
 - フェッチ失敗 + 行なし → throw
-- **EI-10**: フェッチが空を返し、埋まった行がある → `data` を上書きせず `stale: true` で古い
-  `points` を返す。`fetched_at` は進むので、直後にもう一度呼んでもネットワークに出ない
-- **EI-10**: フェッチが空を返し、行が無い → 空の `points` を返す。行は書く（毎回の空撃ちを防ぐ）
-- **EI-10**: `force: true` でも空上書きは起きない
+- **EI-10**: 全窓が空 + 行なし → 空の `points` と `covered_from = 地平` の行を書く（毎回の空撃ちを
+  防ぐ）。直後にもう一度呼んでもネットワークに出ない
+- **EI-10**: 空窓に `stale` を付けない（四半期系列を毎回 stale 表示にしない）
 
-**`tests/main/providers/`**（既存の FmpProvider テストに追加）
+**`tests/main/providers/economicIndicator.test.ts`**
 
-- fixture の zod パース
+- fixture の zod パース（通常・週次の 2 本）
+- `to` を送り、`from` を送らない（EI-01: `from` は窓を広げない）
 - `value: null` の観測が落ちる
-- `date` が `'YYYY-MM-DD'` のまま通る（epoch 変換をしない）
-- `points` が date 昇順
+- `date` が `'YYYY-MM-DD'` のまま通る（epoch 変換をしない）。形式違いは落とす
+- 応答は date 降順で来るので昇順に直る
+- 空窓 → `[]`（例外にしない）
 - エラー payload → `FmpHttpError`
 
 **`tests/main/core/`**（既存の core テストに追加）
@@ -518,6 +544,7 @@ fixture は `tests/fixtures/fmp-economic-indicators.json`（EI-01 で保存し�
 
 **`tests/renderer/economicIndicatorSeries.test.ts`**
 
+- 範囲は `1Y` / `5Y` の 2 つだけ、既定は `1Y`。`rangeYears` が `1` / `5` に写す
 - 範囲スライス（1Y / 5Y）が最新観測日から遡る（EI-08）
 - 発表が遅れている系列でも 1Y が空にならない
 - `Δ` の計算。範囲の先頭行の `Δ` がスライス外の 1 つ前の観測を使う
