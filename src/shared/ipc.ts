@@ -147,7 +147,9 @@ export interface Api {
       name: string,
       opts?: { years?: EconomicIndicatorYears; force?: boolean }
     ): Promise<EconomicIndicatorSeries>
-    openWindow(name: string): Promise<void>
+    // name 省略時は「窓を開く/フォーカスするだけで選択は変えない」（ヘッダーボタンの用途）。
+    // name を渡すと「この指標を出せ」（カレンダー行・ドロップダウンの用途）で選択を差し替える。
+    openWindow(name?: string): Promise<void>
     // まだ一度も openWindow が呼ばれていなければ null。既定値は renderer 側が持つので、
     // main は「誰も指定していない」を表現するだけでよい。
     getSelected(): Promise<string | null>

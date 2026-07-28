@@ -96,7 +96,9 @@ export function EconomicIndicatorWindow(): React.JSX.Element {
                     <DropdownMenuItem
                       key={m.name}
                       className={m.name === name ? 'bg-accent text-accent-foreground' : ''}
-                      onClick={() => setName(m.name)}
+                      // main が選択の真実を持つ（EI-06）。ここで setName すると、窓を閉じて
+                      // 開き直したときに main の古い選択で上書きされて選び直しが失われる。
+                      onClick={() => void api.economicIndicator.openWindow(m.name)}
                     >
                       {m.label}
                     </DropdownMenuItem>

@@ -116,6 +116,9 @@ function openHashWindow(kind: WindowKind, value: string, width: number, height: 
 // did-finish-load を待っても直らない（React のマウント前に発火する）。
 // プロセス内 state で永続化しない（EI-03）。既定の指標名はここに持たない — renderer 側の
 // useState 初期値が唯一の既定なので、main は「誰も指定していない」を null で表すだけでよい。
+// openWindow(name) は 2 つの呼び方を持つ: name 付き（カレンダー行・窓内ドロップダウン）は選択を
+// 差し替える。name 省略（ヘッダーボタン）は窓を開く/フォーカスするだけで、直前の選択を保つ
+// ——省略時に既定へ戻すと、EI-06 が守る「main が真実」を窓の外から上書きしてしまう。
 let selectedIndicator: string | null = null
 
 // The default Electron menu binds Ctrl+R / Ctrl+Shift+R to page reload — accelerators the main
@@ -183,12 +186,12 @@ app.whenReady().then(async () => {
   ipcMain.handle(CH.chartOpenWindow, (_e, cellId: string) => openHashWindow('chart', cellId, 1100, 760))
   ipcMain.handle(CH.symbolChartOpenWindow, (_e, symbol: string) => openHashWindow('symbolChart', symbol, 1100, 760))
   ipcMain.handle(CH.economicOpenWindow, () => openHashWindow('economic', '1', 720, 900))
-  ipcMain.handle(CH.economicIndicatorOpenWindow, (_e, name: string) => {
-    selectedIndicator = name // 窓の状態より先に更新する（renderer が pull で必ず最新を得る）
+  ipcMain.handle(CH.economicIndicatorOpenWindow, (_e, name?: string) => {
+    if (name) selectedIndicator = name // 窓の状態より先に更新する（renderer が pull で必ず最新を得る）
     const existing = satelliteWindows.get('economicIndicator:1')
     if (existing) {
       existing.focus()
-      existing.webContents.send(CH.economicIndicatorSelect, name)
+      if (name) existing.webContents.send(CH.economicIndicatorSelect, name)
       return
     }
     openHashWindow('economicIndicator', '1', 900, 760)
