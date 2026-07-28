@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   ECONOMIC_INDICATORS, ECONOMIC_INDICATOR_CATEGORIES, DEFAULT_ECONOMIC_INDICATOR,
-  indicatorMeta, resolveIndicator
+  indicatorMeta, resolveIndicator, RULES
 } from '@shared/economicIndicators'
 
 describe('ECONOMIC_INDICATORS', () => {
@@ -59,15 +59,26 @@ describe('resolveIndicator — 当たる例', () => {
   })
 })
 
-describe('resolveIndicator — core の除外が先に効く', () => {
-  // FMP はコア系列を持たない。ヘッドラインに飛ばすと別の指標を見せるので、リンクを張らない。
+describe('resolveIndicator — 除外ルールが先に効く', () => {
+  // FMP が持たない関連系列がイベント文字列で当たると、下のルールにフォールスルーして
+  // 別の指標を見せてしまう。除外ルール（name: null）で明示的に null を返す。
   it.each([
     'Core Inflation Rate YoY',
     'Core CPI MoM',
     'Core PCE Price Index MoM',
-    'core retail sales mom'
+    'core retail sales mom',
+    'Continuing Jobless Claims',
+    'continuing jobless claims',
+    'GDP Price Index QoQ',
+    'GDP Deflator QoQ Adv'
   ])('%s → null', (event) => {
     expect(resolveIndicator(event, 'US')).toBeNull()
+  })
+
+  // 除外ルールで保護されたルールが正しく正の指標を返すこと確認
+  it('still resolves guarded indicators correctly', () => {
+    expect(resolveIndicator('Initial Jobless Claims', 'US')).toBe('initialClaims')
+    expect(resolveIndicator('GDP Growth Rate QoQ Adv', 'US')).toBe('GDP')
   })
 })
 
@@ -102,5 +113,10 @@ describe('resolveIndicator — レジストリとの整合', () => {
       expect(name).not.toBeNull()
       expect(indicatorMeta(name!)).not.toBeNull()
     }
+  })
+
+  // RULES の編集で知らずに dangling name を導入しないための構造的テスト
+  it('every rule target exists in the registry', () => {
+    for (const r of RULES) if (r.name) expect(indicatorMeta(r.name)).not.toBeNull()
   })
 })

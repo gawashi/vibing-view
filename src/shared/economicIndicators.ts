@@ -51,19 +51,25 @@ export function indicatorMeta(name: string): EconomicIndicatorMeta | null {
 }
 
 // カレンダーの event 文字列 → 系列名（EI-05）。上から順に最初に当たったものを返す。
-// 'core' の除外を先頭に置くのが重要: FMP はコア系列（食品・エネルギーを除く）を持たないので、
-// 'Core CPI' や 'Core Inflation Rate' をヘッドライン系列に飛ばすと別の指標を見せてしまう。
-// 除外しないと下の cpi / inflation rate のルールに当たる。
+// 除外ルール（name: null）を先に置くことが重要: FMP が持たない関連系列がイベント文字列で
+// 当たると、下のルールにフォールスルーして別の指標を見せてしまう。
+// - 'core': コア系列（食品・エネルギーを除く）。FMP はコア系列を持たないので、
+//   'Core CPI' や 'Core Inflation Rate' をヘッドライン系列に飛ばすと別の指標を見せる。
+// - 'continuing.*claims': Continuing Jobless Claims は別のシリーズ（~1.8M vs ~220K）。
+//   FMP が持たないので、リンクを張るとヘッドライン初回請求数と混在する。
+// - 'gdp price index|gdp deflator': GDP の価格指数。FMP が持たないので、レベル GDP と混在する。
 // 完全一致テーブルにしないのは、実測できる event 文字列を網羅できず、FMP 側の表記が変わると
 // 黙ってリンクが消えるため。部分一致なら 'CPI MoM' / 'CPI YoY' / 'CPI s.a' がまとめて当たる。
-const RULES: { match: RegExp; name: string | null }[] = [
+export const RULES: { match: RegExp; name: string | null }[] = [
   { match: /core/, name: null },
+  { match: /continuing.*claims/, name: null },
   { match: /jobless claims|initial claims/, name: 'initialClaims' },
   { match: /nonfarm payroll/, name: 'totalNonfarmPayroll' },
   { match: /unemployment rate/, name: 'unemploymentRate' },
   { match: /cpi/, name: 'CPI' },
   { match: /inflation rate/, name: 'inflationRate' },
   { match: /interest rate decision|fed interest rate/, name: 'federalFunds' },
+  { match: /gdp price index|gdp deflator/, name: null },
   { match: /gdp/, name: 'GDP' },
   { match: /retail sales/, name: 'retailSales' },
   { match: /consumer sentiment|michigan/, name: 'consumerSentiment' },
