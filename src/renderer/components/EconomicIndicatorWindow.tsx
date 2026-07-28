@@ -1,6 +1,6 @@
 // src/renderer/components/EconomicIndicatorWindow.tsx
 import React, { useEffect, useMemo, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, RefreshCw } from 'lucide-react'
 import { api, qk } from '@/api'
 import { cn } from '@/lib/utils'
@@ -32,8 +32,10 @@ function errorMessage(err: unknown): string {
 
 export function EconomicIndicatorWindow(): React.JSX.Element {
   // 選択中の指標は main が持つ（EI-06）。マウント時に pull し、以降は onSelect で受ける。
-  // 初期値をハッシュに載せない理由: 窓のロード中に来た 2 度目のクリックの push が落ちるため。
-  const [name, setName] = useState(DEFAULT_ECONOMIC_INDICATOR)
+  // 初期値は null（「まだ誰も指定していない」を表現できる状態） — pull が解決するまで
+  // query を有効化しない。既定値の置き場所は useState ではなく、この pull の fallback だけ
+  // （main から null が来たときにここで DEFAULT_ECONOMIC_INDICATOR を当てる）。
+  const [name, setName] = useState<string | null>(null)
   const [range, setRange] = useState<IndicatorRange>(DEFAULT_INDICATOR_RANGE)
   const qc = useQueryClient()
   const years = rangeYears(range)
@@ -42,22 +44,33 @@ export function EconomicIndicatorWindow(): React.JSX.Element {
   useEffect(() => { void api.settings.getTheme().then(applyTheme) }, [])
 
   useEffect(() => {
-    // main が持つ選択を pull。null なら誰もまだ指定していないので useState の既定のまま。
-    void api.economicIndicator.getSelected().then((n) => { if (n) setName(n) })
+    void api.economicIndicator.getSelected().then((n) => setName(n ?? DEFAULT_ECONOMIC_INDICATOR))
     return api.economicIndicator.onSelect(setName)
   }, [])
 
-  const meta = indicatorMeta(name)
-  useEffect(() => { document.title = meta ? meta.label : name }, [meta, name])
+  const meta = name ? indicatorMeta(name) : null
+  useEffect(() => { document.title = meta ? meta.label : name ?? '' }, [meta, name])
 
+  // name が null の間は pull が終わっていないので無効化（enabled: false）。これが無いと
+  // マウント直後の未確定な CPI 既定で 5 リクエストが飛び、pull が解決した実際の指標でまた
+  // 5 リクエストが飛ぶ（カレンダー行から CPI 以外を開いたときの無駄撃ち）。
   const q = useQuery<EconomicIndicatorSeries>({
-    queryKey: qk.economicIndicator(name, years),
-    queryFn: () => api.economicIndicator.getSeries(name, { years })
+    queryKey: qk.economicIndicator(name ?? '', years),
+    queryFn: () => api.economicIndicator.getSeries(name!, { years }),
+    enabled: name !== null,
+    // 地平を広げる（1Y → 5Y）と query key が変わり、素の TanStack なら新 key に data が無いので
+    // isLoading に戻って下の Fetching… ヒントが出せない。前の地平の画面を残しつつ isLoading を
+    // 落とすことで、バックフィル中のヒントを表示可能にする。
+    placeholderData: keepPreviousData
   })
   const reload = useMutation({
-    mutationFn: () => api.economicIndicator.getSeries(name, { years, force: true }),
-    onSuccess: (data) => qc.setQueryData(qk.economicIndicator(name, years), data)
+    mutationFn: () => api.economicIndicator.getSeries(name!, { years, force: true }),
+    onSuccess: (data) => qc.setQueryData(qk.economicIndicator(name ?? '', years), data)
   })
+
+  // name の pull が終わるまで（enabled: false）は q.isLoading が false のままなので、
+  // ここに乗せて「No data」を一瞬フラッシュさせない。
+  const loading = name === null || q.isLoading
 
   const all = q.data?.points ?? []
   const visible = useMemo(() => sliceRange(all, range), [all, range])
@@ -81,7 +94,7 @@ export function EconomicIndicatorWindow(): React.JSX.Element {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="secondary" size="sm" className="gap-1.5">
-                {meta ? meta.label : name}
+                {meta ? meta.label : name ?? '…'}
                 <ChevronDown className="size-3.5" />
               </Button>
             </DropdownMenuTrigger>
@@ -125,7 +138,7 @@ export function EconomicIndicatorWindow(): React.JSX.Element {
             variant="ghost"
             size="icon"
             onClick={() => reload.mutate()}
-            disabled={reload.isPending}
+            disabled={reload.isPending || q.isFetching || name === null}
             aria-label="Reload indicator"
             title="Reload indicator"
           >
@@ -145,17 +158,17 @@ export function EconomicIndicatorWindow(): React.JSX.Element {
             </>
           )}
           {/* 地平を広げる操作は 90 日窓を直列に取るので待たされる。無言で固まらせない。 */}
-          {q.isFetching && !q.isLoading && <span>Fetching {range} history…</span>}
+          {q.isFetching && !loading && <span>Fetching {range} history…</span>}
         </div>
       </div>
 
-      {q.isLoading && <div className="p-3 text-sm text-muted-foreground">Loading indicator…</div>}
+      {loading && <div className="p-3 text-sm text-muted-foreground">Loading indicator…</div>}
       {q.isError && <div className="p-3 text-center text-sm text-muted-foreground">{errorMessage(q.error)}</div>}
-      {!q.isLoading && !q.isError && all.length === 0 && (
+      {!loading && !q.isError && all.length === 0 && (
         <div className="p-3 text-center text-sm text-muted-foreground">No data for this indicator.</div>
       )}
 
-      {!q.isLoading && !q.isError && all.length > 0 && (
+      {!loading && !q.isError && all.length > 0 && (
         <>
           <div className="min-h-0 flex-1">
             <EconomicIndicatorChart points={visible} />

@@ -66,7 +66,15 @@ export function createEconomicIndicatorService(deps: {
 
       // Set なので、初回（needRefresh も needBackfill も真）で今日の窓が二重に入らない。
       const tos = new Set<string>()
-      if (needRefresh) tos.add(today)
+      if (needRefresh) {
+        // 前回取得日から今日までを覆う。TTL が切れるだけなら 1 窓（today）で足りるが、90 日
+        // 以上開いた行を 1 窓だけで更新すると [前回取得日+90d, 今日) が誰にも取得されない
+        // 穴として残り、以後の TTL 更新でも二度と埋まらない。Math.min は now() が前回取得より
+        // 前に戻る（クロックの後退）場合の保護で、無いと since が未来日付になり windowTos が
+        // 空を返して今日の窓すら取り直せなくなる。
+        const since = cached ? utcYmd(Math.min(cached.fetchedAt, now())) : today
+        for (const t of windowTos(since, today)) tos.add(t)
+      }
       // 遡りの起点は既存カバーの下限そのもの。その窓は [coveredFrom - 90d, coveredFrom] を覆うので、
       // 既存カバーと隙間なく繋がり、無駄な重複も出ない。
       if (needBackfill) for (const t of windowTos(wantFrom, cached ? cached.coveredFrom : today)) tos.add(t)

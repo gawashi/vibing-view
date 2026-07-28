@@ -147,6 +147,21 @@ describe('getSeries — キャッシュ判定', () => {
     expect(fetch.mock.calls.length).toBeGreaterThan(10)
   })
 
+  it('widens the refresh past a single window when the row is dormant for >90 days (穴を残さない)', async () => {
+    // fetchedAt が ~150 日前。1 窓（today だけ）では [前回取得日+90d, today) が永久に埋まらない穴になる。
+    const staleFetchedAt = T0 - 150 * 86400
+    const store = fakeStore({ CPI: { points: PTS, coveredFrom: FROM_1Y, fetchedAt: staleFetchedAt } })
+    const fetch = vi.fn(async () => [])
+    await svc(store, fetch).getSeries('CPI', { years: 1 })
+
+    const list = tos(fetch)
+    expect(list.length).toBeGreaterThanOrEqual(2)
+    // 一番古い窓の下端（-90d）が前回取得日以前に届いていること。
+    const oldestTo = list[list.length - 1]
+    const oldestLowerBound = new Date(Date.parse(`${oldestTo}T00:00:00Z`) - 90 * 86400_000)
+    expect(oldestLowerBound.getTime()).toBeLessThanOrEqual(staleFetchedAt * 1000)
+  })
+
   it('does not refetch when narrowing the horizon back to 1Y', async () => {
     const store = fakeStore({ CPI: { points: PTS, coveredFrom: FROM_5Y, fetchedAt: T0 } })
     const fetch = vi.fn()
