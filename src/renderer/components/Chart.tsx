@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { applyQuote } from '@/lib/applyQuote'
+import { chartThemeOptions } from '@/lib/chartTheme'
 import {
   createChart,
   CandlestickSeries,
@@ -26,35 +27,6 @@ import type { Bar, Timeframe, Quote, MarketStatus } from '@shared/types'
 import { initialLogicalRange } from '@/lib/initialRange'
 
 type PaneLegend = { paneIndex: number; top: number; left: number; instanceIds: string[] }
-
-// Read a theme CSS var (e.g. "210 24% 6%") and return a usable CSS color string. Lets the chart
-// track the light/dark palette instead of the old hardcoded dark hexes (#0B0E11 / #151920).
-function cssHsl(name: string, alpha?: number): string {
-  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
-  if (!v) return ''
-  return alpha === undefined ? `hsl(${v})` : `hsl(${v} / ${alpha})`
-}
-
-// Chart layout/grid/border colors derived from the current theme. Re-read on theme change so a
-// Light/Dark toggle recolors the canvas. Candle up/down colors stay fixed (readable on both).
-function chartThemeOptions(): {
-  layout: { background: { color: string }; textColor: string; panes: { separatorColor: string; separatorHoverColor: string } }
-  grid: { vertLines: { color: string }; horzLines: { color: string } }
-  timeScale: { borderColor: string }
-  rightPriceScale: { borderColor: string }
-} {
-  const grid = cssHsl('--border')
-  return {
-    layout: {
-      background: { color: cssHsl('--background') },
-      textColor: cssHsl('--muted-foreground'),
-      panes: { separatorColor: cssHsl('--muted-foreground', 0.25), separatorHoverColor: cssHsl('--muted-foreground', 0.2) }
-    },
-    grid: { vertLines: { color: grid }, horzLines: { color: grid } },
-    timeScale: { borderColor: grid },
-    rightPriceScale: { borderColor: grid }
-  }
-}
 
 export function Chart({ cellId, symbol, timeframe }: { cellId: string; symbol: string; timeframe: Timeframe }): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
