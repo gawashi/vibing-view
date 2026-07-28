@@ -1,10 +1,10 @@
 import { subDays, subMonths, subYears } from 'date-fns'
 import { fromZonedTime } from 'date-fns-tz'
-import type { Bar, SymbolResult, Timeframe, DateRange, Quote, MarketStatus, CompanyProfileData, EconomicEvent, EconomicImpact } from '@shared/types'
+import type { Bar, SymbolResult, Timeframe, DateRange, Quote, MarketStatus, CompanyProfileData, EconomicEvent, EconomicImpact, EconomicIndicatorPoint } from '@shared/types'
 import {
   fmpHistoricalResponse, fmpSearchResponse, fmpQuoteResponse, fmpMarketHoursResponse, fmpProfileResponse,
   fmpRatiosTtmResponse, fmpKeyMetricsTtmResponse, fmpGradesConsensusResponse,
-  fmpPriceTargetConsensusResponse, fmpFinancialGrowthResponse, fmpEarningsResponse, fmpEconomicCalendarResponse
+  fmpPriceTargetConsensusResponse, fmpFinancialGrowthResponse, fmpEarningsResponse, fmpEconomicCalendarResponse, fmpEconomicIndicatorResponse
 } from './fmp.schema'
 
 // FMP migrated off /api/v3 (now returns 403 for current keys) to the /stable surface.
@@ -326,5 +326,20 @@ export class FmpProvider {
         actual: r.actual ?? null
       }))
       .sort((a, b) => a.time - b.time)
+  }
+
+  // /economic-indicators は `to` から遡って 90 日ぶんだけ返す（EI-01 実測）。`from` を付けても窓は
+  // 広がらないので送らない。窓を連続に遡るのは EconomicIndicatorService の責務で、ここは 1 窓だけ。
+  // date は 'YYYY-MM-DD' の日付のみなので epoch に変換しない。応答は date 降順なので昇順に直す。
+  // value が null の観測（FRED の欠測）と形式が違う date は落とす: 前者は折れ線と Δ 計算が null を
+  // 持ち回ることになり、後者は economic_indicators のマージキーに読めない日付が混ざる。
+  async getEconomicIndicator(name: string, to: string): Promise<EconomicIndicatorPoint[]> {
+    const url = `${BASE}/economic-indicators?name=${encodeURIComponent(name)}&to=${to}&apikey=${this.apiKey}`
+    const rows = this.parseOrThrowHttpError(fmpEconomicIndicatorResponse, await this.httpGetJson(url))
+    return rows
+      .flatMap((r) =>
+        r.value == null || !/^\d{4}-\d{2}-\d{2}$/.test(r.date) ? [] : [{ date: r.date, value: r.value }]
+      )
+      .sort((a, b) => a.date.localeCompare(b.date))
   }
 }
