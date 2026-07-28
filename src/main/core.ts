@@ -20,7 +20,7 @@ import { classify } from './capabilityClassifier'
 import { createSearchCache } from './searchCache'
 import { createProfileService } from './profile/ProfileService'
 import { createCompanyInfoService } from './profile/CompanyInfoService'
-import { createEconomicCalendarService } from './calendar/EconomicCalendarService'
+import { createEconomicCalendarService } from './economic/EconomicCalendarService'
 import type { EditResult } from './mcp/edits'
 
 export type { BarSummary } from './db/barStore'

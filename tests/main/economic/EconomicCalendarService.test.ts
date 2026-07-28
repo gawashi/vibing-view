@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { createEconomicCalendarService } from '../../../src/main/calendar/EconomicCalendarService'
+import { createEconomicCalendarService } from '../../../src/main/economic/EconomicCalendarService'
 import type { EconomicEvent } from '@shared/types'
 
 // 2026-07-27 (Mon) 00:00Z = 1785110400。週の各日 12:00Z を epoch で扱う。
