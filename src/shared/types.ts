@@ -196,3 +196,25 @@ export type EconomicRange = { events: EconomicEvent[]; fetchedAt: number; stale?
 export type EconomicCountryPreset = 'us' | 'major' | 'all'
 // settings.json の economicFilter。テキストフィルタは永続化しない（EC-13）。
 export type EconomicFilterPref = { countries: EconomicCountryPreset; impacts: EconomicImpact[] }
+
+// ── 統計指標（経済データ） ──────────────────────────────────────────────────────────
+// 統計指標（/economic-indicators）。date は 'YYYY-MM-DD' の日付のみで、epoch に変換しない —
+// API が時刻を返さないので、UTC/ET のどちらで解釈しても同じ日を指す（economic-calendar とは異なる）。
+export type EconomicIndicatorPoint = { date: string; value: number }
+
+// 取得地平。エンドポイントが 90 日窓しか返さないので（EI-01）、全履歴は現実的な回数で取れない。
+// 1Y = 約 5 リクエスト、5Y = 約 22 リクエスト。10Y / Max は落とした。
+// service / IPC / renderer が同じ値集合を見るので shared に置く。
+export type EconomicIndicatorYears = 1 | 5
+
+// fetchedAt は返した points の取得時刻（データの古さ）。stale は「古い points を返した、更新は
+// できなかった」— fetchedAt だけでは区別できない（CompanyInfo と同じ理由）。
+// coveredFrom は遡って取得済みの下限 'YYYY-MM-DD'。「表示中の地平が実際にどこまで埋まっているか」を
+// As of 行に出すために持つ（renderer が再取得の判断をするためではない）。
+export type EconomicIndicatorSeries = {
+  name: string
+  points: EconomicIndicatorPoint[] // date 昇順
+  coveredFrom: string
+  fetchedAt: number
+  stale?: boolean
+}

@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { addDays, addWeeks, format, isSameDay, startOfWeek } from 'date-fns'
 import { formatInTimeZone } from 'date-fns-tz'
-import { ChevronDown, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react'
+import { ChartLine, ChevronDown, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react'
 import { api, qk } from '@/api'
 import { cn } from '@/lib/utils'
 import { Button } from './ui/button'
@@ -11,6 +11,7 @@ import { Input } from './ui/input'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu'
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group'
 import { applyFilter, eventsInWeek, groupByLocalDay, nowMarker, weekUtcDays } from '@/lib/economicWeek'
+import { resolveIndicator } from '@shared/economicIndicators'
 import type { EconomicCountryPreset, EconomicEvent, EconomicImpact, EconomicRange } from '@shared/types'
 
 const IMPACTS: EconomicImpact[] = ['High', 'Medium', 'Low']
@@ -23,14 +24,17 @@ const COUNTRY_PRESETS: EconomicCountryPreset[] = ['us', 'major', 'all']
 const fmtValue = (n: number | null): string => (n == null ? '—' : String(n))
 
 // 主時刻はローカル、右に小さく ET（EC-04: 変換は表示時だけ）。
-// 過去/未来で行の見た目は変えない — 以前は過去行を opacity で落としていたが、透明度は文字の
-// コントラストごと下げるので、過去の行でいちばん見たい act（実績値）まで読みにくくなっていた。
-// 区別は NowMarker の線 1 本に任せる。
+// 過去/未来で行の見た目は変えない — 透明度は act（実績値）まで読みにくくする。区別は NowMarker に任せる。
+// resolveIndicator が名前を返した行（US の主要指標）だけクリックで指標ウィンドウを開く。返さない行
+// （US 以外、対応表に無い指標、FOMC のようなイベント）は静的なまま — /economic-indicators は
+// US 系列しか持たないので、リンクを張れない行が必ず残る（EI-05）。
 function EventRow({ e }: { e: EconomicEvent }): React.JSX.Element {
   const d = new Date(e.time * 1000)
   const hasValues = e.previous != null || e.estimate != null || e.actual != null
-  return (
-    <div className="flex flex-col gap-0.5 px-3 py-1.5">
+  const indicator = resolveIndicator(e.event, e.country)
+
+  const body = (
+    <div className="flex flex-col gap-0.5">
       <div className="flex items-center gap-2 text-sm">
         <span className="w-11 shrink-0 tabular-nums">{format(d, 'HH:mm')}</span>
         <span className="w-16 shrink-0 text-xs tabular-nums text-muted-foreground">
@@ -39,6 +43,7 @@ function EventRow({ e }: { e: EconomicEvent }): React.JSX.Element {
         <span className={cn('size-2 shrink-0 rounded-full', IMPACT_DOT[e.impact])} title={e.impact} />
         <span className="w-8 shrink-0 text-xs text-muted-foreground">{e.country}</span>
         <span className="truncate" title={e.event}>{e.event}</span>
+        {indicator && <ChartLine className="size-3 shrink-0 text-muted-foreground" />}
       </div>
       {hasValues && (
         <div className="ml-[7.75rem] flex gap-4 text-xs tabular-nums text-muted-foreground">
@@ -48,6 +53,19 @@ function EventRow({ e }: { e: EconomicEvent }): React.JSX.Element {
         </div>
       )}
     </div>
+  )
+
+  if (!indicator) return <div className="px-3 py-1.5">{body}</div>
+
+  return (
+    <button
+      type="button"
+      className="w-full px-3 py-1.5 text-left hover:bg-accent/50"
+      onClick={() => void api.economicIndicator.openWindow(indicator)}
+      title={`Show ${e.event} history`}
+    >
+      {body}
+    </button>
   )
 }
 

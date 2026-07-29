@@ -25,6 +25,7 @@ function deps(getEconomicCalendar: ReturnType<typeof vi.fn>, over: Partial<CoreD
     profileStore: { getProfile: vi.fn(() => null), upsertProfile: vi.fn() },
     companyProfileStore: { getCompanyProfile: vi.fn(() => null), upsertCompanyProfile: vi.fn() },
     economicDayStore: { getDays: vi.fn(() => []), upsertDays: vi.fn() },
+    economicIndicatorStore: { getIndicator: vi.fn(() => null), upsertIndicator: vi.fn() },
     workspaceStore: { getWorkspaces: vi.fn(() => collection('W')), setWorkspaces: vi.fn() },
     capabilityCache: { getStatus: vi.fn(() => 'unknown' as const), setStatus: vi.fn(), clearForKeyChange: vi.fn() },
     keystore: {
@@ -39,7 +40,8 @@ function deps(getEconomicCalendar: ReturnType<typeof vi.fn>, over: Partial<CoreD
       getQuote: vi.fn(),
       getMarketStatus: vi.fn(),
       getCompanyProfile: vi.fn(),
-      getEconomicCalendar
+      getEconomicCalendar,
+      getEconomicIndicator: vi.fn(async () => [])
     })),
     nowSec: () => 1_000
   }
@@ -101,5 +103,16 @@ describe('core.economicCalendar — off-plan short-circuit (EC-15)', () => {
     if (action === 'set') core.apikey.set('NEW'); else core.apikey.clear()
     await expect(core.economicCalendar.getRange(FROM, TO)).rejects.toBe(err)
     expect(getEconomicCalendar).toHaveBeenCalledTimes(2) // 解除されたので再度ネットワークに出た
+  })
+
+  // EI-04 でカレンダー側も classify 判定に寄せた。200 のプラン拒否で latch すること。
+  it('latches on an HTTP 200 plan-denial payload', async () => {
+    const err = new FmpHttpError(200, { 'Error Message': 'Invalid API KEY. Feel free to create a Free API Key' })
+    const getEconomicCalendar = vi.fn(async () => { throw err })
+    const core = createCore(deps(getEconomicCalendar))
+
+    await expect(core.economicCalendar.getRange(FROM, TO)).rejects.toBe(err)
+    await expect(core.economicCalendar.getRange('2026-08-03', '2026-08-03')).rejects.toBe(err)
+    expect(getEconomicCalendar).toHaveBeenCalledOnce()
   })
 })

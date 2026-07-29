@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { CalendarDays, PanelLeftClose, PanelLeftOpen, RefreshCw, Timer, TimerOff } from 'lucide-react'
+import { CalendarDays, ChartLine, PanelLeftClose, PanelLeftOpen, RefreshCw, Timer, TimerOff } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { api, qk } from './api'
@@ -301,6 +301,22 @@ export default function App(): React.JSX.Element {
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Economic calendar</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  // 名前を渡さない: main は選択中の指標をプロセス内に持ち続けるので、直前に選んだ指標
+                  // のまま開く（既定の CPI に戻すのは、まだ何も選ばれていないときだけ、窓側で行う）。
+                  onClick={() => void api.economicIndicator.openWindow()}
+                  aria-label="Economic indicators"
+                  title="Economic indicators"
+                >
+                  <ChartLine className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Economic indicators</TooltipContent>
             </Tooltip>
             <SettingsDialog />
           </div>

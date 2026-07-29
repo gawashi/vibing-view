@@ -11,6 +11,7 @@ import type * as barStoreModule from './db/barStore'
 import type * as profileStoreModule from './db/profileStore'
 import type * as companyProfileStoreModule from './db/companyProfileStore'
 import type * as economicDayStoreModule from './db/economicDayStore'
+import type * as economicIndicatorStoreModule from './db/economicIndicatorStore'
 import type * as workspaceStoreModule from './workspaceStore'
 import type * as capabilityCacheModule from './capabilityCache'
 import type * as keystoreModule from './keystore'
@@ -20,7 +21,8 @@ import { classify } from './capabilityClassifier'
 import { createSearchCache } from './searchCache'
 import { createProfileService } from './profile/ProfileService'
 import { createCompanyInfoService } from './profile/CompanyInfoService'
-import { createEconomicCalendarService } from './calendar/EconomicCalendarService'
+import { createEconomicCalendarService } from './economic/EconomicCalendarService'
+import { createEconomicIndicatorService } from './economic/EconomicIndicatorService'
 import type { EditResult } from './mcp/edits'
 
 export type { BarSummary } from './db/barStore'
@@ -42,7 +44,8 @@ export function toBars(outcome: OhlcvOutcome): Bar[] {
 
 export type ProviderLike = Pick<
   FmpProvider,
-  'getOHLCV' | 'searchSymbols' | 'getQuote' | 'getMarketStatus' | 'getCompanyProfile' | 'getEconomicCalendar'
+  'getOHLCV' | 'searchSymbols' | 'getQuote' | 'getMarketStatus' | 'getCompanyProfile'
+  | 'getEconomicCalendar' | 'getEconomicIndicator'
 >
 
 // Every electron/sqlite touchpoint arrives by injection so the core loads under plain-Node Vitest
@@ -53,6 +56,7 @@ export type CoreDeps = {
   profileStore: Pick<typeof profileStoreModule, 'getProfile' | 'upsertProfile'>
   companyProfileStore: Pick<typeof companyProfileStoreModule, 'getCompanyProfile' | 'upsertCompanyProfile'>
   economicDayStore: Pick<typeof economicDayStoreModule, 'getDays' | 'upsertDays'>
+  economicIndicatorStore: Pick<typeof economicIndicatorStoreModule, 'getIndicator' | 'upsertIndicator'>
   workspaceStore: Pick<typeof workspaceStoreModule, 'getWorkspaces' | 'setWorkspaces'>
   capabilityCache: Pick<typeof capabilityCacheModule, 'getStatus' | 'setStatus' | 'clearForKeyChange'>
   keystore: Pick<typeof keystoreModule, 'getApiKey' | 'setApiKey' | 'getKeyStatus' | 'clearApiKey'>
@@ -76,6 +80,17 @@ export function createCore(deps: CoreDeps) {
   // 素朴に作ると週をめくるたび 402/403 を踏む。一度見たらネットワークに出ず同じエラーを投げる。
   // エラー実体を保持するのは「同じ FmpHttpError を投げる」の最短実装（boolean + 再構築より小さい）。
   let economicOutOfPlan: FmpHttpError | null = null
+
+  // EI-04: /economic-indicators も別プラン階層の可能性があり、queryKey は指標ごとに違う。
+  // カレンダーとフラグを共用すると、片方の拒否でもう片方が使えなくなる。
+  let economicIndicatorOutOfPlan: FmpHttpError | null = null
+
+  // プラン拒否は status だけでは判定できない。parseOrThrowHttpError はスキーマ外の body を
+  // FmpHttpError(200) にして投げるので、FMP が 200 + { "Error Message": ... } で拒否を返すと
+  // status 判定（402/403）では抜ける。classify は Error Message を持たない純粋なスキーマ不一致には
+  // 'available' を返すので、仕様変更で全指標を無効化してしまう誤検知も起きない。
+  const isPlanDenial = (err: unknown): err is FmpHttpError =>
+    err instanceof FmpHttpError && classify(err.status, err.body) === 'requires-plan'
 
   const searchCache = createSearchCache({ ttlMs: 5 * 60 * 1000, now: () => Date.now() })
 
@@ -142,7 +157,23 @@ export function createCore(deps: CoreDeps) {
       try {
         return await providerFor().getEconomicCalendar(from, to)
       } catch (err) {
-        if (err instanceof FmpHttpError && (err.status === 402 || err.status === 403)) economicOutOfPlan = err
+        if (isPlanDenial(err)) economicOutOfPlan = err
+        throw err
+      }
+    }
+  })
+
+  // 90 日窓を必要な分だけ遡って地平ぶんを組み立てる（EI-01）。1 回の getSeries が最大 22 窓を
+  // 直列に取るので、latch は fetch の先頭で見る — 1 窓目で拒否されたらその getSeries の
+  // 残りの窓も空撃ちしない。
+  const economicIndicatorService = createEconomicIndicatorService({
+    store: deps.economicIndicatorStore,
+    fetch: async (name, to) => {
+      if (economicIndicatorOutOfPlan) throw economicIndicatorOutOfPlan
+      try {
+        return await providerFor().getEconomicIndicator(name, to)
+      } catch (err) {
+        if (isPlanDenial(err)) economicIndicatorOutOfPlan = err
         throw err
       }
     }
@@ -220,6 +251,7 @@ export function createCore(deps: CoreDeps) {
         capabilityCache.clearForKeyChange() // D-21: drop stale verdicts, never eagerly re-probe
         dailyOutOfPlan.clear() // a new key may cover previously-off-plan symbols
         economicOutOfPlan = null // a new key may cover the calendar endpoint
+        economicIndicatorOutOfPlan = null
         return result
       },
       status: (): KeyStatus => keystore.getKeyStatus(),
@@ -228,6 +260,7 @@ export function createCore(deps: CoreDeps) {
         capabilityCache.clearForKeyChange()
         dailyOutOfPlan.clear()
         economicOutOfPlan = null
+        economicIndicatorOutOfPlan = null
       }
     },
 
@@ -261,6 +294,9 @@ export function createCore(deps: CoreDeps) {
 
     // どの UTC 日が必要かは呼び出し側（renderer の economicWeek.ts）が決める。
     economicCalendar: economicCalendarService,
+
+    // name は FMP の系列名、opts.years が取得地平（1 | 5）。表示上のスライスは renderer 側。
+    economicIndicator: economicIndicatorService,
 
     workspaces: {
       get: (): { collection: WorkspaceCollection; rev: number } => ({

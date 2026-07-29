@@ -142,3 +142,12 @@ export const fmpEconomicCalendarResponse = z.array(z.object({
   actual: num(),
   impact: z.string().nullable().optional().catch(null)
 }).passthrough())
+
+// /stable/economic-indicators は 1 系列の観測を平坦な配列で返す（date 降順、90 日窓ぶん）。
+// value は FRED の欠測で null になりうるので num() で受け、FmpProvider が落とす。
+// date は日付のみ（'2025-07-01'）。
+export const fmpEconomicIndicatorResponse = z.array(z.object({
+  name: z.string(),
+  date: z.string(),
+  value: num()
+}).passthrough())

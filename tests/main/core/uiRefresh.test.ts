@@ -10,6 +10,7 @@ function build(requestRefresh: CoreDeps['requestRefresh']) {
     profileStore: {} as CoreDeps['profileStore'],
     companyProfileStore: {} as CoreDeps['companyProfileStore'],
     economicDayStore: { getDays: vi.fn(() => []), upsertDays: vi.fn() },
+    economicIndicatorStore: { getIndicator: vi.fn(() => null), upsertIndicator: vi.fn() },
     workspaceStore: {} as CoreDeps['workspaceStore'],
     capabilityCache: {} as CoreDeps['capabilityCache'],
     keystore: {} as CoreDeps['keystore'],

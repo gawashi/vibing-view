@@ -1,6 +1,7 @@
 // src/renderer/lib/economicWeek.ts
 import { addDays, format } from 'date-fns'
 import type { EconomicCountryPreset, EconomicEvent, EconomicImpact } from '@shared/types'
+import { utcYmd } from '@shared/utcDay'
 
 // 'Major' のコードはハードコードする（EC-11）。全世界の国リスト（40 前後）はハードコードしない —
 // 列挙を誤ると選べない国が生まれ、それを埋めるメンテが要る。'all' はフィルタ自体を素通しにする。
@@ -12,8 +13,6 @@ export type EconomicFilterInput = {
   impacts: EconomicImpact[]
   text: string
 }
-
-const utcYmd = (d: Date): string => d.toISOString().slice(0, 10)
 
 // ローカル週（月曜起点）に必要な UTC 日。weekStart の UTC 日から 1 日戻して 9 日ぶん。
 // ±1 日 広げる理由は 2 つ:（1）ローカル週の端が別の UTC 日にまたがる、（2）FMP の from/to が ET 基準

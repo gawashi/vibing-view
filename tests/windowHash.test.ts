@@ -32,3 +32,22 @@ describe('satellite window hash', () => {
     expect(parseHash('company', '#' + buildHash('economic', '1'))).toBeNull()
   })
 })
+
+describe('windowHash — economicIndicator', () => {
+  it('round-trips the selected series name', () => {
+    const hash = buildHash('economicIndicator', 'CPI')
+    expect(parseHash('economicIndicator', hash)).toBe('CPI')
+  })
+
+  it('does not parse as another kind', () => {
+    const hash = buildHash('economicIndicator', 'CPI')
+    expect(parseHash('economic', hash)).toBeNull()
+    expect(parseHash('company', hash)).toBeNull()
+    expect(parseHash('chart', hash)).toBeNull()
+    expect(parseHash('symbolChart', hash)).toBeNull()
+  })
+
+  it('is not matched by the economic calendar hash', () => {
+    expect(parseHash('economicIndicator', buildHash('economic', '1'))).toBeNull()
+  })
+})

@@ -1,4 +1,5 @@
 import type { EconomicEvent, EconomicRange } from '@shared/types'
+import { utcYmdFromEpoch } from '@shared/utcDay'
 // 型だけ（`import type` は消えるので sqlite は読み込まれない — core.ts と同じ扱い）。
 import type { EconomicDayRow } from '../db/economicDayStore'
 
@@ -7,13 +8,12 @@ import type { EconomicDayRow } from '../db/economicDayStore'
 // null のまま固定されてしまう。条件は取得時刻で切る。
 const TTL_SECONDS = 3600
 
-const utcYmd = (epochSeconds: number): string => new Date(epochSeconds * 1000).toISOString().slice(0, 10)
 const dayStart = (day: string): number => Date.parse(`${day}T00:00:00Z`) / 1000
 
 // from..to（両端含む）の UTC 日を昇順で列挙。
 function enumerateDays(from: string, to: string): string[] {
   const days: string[] = []
-  for (let t = dayStart(from), end = dayStart(to); t <= end; t += 86400) days.push(utcYmd(t))
+  for (let t = dayStart(from), end = dayStart(to); t <= end; t += 86400) days.push(utcYmdFromEpoch(t))
   return days
 }
 
@@ -63,7 +63,7 @@ export function createEconomicCalendarService(deps: {
           // missing の全日に行を書く。返ってこなかった日は '[]'（EC-08）— 省くと土日祝が毎回ミス
           // 判定になり、その週を開くたびに API を空撃ちする。
           const byDay = new Map(missing.map((d) => [d, [] as EconomicEvent[]]))
-          for (const e of events) byDay.get(utcYmd(e.time))?.push(e) // 範囲外の日は捨てる
+          for (const e of events) byDay.get(utcYmdFromEpoch(e.time))?.push(e) // 範囲外の日は捨てる
           const rows = [...byDay].map(([date, evs]) => ({ date, events: evs, fetchedAt }))
           store.upsertDays(rows)
           for (const r of rows) cached.set(r.date, r)
