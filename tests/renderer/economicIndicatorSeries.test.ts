@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  sliceRange, tableRows, latestRow, formatValue, formatDelta, rangeYears,
-  INDICATOR_RANGES, DEFAULT_INDICATOR_RANGE
+  sliceRange, tableRows, latestRow, formatValue, formatDelta, INDICATOR_YEARS
 } from '@/lib/economicIndicatorSeries'
 import type { EconomicIndicatorPoint } from '@shared/types'
 
@@ -11,15 +10,9 @@ const YEARLY: EconomicIndicatorPoint[] = Array.from({ length: 11 }, (_, i) => ({
   value: 16 + i
 }))
 
-describe('INDICATOR_RANGES', () => {
-  it('offers only 1Y / 5Y with 1Y as the default (EI-01: 90 日窓なので 10Y / Max は無い)', () => {
-    expect(INDICATOR_RANGES).toEqual(['1Y', '5Y'])
-    expect(DEFAULT_INDICATOR_RANGE).toBe('1Y')
-  })
-
-  it('maps each range to the years the service fetches', () => {
-    expect(rangeYears('1Y')).toBe(1)
-    expect(rangeYears('5Y')).toBe(5)
+describe('INDICATOR_YEARS', () => {
+  it('offers only 1 / 5 with 1 first as the default (EI-01: 90 日窓なので 10Y / Max は無い)', () => {
+    expect(INDICATOR_YEARS).toEqual([1, 5])
   })
 })
 
@@ -27,11 +20,11 @@ describe('sliceRange — 基準は最新観測日 (EI-08)', () => {
   it('1Y counts back from the newest observation, not from today', () => {
     // 最新は 2026-01-01。今日（2026-07-27 以降）から 1 年遡ると 1 点も残らないが、
     // 最新観測から遡れば 2025-01-01 と 2026-01-01 が残る。
-    expect(sliceRange(YEARLY, '1Y').map((p) => p.date)).toEqual(['2025-01-01', '2026-01-01'])
+    expect(sliceRange(YEARLY, 1).map((p) => p.date)).toEqual(['2025-01-01', '2026-01-01'])
   })
 
   it('5Y slices from the newest observation', () => {
-    expect(sliceRange(YEARLY, '5Y').map((p) => p.date)).toEqual([
+    expect(sliceRange(YEARLY, 5).map((p) => p.date)).toEqual([
       '2021-01-01', '2022-01-01', '2023-01-01', '2024-01-01', '2025-01-01', '2026-01-01'
     ])
   })
@@ -43,17 +36,17 @@ describe('sliceRange — 基準は最新観測日 (EI-08)', () => {
       { date: '2023-10-01', value: 2 },
       { date: '2024-01-01', value: 3 }
     ]
-    expect(sliceRange(lagging, '1Y').map((p) => p.date)).toEqual(['2023-07-01', '2023-10-01', '2024-01-01'])
+    expect(sliceRange(lagging, 1).map((p) => p.date)).toEqual(['2023-07-01', '2023-10-01', '2024-01-01'])
   })
 
   it('handles an empty series', () => {
-    expect(sliceRange([], '1Y')).toEqual([])
-    expect(sliceRange([], '5Y')).toEqual([])
+    expect(sliceRange([], 1)).toEqual([])
+    expect(sliceRange([], 5)).toEqual([])
   })
 
   it('handles a single point', () => {
     const one = [{ date: '2026-06-01', value: 1 }]
-    expect(sliceRange(one, '1Y')).toEqual(one)
+    expect(sliceRange(one, 1)).toEqual(one)
   })
 
   it('does not crash on a Feb 29 newest date', () => {
@@ -64,13 +57,13 @@ describe('sliceRange — 基準は最新観測日 (EI-08)', () => {
       { date: '2019-03-01', value: 2 },
       { date: '2020-02-29', value: 3 }
     ]
-    expect(sliceRange(leap, '1Y').map((p) => p.date)).toEqual(['2019-03-01', '2020-02-29'])
+    expect(sliceRange(leap, 1).map((p) => p.date)).toEqual(['2019-03-01', '2020-02-29'])
   })
 })
 
 describe('tableRows — 新しい順、Δ は絶対差 (EI-07)', () => {
   it('reverses the visible slice and computes deltas', () => {
-    const visible = sliceRange(YEARLY, '1Y')
+    const visible = sliceRange(YEARLY, 1)
     expect(tableRows(YEARLY, visible)).toEqual([
       { date: '2026-01-01', value: 26, delta: 1 },
       { date: '2025-01-01', value: 25, delta: 1 }
@@ -78,7 +71,7 @@ describe('tableRows — 新しい順、Δ は絶対差 (EI-07)', () => {
   })
 
   it('uses the observation before the slice for the oldest visible row (境界で空欄にしない)', () => {
-    const visible = sliceRange(YEARLY, '1Y')
+    const visible = sliceRange(YEARLY, 1)
     const oldest = tableRows(YEARLY, visible).at(-1)!
     expect(oldest.date).toBe('2025-01-01')
     expect(oldest.delta).toBe(1) // 2024 の 24 との差。スライス外を参照している

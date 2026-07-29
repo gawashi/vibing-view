@@ -32,8 +32,8 @@ const chartCellId = parseHash('chart', window.location.hash)
 const symbolChartSymbol = parseHash('symbolChart', window.location.hash)
 // 経済カレンダーは 1 つしか開かないので値に意味はない。有無だけ見る（週は renderer state — EC-09/EC-10）。
 const isEconomic = parseHash('economic', window.location.hash) !== null
-// 統計指標窓も 1 枚だけ。選択中の指標は main が持つので、ハッシュには載せない（EI-06）。
-const isEconomicIndicator = parseHash('economicIndicator', window.location.hash) !== null
+// 統計指標窓も 1 枚だけ。選択中の指標は main が持ち（EI-06）、開くときの値をハッシュで受け取る。
+const economicIndicator = parseHash('economicIndicator', window.location.hash)
 
 // Seed the symbol window's cell here, before the first render: this window gets its own fresh store
 // (one 1x1 cell, no useWorkspaceSync), so setting it now means SymbolChartWindow never has to render
@@ -51,8 +51,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             ? <SymbolChartWindow symbol={symbolChartSymbol} />
             : isEconomic
               ? <EconomicCalendarWindow />
-              : isEconomicIndicator
-                ? <EconomicIndicatorWindow />
+              : economicIndicator !== null
+                ? <EconomicIndicatorWindow initialName={economicIndicator} />
                 : <App />}
     </QueryClientProvider>
   </React.StrictMode>

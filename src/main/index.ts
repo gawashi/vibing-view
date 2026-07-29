@@ -5,6 +5,7 @@ import { registerIpc } from './ipc'
 import { configureProxy } from './net/httpClient'
 import { CH } from '@shared/ipc'
 import { buildHash, type WindowKind } from '@shared/windowHash'
+import { DEFAULT_ECONOMIC_INDICATOR } from '@shared/economicIndicators'
 import { createCore } from './core'
 import * as barStore from './db/barStore'
 import * as profileStore from './db/profileStore'
@@ -22,8 +23,10 @@ import { getMcpConfig } from './settings'
 // One satellite window per (kind, key): company-info per symbol, enlarge-chart per cellId, watchlist
 // symbol window per symbol, economic calendar as a singleton (fixed value, so a second open always
 // focuses — 週は renderer の state なので週ごとに窓を増やす意味がない、EC-09), economic indicator as
-// a singleton (同じ理由、選択中の指標は main の state で持つ、EI-06). Reopening a live key focuses it;
-// a new key spawns another. Keyed `kind:value` so the kinds never collide. Cleared on 'closed'.
+// a singleton (同じ理由、EI-06). Reopening a live key focuses it;
+// a new key spawns another. Keyed `kind:value` by default, but a caller can pin the key so a
+// singleton window stays one window while its hash carries a varying value (economic indicator).
+// Cleared on 'closed'.
 const satelliteWindows = new Map<string, BrowserWindow>()
 
 // Load the shared renderer bundle, optionally with a hash (e.g. company=AAPL) that main.tsx reads
@@ -82,8 +85,9 @@ function createWindow(): void {
 }
 
 // One hardened satellite window per (kind, value); backs every window kind.
-function openHashWindow(kind: WindowKind, value: string, width: number, height: number): void {
-  const key = `${kind}:${value}`
+function openHashWindow(
+  kind: WindowKind, value: string, width: number, height: number, key = `${kind}:${value}`
+): void {
   const existing = satelliteWindows.get(key)
   if (existing) {
     existing.focus()
@@ -109,17 +113,13 @@ function openHashWindow(kind: WindowKind, value: string, width: number, height: 
   loadRenderer(win, buildHash(kind, value))
 }
 
-// 統計指標ウィンドウの選択中の指標。main が真実の置き場で、renderer はマウント時に pull する
-// （EI-06）。openHashWindow は satelliteWindows.set を loadRenderer より先に実行するので、
-// 窓が「存在する」と判定できてから renderer が onSelect を張るまでに隙間がある。push だけに
-// すると、その隙間に来た 2 度目のクリックが黙って捨てられ、最初の指標が表示されたまま残る。
-// did-finish-load を待っても直らない（React のマウント前に発火する）。
-// プロセス内 state で永続化しない（EI-03）。既定の指標名はここに持たない — renderer 側の
-// useState 初期値が唯一の既定なので、main は「誰も指定していない」を null で表すだけでよい。
-// openWindow(name) は 2 つの呼び方を持つ: name 付き（カレンダー行・窓内ドロップダウン）は選択を
-// 差し替える。name 省略（ヘッダーボタン）は窓を開く/フォーカスするだけで、直前の選択を保つ
-// ——省略時に既定へ戻すと、EI-06 が守る「main が真実」を窓の外から上書きしてしまう。
-let selectedIndicator: string | null = null
+// 統計指標ウィンドウは 1 枚だけなので窓のキーは固定。表示する指標は hash が運ぶので、renderer は
+// マウント時点で最初から正しい指標を知っている（pull の往復も、その間の「未確定」状態も要らない）。
+// 窓が既にある場合だけ push で差し替える。
+// selectedIndicator は窓を閉じたあとも直前の選択を覚えるためのプロセス内 state（永続化しない、
+// EI-03）。ヘッダーボタンは name 無しで呼ぶので、これが「前回の続き」を決める。
+const INDICATOR_WINDOW_KEY = 'economicIndicator:1'
+let selectedIndicator = DEFAULT_ECONOMIC_INDICATOR
 
 // The default Electron menu binds Ctrl+R / Ctrl+Shift+R to page reload — accelerators the main
 // process dispatches, which a renderer keydown.preventDefault() cannot cancel. We install a menu
@@ -187,16 +187,15 @@ app.whenReady().then(async () => {
   ipcMain.handle(CH.symbolChartOpenWindow, (_e, symbol: string) => openHashWindow('symbolChart', symbol, 1100, 760))
   ipcMain.handle(CH.economicOpenWindow, () => openHashWindow('economic', '1', 720, 900))
   ipcMain.handle(CH.economicIndicatorOpenWindow, (_e, name?: string) => {
-    if (name) selectedIndicator = name // 窓の状態より先に更新する（renderer が pull で必ず最新を得る）
-    const existing = satelliteWindows.get('economicIndicator:1')
+    if (name) selectedIndicator = name
+    const existing = satelliteWindows.get(INDICATOR_WINDOW_KEY)
     if (existing) {
       existing.focus()
       if (name) existing.webContents.send(CH.economicIndicatorSelect, name)
       return
     }
-    openHashWindow('economicIndicator', '1', 900, 760)
+    openHashWindow('economicIndicator', selectedIndicator, 900, 760, INDICATOR_WINDOW_KEY)
   })
-  ipcMain.handle(CH.economicIndicatorSelected, () => selectedIndicator)
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

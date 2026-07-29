@@ -1,6 +1,7 @@
 import { subDays, subMonths, subYears } from 'date-fns'
 import { fromZonedTime } from 'date-fns-tz'
 import type { Bar, SymbolResult, Timeframe, DateRange, Quote, MarketStatus, CompanyProfileData, EconomicEvent, EconomicImpact, EconomicIndicatorPoint } from '@shared/types'
+import { shiftUtcDay, utcYmd } from '@shared/utcDay'
 import {
   fmpHistoricalResponse, fmpSearchResponse, fmpQuoteResponse, fmpMarketHoursResponse, fmpProfileResponse,
   fmpRatiosTtmResponse, fmpKeyMetricsTtmResponse, fmpGradesConsensusResponse,
@@ -49,10 +50,6 @@ function nyDateTimeToEpochSeconds(s: string): number {
   return Math.floor(fromZonedTime(s, 'America/New_York').getTime() / 1000)
 }
 
-function ymd(d: Date): string {
-  return d.toISOString().slice(0, 10)
-}
-
 // FMP の /economic-calendar の `date` は "2026-07-14 12:30:00" 形式でタイムゾーンマーカーを持たない。
 // 実測で確定済み（2026-07-26）: 米 CPI = 08:30 ET は夏週で 12:30Z、冬週で 13:30Z と一致し、
 // DST の切り替わりに追従している — つまりこの文字列はすでに UTC。
@@ -63,12 +60,6 @@ function economicDateToEpochSeconds(s: string): number {
   // 未知の date 形式は行を通さない（economic_days のキーが壊れる）
   if (Number.isNaN(t)) throw new FmpHttpError(200, s)
   return Math.floor(t / 1000)
-}
-
-// 'YYYY-MM-DD' を UTC 日で n 日ずらす。date-fns の addDays はローカル時刻基準で DST をまたぐと
-// 24h にならないので使わない。
-function shiftUtcDay(day: string, n: number): string {
-  return ymd(new Date(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000))
 }
 
 // Map なので 'constructor' のような prototype 由来のキーが引っかからない（未知の値は 'Low'）。
@@ -83,7 +74,7 @@ function intradayInitialRange(tf: '1m' | '5m' | '15m' | '1h'): { from: string; t
       : tf === '5m' ? subMonths(now, 1)
       : tf === '15m' ? subMonths(now, 3)
       : subYears(now, 1)
-  return { from: ymd(from), to: ymd(now) }
+  return { from: utcYmd(from), to: utcYmd(now) }
 }
 
 export class FmpProvider {
@@ -160,7 +151,7 @@ export class FmpProvider {
     }
 
     const { from, to } = range
-      ? { from: ymd(new Date(range.from * 1000)), to: ymd(new Date(range.to * 1000)) }
+      ? { from: utcYmd(new Date(range.from * 1000)), to: utcYmd(new Date(range.to * 1000)) }
       : intradayInitialRange(timeframe)
     const url = `${BASE}/historical-chart/${INTRADAY_PATH[timeframe]}?symbol=${encodeURIComponent(symbol)}&from=${from}&to=${to}&apikey=${this.apiKey}`
     const rawBody = await this.httpGetJson(url)
@@ -269,7 +260,7 @@ export class FmpProvider {
 
     // Upcoming earnings carry epsActual === null, but historical rows can too (FMP gaps),
     // so require the date to be today or later before treating it as the next event.
-    const today = new Date().toISOString().slice(0, 10)
+    const today = utcYmd(new Date())
     const upcoming = (earnings ?? [])
       .filter((e) => e.epsActual == null && e.date >= today)
       .sort((a, b) => a.date.localeCompare(b.date))[0]

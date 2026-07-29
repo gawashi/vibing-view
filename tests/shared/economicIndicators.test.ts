@@ -18,18 +18,12 @@ describe('ECONOMIC_INDICATORS', () => {
     }
   })
 
-  it('covers every category with at least one indicator (空グループを出さない)', () => {
-    for (const c of ECONOMIC_INDICATOR_CATEGORIES) {
-      expect(ECONOMIC_INDICATORS.some((m) => m.category === c)).toBe(true)
-    }
-  })
-
   it('has the default indicator in the registry', () => {
-    expect(indicatorMeta(DEFAULT_ECONOMIC_INDICATOR)).not.toBeNull()
+    expect(indicatorMeta(DEFAULT_ECONOMIC_INDICATOR)).toBeDefined()
   })
 
-  it('returns null for an unknown name', () => {
-    expect(indicatorMeta('nope')).toBeNull()
+  it('returns undefined for an unknown name', () => {
+    expect(indicatorMeta('nope')).toBeUndefined()
   })
 })
 
@@ -111,12 +105,12 @@ describe('resolveIndicator — レジストリとの整合', () => {
     for (const e of events) {
       const name = resolveIndicator(e, 'US')
       expect(name).not.toBeNull()
-      expect(indicatorMeta(name!)).not.toBeNull()
+      expect(indicatorMeta(name!)).toBeDefined()
     }
   })
 
   // RULES の編集で知らずに dangling name を導入しないための構造的テスト
   it('every rule target exists in the registry', () => {
-    for (const r of RULES) if (r.name) expect(indicatorMeta(r.name)).not.toBeNull()
+    for (const r of RULES) if (r.name) expect(indicatorMeta(r.name)).toBeDefined()
   })
 })

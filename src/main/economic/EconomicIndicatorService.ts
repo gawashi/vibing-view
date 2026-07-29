@@ -1,6 +1,7 @@
 import type {
   EconomicIndicatorPoint, EconomicIndicatorSeries, EconomicIndicatorYears
 } from '@shared/types'
+import { shiftUtcDay, utcYmdFromEpoch } from '@shared/utcDay'
 // 型だけ（`import type` は消えるので sqlite は読み込まれない — core.ts と同じ扱い）。
 import type { EconomicIndicatorRow } from '../db/economicIndicatorStore'
 
@@ -13,13 +14,6 @@ const TTL_SECONDS = 43200
 // inclusive/exclusive の取り違えと月末日のずれを吸収するため。
 const STEP_DAYS = 85
 
-const utcYmd = (epochSeconds: number): string => new Date(epochSeconds * 1000).toISOString().slice(0, 10)
-
-// 'YYYY-MM-DD' を UTC 日で n 日ずらす。date-fns の addDays はローカル時刻基準で DST をまたぐと
-// 24h にならないので使わない（FmpProvider の shiftUtcDay と同じ理由）。
-const shiftDay = (day: string, n: number): string =>
-  utcYmd(Date.parse(`${day}T00:00:00Z`) / 1000 + n * 86400)
-
 // 年だけ引く。'YYYY-MM-DD' は辞書順が日付順と一致するので、'2024-02-29' のような実在しない日付でも
 // 境界として正しく働く（renderer の sliceRange と同じ手）。
 const shiftYears = (day: string, n: number): string => `${Number(day.slice(0, 4)) + n}${day.slice(4)}`
@@ -27,7 +21,7 @@ const shiftYears = (day: string, n: number): string => `${Number(day.slice(0, 4)
 // [from, to] を 90 日窓で覆う `to` の列（新しい順）。最後の窓の下端は from を必ず下回る。
 function windowTos(from: string, to: string): string[] {
   const list: string[] = []
-  for (let t = to; t >= from; t = shiftDay(t, -STEP_DAYS)) list.push(t)
+  for (let t = to; t >= from; t = shiftUtcDay(t, -STEP_DAYS)) list.push(t)
   return list
 }
 
@@ -50,7 +44,7 @@ export function createEconomicIndicatorService(deps: {
       opts?: { years?: EconomicIndicatorYears; force?: boolean }
     ): Promise<EconomicIndicatorSeries> {
       const years = opts?.years ?? 1
-      const today = utcYmd(now())
+      const today = utcYmdFromEpoch(now())
       const wantFrom = shiftYears(today, -years)
 
       // row は stale フォールバック用に常に読む。cached は判定用で、force のときは無いものとして
@@ -75,7 +69,7 @@ export function createEconomicIndicatorService(deps: {
         // 穴として残り、以後の TTL 更新でも二度と埋まらない。Math.min は now() が前回取得より
         // 前に戻る（クロックの後退）場合の保護で、無いと since が未来日付になり windowTos が
         // 空を返して今日の窓すら取り直せなくなる。
-        const since = cached ? utcYmd(Math.min(cached.fetchedAt, now())) : today
+        const since = cached ? utcYmdFromEpoch(Math.min(cached.fetchedAt, now())) : today
         for (const t of windowTos(since, today)) tos.add(t)
       }
       // 遡りの起点は既存カバーの下限そのもの。その窓は [coveredFrom - 90d, coveredFrom] を覆うので、

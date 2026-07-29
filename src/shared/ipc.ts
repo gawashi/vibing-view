@@ -31,7 +31,6 @@ export const CH = {
   economicOpenWindow: 'economic:openWindow',
   economicIndicator: 'economicIndicator:series',
   economicIndicatorOpenWindow: 'economicIndicator:openWindow',
-  economicIndicatorSelected: 'economicIndicator:selected',
   economicIndicatorSelect: 'economicIndicator:select',
   chartOpenWindow: 'chart:openWindow',
   symbolChartOpenWindow: 'symbolChart:openWindow',
@@ -138,8 +137,8 @@ export interface Api {
     openWindow(): Promise<void>
   }
   // 統計指標。窓は 1 枚で、選択中の指標は main が持つ（EI-06）。openWindow は「この指標を出せ」の
-  // 意味で、既存窓があればフォーカスして選択を差し替える。renderer はマウント時に getSelected で
-  // 初期値を取り、onSelect で以降の差し替えを受ける（push が落ちても getSelected が最新を返す）。
+  // 意味で、既存窓があればフォーカスして onSelect で差し替える。窓が無いときは hash に指標名を
+  // 載せて開くので、renderer は最初のレンダーから正しい指標を知っている。
   economicIndicator: {
     // years は取得地平（EI-01 の 90 日窓により 1 | 5 の 2 つだけ）。省略時は 1。
     // 地平を広げる呼び出しだけがバックフィルを起こし、同じ地平の再取得はキャッシュで返る。
@@ -150,9 +149,7 @@ export interface Api {
     // name 省略時は「窓を開く/フォーカスするだけで選択は変えない」（ヘッダーボタンの用途）。
     // name を渡すと「この指標を出せ」（カレンダー行・ドロップダウンの用途）で選択を差し替える。
     openWindow(name?: string): Promise<void>
-    // まだ一度も openWindow が呼ばれていなければ null。既定値は renderer 側が持つので、
-    // main は「誰も指定していない」を表現するだけでよい。
-    getSelected(): Promise<string | null>
+    // 既に開いている窓への差し替えだけ。初期値は hash が運ぶ。
     onSelect(cb: (name: string) => void): () => void
   }
   chart: {

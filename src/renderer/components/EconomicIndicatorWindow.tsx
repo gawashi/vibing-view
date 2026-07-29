@@ -1,6 +1,7 @@
 // src/renderer/components/EconomicIndicatorWindow.tsx
 import React, { useEffect, useMemo, useState } from 'react'
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { format } from 'date-fns'
 import { ChevronDown, RefreshCw } from 'lucide-react'
 import { api, qk } from '@/api'
 import { cn } from '@/lib/utils'
@@ -12,13 +13,12 @@ import {
 import { ToggleGroup, ToggleGroupItem } from './ui/toggle-group'
 import { EconomicIndicatorChart } from './EconomicIndicatorChart'
 import {
-  DEFAULT_INDICATOR_RANGE, INDICATOR_RANGES, formatDelta, formatValue, latestRow, rangeYears,
-  sliceRange, tableRows, type IndicatorRange
+  INDICATOR_YEARS, formatDelta, formatValue, latestRow, sliceRange, tableRows
 } from '@/lib/economicIndicatorSeries'
 import {
-  DEFAULT_ECONOMIC_INDICATOR, ECONOMIC_INDICATORS, ECONOMIC_INDICATOR_CATEGORIES, indicatorMeta
+  ECONOMIC_INDICATORS, ECONOMIC_INDICATOR_CATEGORIES, indicatorMeta
 } from '@shared/economicIndicators'
-import type { EconomicIndicatorSeries } from '@shared/types'
+import type { EconomicIndicatorSeries, EconomicIndicatorYears } from '@shared/types'
 
 // company.info / 経済カレンダーと同じ分岐。IPC 越しの message から判定するので新しい型は増やさない。
 function errorMessage(err: unknown): string {
@@ -30,62 +30,46 @@ function errorMessage(err: unknown): string {
   return 'Couldn’t load this indicator. Check your connection.'
 }
 
-export function EconomicIndicatorWindow(): React.JSX.Element {
-  // 選択中の指標は main が持つ（EI-06）。マウント時に pull し、以降は onSelect で受ける。
-  // 初期値は null（「まだ誰も指定していない」を表現できる状態） — pull が解決するまで
-  // query を有効化しない。既定値の置き場所は useState ではなく、この pull の fallback だけ
-  // （main から null が来たときにここで DEFAULT_ECONOMIC_INDICATOR を当てる）。
-  const [name, setName] = useState<string | null>(null)
-  const [range, setRange] = useState<IndicatorRange>(DEFAULT_INDICATOR_RANGE)
+export function EconomicIndicatorWindow({ initialName }: { initialName: string }): React.JSX.Element {
+  // 選択中の指標は main が持つ（EI-06）。開くときの値は hash 経由で prop に届くので、最初の
+  // レンダーから確定している。既に開いている窓への差し替えだけ onSelect で受ける。
+  const [name, setName] = useState(initialName)
+  const [years, setYears] = useState<EconomicIndicatorYears>(INDICATOR_YEARS[0])
   const qc = useQueryClient()
-  const years = rangeYears(range)
 
   // 折れ線がテーマ CSS 変数から色を読むので、Chart 窓と同じくテーマを適用する。
   useEffect(() => { void api.settings.getTheme().then(applyTheme) }, [])
 
-  useEffect(() => {
-    void api.economicIndicator.getSelected().then((n) => setName(n ?? DEFAULT_ECONOMIC_INDICATOR))
-    return api.economicIndicator.onSelect(setName)
-  }, [])
+  useEffect(() => api.economicIndicator.onSelect(setName), [])
 
-  const meta = name ? indicatorMeta(name) : null
-  useEffect(() => { document.title = meta ? meta.label : name ?? '' }, [meta, name])
+  const meta = indicatorMeta(name)
+  useEffect(() => { document.title = meta?.label ?? name }, [meta, name])
 
-  // name が null の間は pull が終わっていないので無効化（enabled: false）。これが無いと
-  // マウント直後の未確定な CPI 既定で 5 リクエストが飛び、pull が解決した実際の指標でまた
-  // 5 リクエストが飛ぶ（カレンダー行から CPI 以外を開いたときの無駄撃ち）。
   const q = useQuery<EconomicIndicatorSeries>({
-    queryKey: qk.economicIndicator(name ?? '', years),
-    queryFn: () => api.economicIndicator.getSeries(name!, { years }),
-    enabled: name !== null,
+    queryKey: qk.economicIndicator(name, years),
+    queryFn: () => api.economicIndicator.getSeries(name, { years }),
     // 地平を広げる（1Y → 5Y）と query key が変わり、素の TanStack なら新 key に data が無いので
     // isLoading に戻って下の Fetching… ヒントが出せない。前の地平の画面を残しつつ isLoading を
-    // 落とすことで、バックフィル中のヒントを表示可能にする。ただし指標を切り替えても key は
-    // 変わるので、これだけだと前の指標の値が新しい指標のラベル・unit の下に残ってしまう —
-    // 下の data ガード（series.name === name）で「前の指標のプレースホルダ」を弾く。
-    placeholderData: keepPreviousData
+    // 落とすことで、バックフィル中のヒントを表示可能にする。指標そのものが変わったときは残さない
+    // — 前の指標の値が、新しい指標のラベル・unit の下に並んでしまう。
+    placeholderData: (prev) => (prev?.name === name ? prev : undefined)
   })
   const reload = useMutation({
-    mutationFn: () => api.economicIndicator.getSeries(name!, { years, force: true }),
-    onSuccess: (data) => qc.setQueryData(qk.economicIndicator(name ?? '', years), data)
+    mutationFn: () => api.economicIndicator.getSeries(name, { years, force: true }),
+    onSuccess: (data) => qc.setQueryData(qk.economicIndicator(name, years), data)
   })
 
-  // keepPreviousData は query key が変われば必ず残る。地平（years）の変化なら前の地平の
-  // データで問題ないが、指標（name）の変化だと前の指標の値が新しい指標として表示されてしまう
-  // （unit・meta は name から即時に切り替わるのに、series はそのまま）。series.name で選別する。
-  const data = q.data?.name === name ? q.data : undefined
-  // name が null の間（pull 未解決）と、指標を切り替えて data がまだ前の指標のままの間は
-  // どちらも「表示できるものがない」なので、まとめて loading に乗せて「No data」を出さない。
-  const loading = !q.isError && (name === null || q.isLoading || !data)
+  const data = q.data
+  // placeholder が無い＝表示できるものがない。指標の切り替え直後も初回ロードもこれで拾える。
+  const loading = !q.isError && !data
 
   const all = data?.points ?? []
-  const visible = useMemo(() => sliceRange(all, range), [all, range])
+  const visible = useMemo(() => sliceRange(all, years), [all, years])
   const rows = useMemo(() => tableRows(all, visible), [all, visible])
   const latest = useMemo(() => latestRow(all), [all])
 
-  const asOf = data ? new Date(data.fetchedAt * 1000) : null
-  const asOfLabel = asOf && data
-    ? `As of ${asOf.getFullYear()}-${String(asOf.getMonth() + 1).padStart(2, '0')}-${String(asOf.getDate()).padStart(2, '0')} ${String(asOf.getHours()).padStart(2, '0')}:${String(asOf.getMinutes()).padStart(2, '0')}${data.stale ? ' (update failed)' : ''} · from ${data.coveredFrom}`
+  const asOfLabel = data
+    ? `As of ${format(data.fetchedAt * 1000, 'yyyy-MM-dd HH:mm')}${data.stale ? ' (update failed)' : ''} · from ${data.coveredFrom}`
     : ''
 
   const grouped = ECONOMIC_INDICATOR_CATEGORIES.map((c) => ({
@@ -100,7 +84,7 @@ export function EconomicIndicatorWindow(): React.JSX.Element {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="secondary" size="sm" className="gap-1.5">
-                {meta ? meta.label : name ?? '…'}
+                {meta?.label ?? name}
                 <ChevronDown className="size-3.5" />
               </Button>
             </DropdownMenuTrigger>
@@ -131,11 +115,11 @@ export function EconomicIndicatorWindow(): React.JSX.Element {
               走るので、下の Fetching… が出ているうちは十数秒かかる。 */}
           <ToggleGroup
             type="single"
-            value={range}
-            onValueChange={(v) => { if (v) setRange(v as IndicatorRange) }}
+            value={String(years)}
+            onValueChange={(v) => { if (v) setYears(Number(v) as EconomicIndicatorYears) }}
           >
-            {INDICATOR_RANGES.map((r) => (
-              <ToggleGroupItem key={r} value={r} size="sm" aria-label={r}>{r}</ToggleGroupItem>
+            {INDICATOR_YEARS.map((y) => (
+              <ToggleGroupItem key={y} value={String(y)} size="sm" aria-label={`${y}Y`}>{y}Y</ToggleGroupItem>
             ))}
           </ToggleGroup>
 
@@ -144,7 +128,7 @@ export function EconomicIndicatorWindow(): React.JSX.Element {
             variant="ghost"
             size="icon"
             onClick={() => reload.mutate()}
-            disabled={reload.isPending || q.isFetching || name === null}
+            disabled={reload.isPending || q.isFetching}
             aria-label="Reload indicator"
             title="Reload indicator"
           >
@@ -166,7 +150,7 @@ export function EconomicIndicatorWindow(): React.JSX.Element {
           {/* 地平を広げる操作は 90 日窓を直列に取るので待たされる。無言で固まらせない。
               !q.isError も付けるのは、失敗した行のバックグラウンド再取得（あれば）で
               isFetching と isError が両立する一瞬に、エラー表示の上にヒントを重ねないため。 */}
-          {q.isFetching && !loading && !q.isError && <span>Fetching {range} history…</span>}
+          {q.isFetching && !loading && !q.isError && <span>Fetching {years}Y history…</span>}
         </div>
       </div>
 

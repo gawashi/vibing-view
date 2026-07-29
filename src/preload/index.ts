@@ -64,7 +64,6 @@ const api: Api = {
   economicIndicator: {
     getSeries: (name, opts) => ipcRenderer.invoke(CH.economicIndicator, name, opts),
     openWindow: (name) => ipcRenderer.invoke(CH.economicIndicatorOpenWindow, name),
-    getSelected: () => ipcRenderer.invoke(CH.economicIndicatorSelected),
     onSelect: (cb) => {
       const listener = (_e: unknown, name: string): void => cb(name)
       ipcRenderer.on(CH.economicIndicatorSelect, listener)

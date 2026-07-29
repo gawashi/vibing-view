@@ -1,11 +1,11 @@
 // Satellite windows (company info / enlarge-chart / watchlist symbol / economic calendar /
 // economic indicator) all reuse the main renderer bundle; the target rides in the URL hash
-// (#company=AAPL, #chart=CELLID, #symbolChart=AAPL, #economic=1, #economicIndicator=1).
+// (#company=AAPL, #chart=CELLID, #symbolChart=AAPL, #economic=1, #economicIndicator=CPI).
 // main-process index.ts builds it, main.tsx branches on it. Shared so both sides agree on the
 // format, and one kind's hash never parses as another's.
-// 'economic' and 'economicIndicator' are singleton windows, so their value is a fixed '1' —
-// callers only check presence. 選択中の指標はハッシュに載せない: main が持ち renderer が
-// マウント時に pull する（EI-06 — 窓のロード中に push が落ちる競合を避けるため）。
+// 'economic' is a singleton window, so its value is a fixed '1' — callers only check presence.
+// 'economicIndicator' is also a single window (main pins its key), but its hash carries the
+// selected series so the renderer has it on the first render instead of pulling for it.
 export type WindowKind = 'company' | 'chart' | 'symbolChart' | 'economic' | 'economicIndicator'
 
 export function buildHash(kind: WindowKind, value: string): string {

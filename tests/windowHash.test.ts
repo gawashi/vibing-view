@@ -34,13 +34,13 @@ describe('satellite window hash', () => {
 })
 
 describe('windowHash — economicIndicator', () => {
-  it('round-trips the singleton marker', () => {
-    const hash = buildHash('economicIndicator', '1')
-    expect(parseHash('economicIndicator', hash)).toBe('1')
+  it('round-trips the selected series name', () => {
+    const hash = buildHash('economicIndicator', 'CPI')
+    expect(parseHash('economicIndicator', hash)).toBe('CPI')
   })
 
   it('does not parse as another kind', () => {
-    const hash = buildHash('economicIndicator', '1')
+    const hash = buildHash('economicIndicator', 'CPI')
     expect(parseHash('economic', hash)).toBeNull()
     expect(parseHash('company', hash)).toBeNull()
     expect(parseHash('chart', hash)).toBeNull()

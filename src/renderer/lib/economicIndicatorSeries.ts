@@ -1,27 +1,24 @@
 // src/renderer/lib/economicIndicatorSeries.ts
 import type { EconomicIndicatorPoint, EconomicIndicatorYears } from '@shared/types'
 
-// 1 つのトグルが「取得地平」と「表示スライス」を兼ねる。10Y / Max が無いのは EI-01 の 90 日窓の
-// せいで、全履歴が現実的な回数で取れないため（10 年 × 23 本で約 920 リクエスト）。
-export type IndicatorRange = '1Y' | '5Y'
-export const INDICATOR_RANGES: IndicatorRange[] = ['1Y', '5Y']
-// 既定は 1Y — 初回に開いた指標が約 5 リクエストで済むほうを選ぶ（5Y は約 22）。
-export const DEFAULT_INDICATOR_RANGE: IndicatorRange = '1Y'
-
-const YEARS: Record<IndicatorRange, EconomicIndicatorYears> = { '1Y': 1, '5Y': 5 }
-
-// service に渡す取得地平。ここが唯一の変換点なので、範囲を足すときはこの Record だけ直す。
-export const rangeYears = (range: IndicatorRange): EconomicIndicatorYears => YEARS[range]
+// 1 つのトグルが「取得地平」と「表示スライス」を兼ねるので、年数そのものが UI の状態。
+// 10Y / Max が無いのは EI-01 の 90 日窓のせいで、全履歴が現実的な回数で取れないため
+// （10 年 × 23 本で約 920 リクエスト）。既定は先頭の 1 — 初回に開いた指標が約 5 リクエストで
+// 済むほうを選ぶ（5Y は約 22）。
+export const INDICATOR_YEARS: EconomicIndicatorYears[] = [1, 5]
 
 // 表示スライスの基準は最新観測日（EI-08）。今日から遡ると、四半期系列や発表が遅れている系列で
 // 1Y が空になる。取得地平（今日から遡って API を叩く深さ）とは基準日が違う点に注意 — 地平が
 // 今日基準なのはリクエスト回数を決めるためで、スライスが最新観測基準なのは見せる中身を決めるため。
 // カットオフは Date を使わず文字列で作る: 'YYYY-MM-DD' は辞書順が日付順と一致するので、
 // 年だけ引いた '2019-02-29' のような実在しない日付でも境界として正しく働く。
-export function sliceRange(points: EconomicIndicatorPoint[], range: IndicatorRange): EconomicIndicatorPoint[] {
+export function sliceRange(
+  points: EconomicIndicatorPoint[],
+  years: EconomicIndicatorYears
+): EconomicIndicatorPoint[] {
   if (points.length === 0) return points
   const last = points[points.length - 1].date
-  const cutoff = `${Number(last.slice(0, 4)) - YEARS[range]}${last.slice(4)}`
+  const cutoff = `${Number(last.slice(0, 4)) - years}${last.slice(4)}`
   return points.filter((p) => p.date >= cutoff)
 }
 
@@ -35,18 +32,15 @@ function rowAt(all: EconomicIndicatorPoint[], i: number): IndicatorRow {
   return { date: p.date, value: p.value, delta: i > 0 ? p.value - all[i - 1].value : null }
 }
 
-// 表の行（新しい順）。visible はスライス後、all は取得済み全件。delta は all の中の 1 つ前を使うので、
-// スライス境界の行でも空欄にならない。
+// 表の行（新しい順）。visible は sliceRange の結果、つまり all の末尾の連続部分なので、位置は
+// 長さの差で出る。delta は all の中の 1 つ前を使うので、スライス境界の行でも空欄にならない。
 export function tableRows(
   all: EconomicIndicatorPoint[],
   visible: EconomicIndicatorPoint[],
   limit = 20
 ): IndicatorRow[] {
-  const indexByDate = new Map(all.map((p, i) => [p.date, i]))
-  return visible
-    .slice(Math.max(0, visible.length - limit))
-    .reverse()
-    .map((p) => rowAt(all, indexByDate.get(p.date)!))
+  const start = Math.max(all.length - limit, all.length - visible.length)
+  return all.slice(start).map((_, i) => rowAt(all, start + i)).reverse()
 }
 
 export function latestRow(all: EconomicIndicatorPoint[]): IndicatorRow | null {

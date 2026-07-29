@@ -11,9 +11,6 @@ export type EconomicIndicatorMeta = {
   unit: string
 }
 
-export const ECONOMIC_INDICATOR_CATEGORIES: EconomicIndicatorCategory[] =
-  ['Growth', 'Inflation', 'Labor', 'Rates', 'Consumer', 'Housing']
-
 export const DEFAULT_ECONOMIC_INDICATOR = 'CPI'
 
 // unit は必須。API が単位を返さないので、これが無いと CPI の 322.1 と unemploymentRate の 4.2 が
@@ -46,8 +43,13 @@ export const ECONOMIC_INDICATORS: EconomicIndicatorMeta[] = [
   { name: 'newPrivatelyOwnedHousingUnitsStartedTotalUnits', label: 'Housing Starts', category: 'Housing', unit: 'Thousands of units (SAAR)' }
 ]
 
-export function indicatorMeta(name: string): EconomicIndicatorMeta | null {
-  return ECONOMIC_INDICATORS.find((m) => m.name === name) ?? null
+// プルダウンの見出し順。Set は挿入順を保つので、上の表の並びがそのまま表示順になり、
+// 別立てのリストと同期を取る必要がない（空グループも構造上ありえない）。
+export const ECONOMIC_INDICATOR_CATEGORIES: EconomicIndicatorCategory[] =
+  [...new Set(ECONOMIC_INDICATORS.map((m) => m.category))]
+
+export function indicatorMeta(name: string): EconomicIndicatorMeta | undefined {
+  return ECONOMIC_INDICATORS.find((m) => m.name === name)
 }
 
 // カレンダーの event 文字列 → 系列名（EI-05）。上から順に最初に当たったものを返す。
