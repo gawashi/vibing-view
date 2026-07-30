@@ -44,8 +44,6 @@ export function YieldCurveWindow(): React.JSX.Element {
   const [compareDates, setCompareDates] = useState<string[]>([])
   const [maturities, setMaturities] = useState<TreasuryMaturityKey[]>(DEFAULT_MATURITIES)
   const [spreads, setSpreads] = useState<string[]>(DEFAULT_SPREADS)
-  // <input type="date"> を選び直せるように、追加したら空に戻す。
-  const [picked, setPicked] = useState('')
   const qc = useQueryClient()
 
   // 折れ線と断面がテーマ CSS 変数から色を読むので、他の別ウィンドウと同じくテーマを適用する。
@@ -156,16 +154,24 @@ export function YieldCurveWindow(): React.JSX.Element {
             </span>
           ))}
           {/* ネイティブのピッカー（依存を増やさない）。min/max をキャッシュ範囲に縛る限り、
-              追加フェッチも「まだ取得していない日」の分岐も発生しない（YC-06）。 */}
+              追加フェッチも「まだ取得していない日」の分岐も発生しない（YC-06）。
+              非制御にしてあるのは意図的: onChange 中に value を空へ戻すと（Chromium）ピッカーが
+              閉じる最中に値を書き替えることになり、以降アイコンを押しても二度と開かなくなる。
+              空へ戻すのは「次に開く直前」＝ onClick に寄せる。 */}
           <input
             type="date"
-            value={picked}
             min={data?.coveredFrom}
             max={latest?.date}
             disabled={!latest || compareDates.length >= MAX_COMPARE}
-            onChange={(e) => { setPicked(''); addCompare(e.target.value) }}
+            onClick={(e) => {
+              // 同じ日を消して選び直せるように、開く前に空へ戻す。
+              e.currentTarget.value = ''
+              // 文字部分をクリックしてもカレンダーを出す（アイコンの数 px だけが入口では困る）。
+              e.currentTarget.showPicker()
+            }}
+            onChange={(e) => addCompare(e.target.value)}
             aria-label="Add comparison date"
-            className="h-7 rounded-md border border-border bg-background px-2 text-xs"
+            className="h-7 cursor-pointer rounded-md border border-border bg-background px-2 text-xs"
           />
 
           <span className="ml-auto text-xs text-muted-foreground">{asOfLabel}</span>
