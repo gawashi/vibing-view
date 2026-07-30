@@ -142,12 +142,18 @@ treasury_curves(
 
 - **TTL 12h は直近窓の取り直しにだけ掛かる。確定判定は持たない** — 財務省の公表値は基本的に改訂
   されないが、確定判定を入れる利益（リクエスト 0 本ぶん）が、入れる複雑さに見合わない
-- **書き込みは `date` キーの union** — フェッチ結果で丸ごと置き換えないので、空応答も仕様変更も
-  既存履歴を壊せない。書く直前にストアを読み直して union する（別の地平要求との競合対策）
+- **書き込みは `date` キーの union** — フェッチ結果で丸ごと置き換えないので、仕様変更で満期が
+  増減しても既存履歴を壊せない。書く直前にストアを読み直して union する（別の地平要求との競合対策）
 - **途中で落ちたら 1 バイトも書かない** — `covered_from` だけ進めると埋まっていない範囲を
   「取得済み」と記録し、その穴は以後どのリクエストでも埋まらない。既存行があれば `stale: true` で返す
+- **空応答も「落ちた」に含める** — 統計指標は四半期系列が合法的に空窓を返すので空を異常扱いしないが、
+  85 日窓に営業日が 1 日も無いことはないので、こちらでは空応答は取得失敗（200 + 空配列のプラン拒否、
+  仕様変更）でしかありえない。前進させると `covered_from` が穴を跨いで「取得済み」になる
 - **地平を狭めても `covered_from` は狭めない** — 5Y を取ったあと 1Y に戻して再取得しない
-- **`force` は「行を捨てて現在の地平を取り直す」** — TTL を無視するだけの `company.info` とは違う
+- **`force` は TTL を無視するだけ**（`company.info` と同じ）。統計指標の `force` は行を捨てるが、
+  それは FRED 系列の改訂を古い窓まで取り込むため。財務省の公表値は改訂されないので捨てる利益が無く、
+  捨てると 5Y のあと 1Y で `force` した瞬間に 4 年ぶんが消え、次の 5Y 表示で 22 リクエストかかる。
+  取り直した窓は同じ `date` を上書きし、`covered_from` と窓の外の履歴はそのまま残す
 
 ### 窓の遡り方（YC-02 の続き）
 
@@ -158,24 +164,25 @@ treasury_curves(
 let t = to
 while (t >= wantFrom) {
   const rows = await fetch(shiftUtcDay(t, -STEP_DAYS), t)
+  // 空応答は取得失敗として扱い、既存行を stale で返してここで抜ける（上記の契約）。
+  if (rows.length === 0) return staleOrThrow()
   merge(rows)
-  const oldest = rows[0]?.date   // 昇順なので先頭が最古
+  const oldest = rows[0].date   // 昇順なので先頭が最古
   // 応答が要求窓より狭い＝API 上限が STEP_DAYS 未満。返ってきた最古の 1 日前を次の窓の終端に
-  // すれば、上限が何日でも隙間なく遡れる。空応答（データ空白期間・全休日の窓）は定数どおり
-  // 前進する — 返り値だけを頼りにすると空応答で永久に進めなくなる。
-  t = oldest && oldest > shiftUtcDay(t, -STEP_DAYS)
-    ? shiftUtcDay(oldest, -1)
-    : shiftUtcDay(t, -STEP_DAYS)
+  // すれば、上限が何日でも隙間なく遡れる。
+  t = oldest > shiftUtcDay(t, -STEP_DAYS) ? shiftUtcDay(oldest, -1) : shiftUtcDay(t, -STEP_DAYS)
 }
 ```
 
-前進量は必ず 1 日以上あるので無限ループしない（`oldest <= t` なので `oldest - 1 < t`）。
+前進量は必ず 1 日以上あるので無限ループしない（`oldest <= t` なので `oldest - 1 < t`）。空応答で
+抜けるので、`oldest` が無いまま前進できずに回り続ける経路も無い。
 `STEP_DAYS` は実測上限より 5 日小さく取り、境界の inclusive/exclusive の取り違えを吸収する
 （統計指標の 85 日ステップと同じ手）。
 
-リクエスト数は 90 日窓の想定で **1Y ≈ 5 本 / 5Y ≈ 21 本**。これで 12 満期すべてが揃う。
+リクエスト数は 85 日ステップで **1Y = 5 本 / 5Y = 22 本**（`ceil(1826 / 85)`）。これで 12 満期すべてが
+揃う。テストの期待値は固定クロックと `STEP_DAYS` から計算して書く（この本数を定数として埋めない）。
 
-TTL 更新のときの起点は `min(fetched_at, now)` の日（クロック後退の保護）。前回取得から 90 日以上
+TTL 更新のときの起点は `min(fetched_at, now)` の日（クロック後退の保護）。前回取得から `STEP_DAYS` 以上
 開いた行を 1 窓だけで更新すると、その間が誰にも取得されない穴として残る。
 
 ### `null` 満期を落とさない（YC-03）
@@ -190,11 +197,15 @@ TTL 更新のときの起点は `min(fetched_at, now)` の日（クロック後�
 
 - schema は 12 満期すべて `null` 許容で受ける
 - `TreasuryCurvePoint.rates` は `Record<TreasuryMaturityKey, number | null>` として `null` を保持する
-- 断面図はその満期の点を打たず、線を**そこで切る**（0 として繋ぐと利回りが暴落したように見える）
-- 推移チャートも `null` の日をデータ点として渡さない（lightweight-charts は点を渡さなければ線が切れる）
+- 断面図はその満期の点を打たず、線を**そこで切る**（0 として繋ぐと利回りが暴落したように見える）。
+  連続する非 `null` 区間ごとに `polyline` を分ける
+- 推移チャートは `null` の日を **whitespace（`{ time }` だけの点）** として渡す。点を省くだけでは
+  lightweight-charts が前後の値を直線で繋ぎ、欠測が無かったように見える
 - スプレッドは片側が `null` の日を計算しない（`null` - 4.2 = -4.2 になる事故を防ぐ）
 
-`date` が `'YYYY-MM-DD'` の形をしていない行だけは落とす（マージキーに読めない日付が混ざる）。
+`date` が UTC 日として往復しない行だけは落とす（`shiftUtcDay(date, 0) === date`）。正規表現の形だけ
+見ると `'2026-99-99'` が通り、それが窓の最古になった瞬間 `shiftUtcDay` が `Invalid Date` の
+`toISOString()` で throw してバックフィルが止まる。往復判定は既存関数 1 回で済む。
 
 ### なぜ `economic_indicators` に混ぜないか（YC-04）
 
@@ -209,6 +220,8 @@ TTL 更新のときの起点は `min(fetched_at, now)` の日（クロック後�
 
 - 窓の刻み方が違う（あちらは `to` だけを刻む固定 90 日窓、こちらは `from`/`to` のペアで応答幅に追従）
 - マージの単位が違う（`value: number` vs `rates: Record<key, number|null>`）
+- 空応答と `force` の扱いが逆（あちらは空を正常・`force` で行を捨てる、こちらは空を失敗・`force` で
+  履歴を残す）。系列が改訂されるかどうかと、空窓が合法かどうかで分岐が反転する
 - 共通化して残るのは日付算術だけで、それは既に `src/shared/utcDay.ts` にある
 
 ジェネリックなキャッシュサービスに寄せると、両方の呼び出し側が型パラメータ越しに読むことになり、
@@ -228,7 +241,7 @@ export type TreasuryCurvePoint = {
   rates: Record<TreasuryMaturityKey, number | null>
 }
 
-// 取得地平。90 日窓の想定で 1Y ≈ 5 リクエスト / 5Y ≈ 21 リクエスト。
+// 取得地平。85 日ステップで 1Y = 5 リクエスト / 5Y = 22 リクエスト。
 export type TreasuryYears = 1 | 5
 
 export type TreasuryCurves = {
@@ -271,7 +284,7 @@ export const TREASURY_YEARS: TreasuryYears[] = [1, 5]
 ```
 
 `months` を持つのは表示順の根拠を 1 箇所にするためで、横軸の座標には使わない（下記 YC-07）。
-既定は先頭の `1` — 初回に開いたときのリクエストが約 5 本で済むほうを選ぶ（統計指標と同じ判断）。
+既定は先頭の `1` — 初回に開いたときのリクエストが 5 本で済むほうを選ぶ（統計指標と同じ判断）。
 
 ## UI
 
@@ -300,7 +313,7 @@ export const TREASURY_YEARS: TreasuryYears[] = [1, 5]
 │  4% ┤╱‾‾╲___╱‾‾‾‾‾‾‾‾   2Y                                   │
 │  0% ┼───────────────────  10Y-2Y（ゼロライン）                  │
 ├──────────────────────────────────────────────────────────────┤
-│ Maturity │ Latest │ 2026-06-30 │ 2025-07-31 │ Δ vs Latest      │
+│ Maturity │ Latest │ 2026-06-30 │ Δ │ 2025-07-31 │ Δ          │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -315,8 +328,10 @@ export const TREASURY_YEARS: TreasuryYears[] = [1, 5]
 
 - **上限 3 本**（基準と合わせて 4 本）。それ以上重ねると断面図が読めない
 - **ピッカーの `min` / `max` はキャッシュ範囲**（`coveredFrom` 〜 最新）に縛る。範囲外を選ばせない
-  限り、追加フェッチも「まだ取得していない日」の分岐も発生しない。1Y で足りなければ 5Y に広げると
-  選べる範囲も広がる — 地平トグルが取得深さと選択可能範囲の両方を兼ねる
+  限り、追加フェッチも「まだ取得していない日」の分岐も発生しない。1Y で足りなければ 5Y に広げる。
+  `coveredFrom` は狭まらないので、一度 5Y を取れば 1Y に戻しても選べる範囲は 5 年ぶんのまま
+- **地平を狭めても追加済みのチップは消さない**。断面図はキャッシュ済みの全 `points` から日付を
+  引くので、下段の折れ線のスライス（1Y）より古い比較日でも断面には出せる
 - **選んだ日にデータが無ければ、その日以前で最も近い営業日にスナップ**する。土日祝と、財務省が
   公表を飛ばした日がこれに当たる。チップにはスナップ後の実際の日付を出す（黙って別の日を見せない）。
   遡ってもデータが無い場合（`coveredFrom` より前）はチップを追加しない
@@ -347,21 +362,35 @@ export const TREASURY_YEARS: TreasuryYears[] = [1, 5]
 
 ### 表
 
-行が満期、列が「最新 + 選択した比較日 + 最新との差」。比較日が 0 本なら `Latest` 列だけになり、
-`Δ` 列は出さない。値は 2 桁固定（`4.31`）。統計指標の
-一律 `toLocaleString`（最大 2 桁）だと `4.3` と `4.31` が桁で揃わず、10bp の差が読み取りにくい。
-利回りは全系列が同じ単位・同じ桁数なので、固定してよい。`null` 満期は `—`。
+行が満期。列は `Maturity | Latest` に続いて、**比較日ごとに「その日の値」と「最新との差」の 2 列**
+（`2026-06-30 | Δ`）を足す。差を 1 列にまとめると、比較日が 2 本以上あるときどちらとの差なのかが
+決まらない。比較日が 0 本なら `Latest` 列だけになる。
+
+値は 2 桁固定（`4.31`）。統計指標の一律 `toLocaleString`（最大 2 桁）だと `4.3` と `4.31` が桁で
+揃わず、10bp の差が読み取りにくい。利回りは全系列が同じ単位・同じ桁数なので、固定してよい。
+差も同じ % ポイント・2 桁固定に符号を付ける（`+0.12`）。bp 表記に変換しない — 断面図の縦軸・
+ツールチップ・表で単位が 2 種類になると、`0.12` と `12` のどちらが何なのか都度読み替えることになる。
+`null` 満期と、片側が `null` で計算できない差は `—`。
 
 ### 0 件のとき / 地平を広げている間
 
 - 取得できたカーブが 0 件: `No treasury data available.`
-- 1Y → 5Y は約 21 リクエストを直列に取るので `Fetching 5Y history…` を出す。統計指標窓と同じく
+- 1Y → 5Y は 22 リクエストを直列に取るので `Fetching 5Y history…` を出す。統計指標窓と同じく
   `placeholderData` で前の地平の画面を残しつつ `isLoading` を落として、無言で固まらせない
+- **取得に成功したら、いま表示していない地平の query key を invalidate する**。`staleTime: Infinity`
+  なので、しないと 5Y を取ったあと 1Y に戻したときに古い snapshot が出続け、日付ピッカーの下限も
+  その snapshot の `coveredFrom` に縛られたままになる。invalidate 後の再取得は TTL 内ならネットワークに
+  出ない（`getCurves` が行を返して終わる）ので、リクエストは増えない
 
 ## エラー処理
 
-`errorMessage()` の分岐は統計指標窓からそのまま流用（`NO_API_KEY` / 401 / 429 / その他 4xx・200 の
-プラン外 / ネットワーク）。文言だけ `Treasury rates aren't available on your current FMP plan.` に変える。
+`errorMessage()` の分岐は統計指標窓からそのまま流用（`NO_API_KEY` / 401 / 429 / その他 4xx・200 /
+ネットワーク）。200 の枝の文言は
+`Treasury rates aren't available on your current FMP plan, or FMP returned an unexpected response.`
+にする。`parseOrThrowHttpError` はスキーマ不一致もすべて `FmpHttpError(200)` にするので、この枝には
+プラン拒否（200 + `{"Error Message": …}`）と FMP 側のフィールド名変更の両方が入る。統計指標窓の
+「プラン外」断定はそこで嘘になるが、意味コード（`REQUIRES_PLAN` / `INVALID_PROVIDER_RESPONSE`）を
+IPC に通すのは 3 窓ぶんの経路を巻き込むので別作業（YC-12）。ここでは文言をどちらでも成り立つ形にする。
 
 ### プラン外の空撃ち対策（YC-08）
 
@@ -370,17 +399,17 @@ export const TREASURY_YEARS: TreasuryYears[] = [1, 5]
 `isPlanDenial`（`classify(status, body)` が `'requires-plan'`）で、200 + `{"Error Message": …}` の
 拒否も拾える。
 
-ラッチは `fetch` の先頭で見る。1 回の `getCurves` が最大 21 窓を直列に取るので、1 窓目で拒否されたら
+ラッチは `fetch` の先頭で見る。1 回の `getCurves` が最大 22 窓を直列に取るので、1 窓目で拒否されたら
 残りを空撃ちしない。`apikey.set` / `apikey.clear` でクリアする（新しいキーが対応している可能性がある）。
 
 ## テスト
 
 | ファイル | 内容 |
 |---|---|
-| `tests/main/providers/treasuryRates.test.ts` | fixture のパース、12 満期のマッピング、`null` 満期の保持、不正な `date` の行だけ落ちる、昇順に直る、スキーマ外 body → `FmpHttpError(200)` |
-| `tests/main/economic/TreasuryCurveService.test.ts` | 初回取得、TTL 内はネットワークに出ない、TTL 切れで直近窓だけ取り直す、1Y→5Y のバックフィル窓数、**応答が要求窓より狭いとき次の窓が返却最古に追従する**、**空応答でも定数どおり前進して無限ループしない**、`date` union マージ（既存履歴を空応答が壊さない）、途中失敗で `stale` を返し 1 バイトも書かない、`coveredFrom` を狭めない、`force` で行を捨てる、`fetched_at` が未来のとき取り直す |
+| `tests/main/providers/treasuryRates.test.ts` | fixture のパース、12 満期のマッピング、`null` 満期の保持、UTC 日として往復しない `date`（`'2026-99-99'`）の行だけ落ちる、昇順に直る、スキーマ外 body → `FmpHttpError(200)` |
+| `tests/main/economic/TreasuryCurveService.test.ts` | 初回取得、TTL 内はネットワークに出ない、TTL 切れで直近窓だけ取り直す、1Y→5Y のバックフィル窓数（固定クロックと `STEP_DAYS` から計算した期待値）、**応答が要求窓より狭いとき次の窓が返却最古に追従する**、**空応答で `stale` を返し `coveredFrom` を進めない**、`date` union マージ、途中失敗で `stale` を返し 1 バイトも書かない、`coveredFrom` を狭めない、**`force` が TTL を無視しつつ窓の外の履歴と `coveredFrom` を残す**、`fetched_at` が未来のとき取り直す |
 | `tests/main/core/yieldCurve.test.ts` | `treasuryOutOfPlan` ラッチ（1 窓目の拒否で以後ネットワークに出ない、カレンダー・指標のラッチと独立、`apikey.set` で解除） |
-| `tests/renderer/treasuryCurve.test.ts` | `curveAt`、`snapToDate`（休日で前営業日に戻る / `coveredFrom` より前は `null`）、`seriesFor`（`null` の日を落とす）、`spreadSeries`（片側 `null` の日を計算しない）、`sliceRange`、`formatRate`（2 桁固定・`null` → `—`） |
+| `tests/renderer/treasuryCurve.test.ts` | `curveAt`、`snapToDate`（休日で前営業日に戻る / `coveredFrom` より前は `null`）、`seriesFor`（`null` の日が whitespace 点になる）、`curveSegments`（`null` 満期で区間が分かれる）、`spreadSeries`（片側 `null` の日を計算しない）、`sliceRange`、`formatRate`（2 桁固定・`null` → `—`）、`tableColumns`（比較日ごとに値と Δ の 2 列） |
 | `tests/windowHash.test.ts` | `'yieldCurve'` の往復、他の kind の hash として解釈されない |
 
 ### テストしないもの
@@ -395,3 +424,7 @@ export const TREASURY_YEARS: TreasuryYears[] = [1, 5]
 - **YC-10**: 断面のアニメーション再生（日付をスライダーで送る）。断面 4 本の重ねで足りているか
   使ってから判断する
 - **YC-11**: 他国の国債。`treasury_curves.id` が `'us'` 固定なのは既にここへの入口
+- **YC-12**: プロバイダ層の 2 件。(a) `ProviderLike` を `Pick<FmpProvider, …>` から独立した
+  interface（CLAUDE.md の `DataSourceAdapter`）に切り出す、(b) プロバイダのエラーを意味コードに
+  翻訳して `FmpHttpError(200)` の多義性を解く。どちらも既存 8 メソッド・3 窓を巻き込むので、
+  この機能では既存の形に合わせる（1 メソッド追加・文言で吸収）
