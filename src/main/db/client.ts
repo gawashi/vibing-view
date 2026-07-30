@@ -38,6 +38,10 @@ export function getDb(): BetterSQLite3Database {
       name TEXT PRIMARY KEY, data TEXT NOT NULL, covered_from TEXT NOT NULL,
       fetched_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS treasury_curves (
+      id TEXT PRIMARY KEY, data TEXT NOT NULL, covered_from TEXT NOT NULL,
+      fetched_at INTEGER NOT NULL
+    );
   `)
   _db = drizzle(sqlite) as BetterSQLite3Database
   return _db
