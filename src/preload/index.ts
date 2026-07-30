@@ -70,6 +70,10 @@ const api: Api = {
       return () => ipcRenderer.removeListener(CH.economicIndicatorSelect, listener)
     }
   },
+  yieldCurve: {
+    getCurves: (opts) => ipcRenderer.invoke(CH.treasuryCurves, opts),
+    openWindow: () => ipcRenderer.invoke(CH.yieldCurveOpenWindow)
+  },
   chart: {
     openWindow: (cellId) => ipcRenderer.invoke(CH.chartOpenWindow, cellId)
   },

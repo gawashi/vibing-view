@@ -1,4 +1,4 @@
-import type { Bar, SymbolResult, Timeframe, DateRange, WorkspaceCollection, Quote, MarketStatus, CompanyInfo, ClipboardCell, EconomicFilterPref, EconomicRange, EconomicIndicatorSeries, EconomicIndicatorYears } from './types'
+import type { Bar, SymbolResult, Timeframe, DateRange, WorkspaceCollection, Quote, MarketStatus, CompanyInfo, ClipboardCell, EconomicFilterPref, EconomicRange, EconomicIndicatorSeries, EconomicIndicatorYears, TreasuryCurves, TreasuryYears } from './types'
 
 export const CH = {
   symbolsSearch: 'symbols:search',
@@ -32,6 +32,8 @@ export const CH = {
   economicIndicator: 'economicIndicator:series',
   economicIndicatorOpenWindow: 'economicIndicator:openWindow',
   economicIndicatorSelect: 'economicIndicator:select',
+  treasuryCurves: 'treasury:curves',
+  yieldCurveOpenWindow: 'yieldCurve:openWindow',
   chartOpenWindow: 'chart:openWindow',
   symbolChartOpenWindow: 'symbolChart:openWindow',
   workspacesChanged: 'workspaces:changed',
@@ -151,6 +153,16 @@ export interface Api {
     openWindow(name?: string): Promise<void>
     // 既に開いている窓への差し替えだけ。初期値は hash が運ぶ。
     onSelect(cb: (name: string) => void): () => void
+  }
+  // イールドカーブ窓。窓は 1 枚だけで、選択状態（比較日・トグル）はすべて renderer の使い捨て
+  // state なので openWindow は引数を取らない（経済カレンダー EC-09 と同型）。
+  // チャンネル名がデータ側（treasury）なのは、断面図を出さない用途でデータだけ使うことが
+  // あり得るため（MCP ツール YC-09）。
+  yieldCurve: {
+    // years は取得地平（1 | 5）。省略時は 1。地平を広げる呼び出しだけがバックフィルを起こす。
+    // force は TTL を無視するだけで、取得済み履歴と coveredFrom は残る（YC-05）。
+    getCurves(opts?: { years?: TreasuryYears; force?: boolean }): Promise<TreasuryCurves>
+    openWindow(): Promise<void>
   }
   chart: {
     openWindow(cellId: string): Promise<void>
