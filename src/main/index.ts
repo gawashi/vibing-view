@@ -12,6 +12,7 @@ import * as profileStore from './db/profileStore'
 import * as companyProfileStore from './db/companyProfileStore'
 import * as economicDayStore from './db/economicDayStore'
 import * as economicIndicatorStore from './db/economicIndicatorStore'
+import * as treasuryCurveStore from './db/treasuryCurveStore'
 import * as workspaceStore from './workspaceStore'
 import * as capabilityCache from './capabilityCache'
 import { getApiKey, setApiKey, getKeyStatus, clearApiKey } from './keystore'
@@ -165,6 +166,7 @@ function buildCore(): ReturnType<typeof createCore> {
     companyProfileStore,
     economicDayStore,
     economicIndicatorStore,
+    treasuryCurveStore,
     workspaceStore,
     capabilityCache,
     keystore: { getApiKey, setApiKey, getKeyStatus, clearApiKey },

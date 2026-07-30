@@ -28,6 +28,7 @@ function deps(getEconomicIndicator: ReturnType<typeof vi.fn>, over: Partial<Core
     companyProfileStore: { getCompanyProfile: vi.fn(() => null), upsertCompanyProfile: vi.fn() },
     economicDayStore: { getDays: vi.fn(() => []), upsertDays: vi.fn() },
     economicIndicatorStore: { getIndicator: vi.fn(() => null), upsertIndicator: vi.fn() },
+    treasuryCurveStore: { getCurves: vi.fn(() => null), upsertCurves: vi.fn() },
     workspaceStore: { getWorkspaces: vi.fn(() => collection('W')), setWorkspaces: vi.fn() },
     capabilityCache: { getStatus: vi.fn(() => 'unknown' as const), setStatus: vi.fn(), clearForKeyChange: vi.fn() },
     keystore: {
@@ -43,7 +44,8 @@ function deps(getEconomicIndicator: ReturnType<typeof vi.fn>, over: Partial<Core
       getMarketStatus: vi.fn(),
       getCompanyProfile: vi.fn(),
       getEconomicCalendar: vi.fn(async () => []),
-      getEconomicIndicator
+      getEconomicIndicator,
+      getTreasuryRates: vi.fn(async () => [])
     })),
     nowSec: () => 1_000
   }
@@ -147,7 +149,8 @@ describe('core.economicIndicator — off-plan short-circuit (EI-04)', () => {
       getMarketStatus: vi.fn(),
       getCompanyProfile: vi.fn(),
       getEconomicCalendar,
-      getEconomicIndicator
+      getEconomicIndicator,
+      getTreasuryRates: vi.fn(async () => [])
     }))
     const core = createCore(d)
 

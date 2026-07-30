@@ -12,6 +12,7 @@ import type * as profileStoreModule from './db/profileStore'
 import type * as companyProfileStoreModule from './db/companyProfileStore'
 import type * as economicDayStoreModule from './db/economicDayStore'
 import type * as economicIndicatorStoreModule from './db/economicIndicatorStore'
+import type * as treasuryCurveStoreModule from './db/treasuryCurveStore'
 import type * as workspaceStoreModule from './workspaceStore'
 import type * as capabilityCacheModule from './capabilityCache'
 import type * as keystoreModule from './keystore'
@@ -23,6 +24,7 @@ import { createProfileService } from './profile/ProfileService'
 import { createCompanyInfoService } from './profile/CompanyInfoService'
 import { createEconomicCalendarService } from './economic/EconomicCalendarService'
 import { createEconomicIndicatorService } from './economic/EconomicIndicatorService'
+import { createTreasuryCurveService } from './economic/TreasuryCurveService'
 import type { EditResult } from './mcp/edits'
 
 export type { BarSummary } from './db/barStore'
@@ -45,7 +47,7 @@ export function toBars(outcome: OhlcvOutcome): Bar[] {
 export type ProviderLike = Pick<
   FmpProvider,
   'getOHLCV' | 'searchSymbols' | 'getQuote' | 'getMarketStatus' | 'getCompanyProfile'
-  | 'getEconomicCalendar' | 'getEconomicIndicator'
+  | 'getEconomicCalendar' | 'getEconomicIndicator' | 'getTreasuryRates'
 >
 
 // Every electron/sqlite touchpoint arrives by injection so the core loads under plain-Node Vitest
@@ -57,6 +59,7 @@ export type CoreDeps = {
   companyProfileStore: Pick<typeof companyProfileStoreModule, 'getCompanyProfile' | 'upsertCompanyProfile'>
   economicDayStore: Pick<typeof economicDayStoreModule, 'getDays' | 'upsertDays'>
   economicIndicatorStore: Pick<typeof economicIndicatorStoreModule, 'getIndicator' | 'upsertIndicator'>
+  treasuryCurveStore: Pick<typeof treasuryCurveStoreModule, 'getCurves' | 'upsertCurves'>
   workspaceStore: Pick<typeof workspaceStoreModule, 'getWorkspaces' | 'setWorkspaces'>
   capabilityCache: Pick<typeof capabilityCacheModule, 'getStatus' | 'setStatus' | 'clearForKeyChange'>
   keystore: Pick<typeof keystoreModule, 'getApiKey' | 'setApiKey' | 'getKeyStatus' | 'clearApiKey'>
@@ -84,6 +87,11 @@ export function createCore(deps: CoreDeps) {
   // EI-04: /economic-indicators も別プラン階層の可能性があり、queryKey は指標ごとに違う。
   // カレンダーとフラグを共用すると、片方の拒否でもう片方が使えなくなる。
   let economicIndicatorOutOfPlan: FmpHttpError | null = null
+
+  // YC-08: /treasury-rates も別プラン階層の可能性がある。1 回の getCurves が最大 22 窓を直列に
+  // 取るので、ラッチが無いと 1 回の窓オープンで 22 回空撃ちする。カレンダー・統計指標と
+  // 共用しない（片方の拒否でもう片方が使えなくなる）。
+  let treasuryOutOfPlan: FmpHttpError | null = null
 
   // プラン拒否は status だけでは判定できない。parseOrThrowHttpError はスキーマ外の body を
   // FmpHttpError(200) にして投げるので、FMP が 200 + { "Error Message": ... } で拒否を返すと
@@ -179,6 +187,21 @@ export function createCore(deps: CoreDeps) {
     }
   })
 
+  // 1 窓 = 1 リクエストで 12 満期ぶん返る（YC-01）。ラッチは fetch の先頭で見る — 1 窓目で
+  // 拒否されたらその getCurves の残りの窓も空撃ちしない。
+  const treasuryCurveService = createTreasuryCurveService({
+    store: deps.treasuryCurveStore,
+    fetch: async (from, to) => {
+      if (treasuryOutOfPlan) throw treasuryOutOfPlan
+      try {
+        return await providerFor().getTreasuryRates(from, to)
+      } catch (err) {
+        if (isPlanDenial(err)) treasuryOutOfPlan = err
+        throw err
+      }
+    }
+  })
+
   // Shared bookkeeping for every real OHLCV fetch (get + refresh): short-circuit known off-plan
   // symbols, record 'available' on success, classify FmpHttpErrors, and turn the result into an
   // OhlcvOutcome.
@@ -252,6 +275,7 @@ export function createCore(deps: CoreDeps) {
         dailyOutOfPlan.clear() // a new key may cover previously-off-plan symbols
         economicOutOfPlan = null // a new key may cover the calendar endpoint
         economicIndicatorOutOfPlan = null
+        treasuryOutOfPlan = null
         return result
       },
       status: (): KeyStatus => keystore.getKeyStatus(),
@@ -261,6 +285,7 @@ export function createCore(deps: CoreDeps) {
         dailyOutOfPlan.clear()
         economicOutOfPlan = null
         economicIndicatorOutOfPlan = null
+        treasuryOutOfPlan = null
       }
     },
 
@@ -297,6 +322,10 @@ export function createCore(deps: CoreDeps) {
 
     // name は FMP の系列名、opts.years が取得地平（1 | 5）。表示上のスライスは renderer 側。
     economicIndicator: economicIndicatorService,
+
+    // 窓と機能の名前は yieldCurve、データとテーブルは treasuryCurve（設計書「アーキテクチャ」）。
+    // opts.years が取得地平（1 | 5）。表示上のスライスは renderer 側。
+    yieldCurve: treasuryCurveService,
 
     workspaces: {
       get: (): { collection: WorkspaceCollection; rev: number } => ({
