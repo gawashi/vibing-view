@@ -347,15 +347,17 @@ export class FmpProvider {
   }
 
   // /treasury-rates は 1 行 = 1 営業日で、1 リクエストで 12 満期すべてを返す（YC-01: これが
-  // この機能をリクエスト予算に収めている前提）。from / to は両方効くので窓の両端を指定でき、
-  // 範囲外の行を受け取らない。窓を連続に遡るのは TreasuryCurveService の責務で、ここは 1 窓だけ。
+  // この機能をリクエスト予算に収めている前提）。from / to は両方効くので窓の両端を指定できる ——
+  // が、to を無視して常に最新ブロックを返す壊れ方に備え、範囲外の行はここで落として捨てる
+  // （TreasuryCurveService の遡りは「返却最古 <= to」を前提にしており、破ると前進しなくなる）。
+  // 窓を連続に遡るのは TreasuryCurveService の責務で、ここは 1 窓だけ。
   // date は 'YYYY-MM-DD' の日付のみなので epoch に変換しない。行の順序は保証されないので昇順に直す。
   // 一部満期が null の日は行ごと落とさない（YC-03）— 落とすとその日がカーブから消える。
   async getTreasuryRates(from: string, to: string): Promise<TreasuryCurvePoint[]> {
     const url = `${BASE}/treasury-rates?from=${from}&to=${to}&apikey=${this.apiKey}`
     const rows = this.parseOrThrowHttpError(fmpTreasuryRatesResponse, await this.httpGetJson(url))
     return rows
-      .filter((r) => isUtcDay(r.date))
+      .filter((r) => isUtcDay(r.date) && r.date >= from && r.date <= to)
       .map((r) => {
         const rates = {} as Record<TreasuryMaturityKey, number | null>
         for (const m of MATURITIES) rates[m.key] = r[m.key] ?? null

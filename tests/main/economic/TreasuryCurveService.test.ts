@@ -276,6 +276,28 @@ describe('getCurves — フェッチ失敗', () => {
   })
 })
 
+describe('getCurves — 前進しない窓（API が to を無視する場合）', () => {
+  it('does not loop forever when fetch always returns the same newest block, ignoring to', async () => {
+    // レビュー指摘のトレースそのもの: fetchedAt が 1 年前で from=FROM_1Y, to=TODAY の
+    // 直近窓を遡るときに、API が to を無視して常に同じ最新ブロックを返し続けるケース。
+    const fetchedAt = Date.parse('2025-07-30T00:00:00Z') / 1000
+    const store = fakeStore({ points: [curve('2026-07-29')], coveredFrom: FROM_1Y, fetchedAt })
+    let calls = 0
+    const fetch = vi.fn(async () => {
+      calls++
+      // 前進しなければ無限に呼ばれる。40 回を超えたら「止まっていない」ことにして
+      // テストスイートをハングさせずに落とす。
+      if (calls > 40) throw new Error('TreasuryCurveService did not terminate')
+      return [curve('2026-05-01'), curve(TODAY)]
+    })
+    const r = await svc(store, fetch).getCurves({ years: 1 })
+
+    expect(calls).toBeLessThan(40)
+    expect(store.upsertCurves).not.toHaveBeenCalled()
+    expect(r).toEqual({ points: [curve('2026-07-29')], coveredFrom: FROM_1Y, fetchedAt, stale: true })
+  })
+})
+
 describe('getCurves — force（YC-05: 統計指標と逆）', () => {
   it('ignores the TTL but keeps history outside the refetched window', async () => {
     const store = fakeStore({

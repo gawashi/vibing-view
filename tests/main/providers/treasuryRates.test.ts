@@ -82,6 +82,16 @@ describe('FmpProvider.getTreasuryRates', () => {
     expect(points[0].rates.year10).toBe(4.18)
   })
 
+  it('drops rows outside the requested [from, to] window (API が to を無視した場合の防波堤)', async () => {
+    const httpGetJson = vi.fn(async () => [
+      row('2026-07-26'), // from より古い
+      row('2026-07-28'), // 窓内
+      row('2026-07-31') // to より新しい
+    ])
+    const points = await provider(httpGetJson).getTreasuryRates('2026-07-27', '2026-07-29')
+    expect(points.map((p) => p.date)).toEqual(['2026-07-28'])
+  })
+
   it.each(['2026-99-99', '2026-7-1', 'not-a-date', ''])(
     'drops the row whose date does not round-trip as a UTC day: %s',
     async (bad) => {

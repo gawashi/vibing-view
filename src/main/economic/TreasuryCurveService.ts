@@ -70,10 +70,14 @@ export function createTreasuryCurveService(deps: {
           if (rows.length === 0) throw EMPTY_WINDOW
           for (const p of rows) merged.set(p.date, p)
           // 応答が要求窓より狭い＝API 上限が STEP_DAYS 未満。返ってきた最古の 1 日前を次の窓の
-          // 終端にすれば、上限が何日でも隙間なく遡れる。前進量は必ず 1 日以上あるので
-          // 無限ループしない（oldest <= t なので oldest - 1 < t）。
+          // 終端にすれば、上限が何日でも隙間なく遡れる。この前進量の保証は「返却行が要求窓
+          // [step, t] の内側にある」（provider 側でクランプ済み）という前提の上でしか成り立たない。
+          // API が to を無視するなど前提が崩れて前進しない応答は取得失敗として扱う。
+          // ここで止めないと while が終わらず、リクエストを撃ち続ける。
           const oldest = rows[0].date // provider が昇順に直しているので先頭が最古
-          t = oldest > step ? shiftUtcDay(oldest, -1) : step
+          const next = oldest > step ? shiftUtcDay(oldest, -1) : step
+          if (next >= t) throw EMPTY_WINDOW
+          t = next
         }
       }
 
