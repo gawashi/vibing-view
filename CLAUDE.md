@@ -25,7 +25,7 @@ A Windows desktop app (TypeScript + React) that provides TradingView's paid feat
 - SQLite is the source of truth for "have we already fetched this symbol+timeframe+range". On a hit, skip the network entirely. **Build the read-through logic before building any UI** (to avoid accidents like re-fetching on every chart mount).
 - When an intraday endpoint is rate-limited or unavailable on the current tier, don't crash — surface a "no more requests today" state per timeframe.
 - Indicator math lives in **hand-written TS modules**. `trading-signals` (actively maintained) is for cross-checking during development.
-- Small config data — layouts, watchlists, window state — goes in JSON under `app.getPath('userData')` (or electron-store), not SQLite. Keep them separate: **SQLite = OHLCV cache / JSON = user preferences**.
+- Small config data — layouts, watchlists, window state — goes in JSON under `app.getPath('userData')` (or electron-store), not SQLite. Keep them separate: **SQLite = fetched-data cache (OHLCV, company profiles, economic calendar/indicators/treasury curves) / JSON = user preferences**.
 
 ## Rules
 

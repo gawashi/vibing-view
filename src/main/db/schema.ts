@@ -60,3 +60,17 @@ export const economicIndicators = sqliteTable('economic_indicators', {
   coveredFrom: text('covered_from').notNull(),
   fetchedAt: integer('fetched_at').notNull()
 })
+
+// 米国債イールドカーブのキャッシュ。id は固定 'us'（行は 1 本）。米国債専用のエンドポイントなので
+// 現状キーに意味は無いが、他国を足すときに 'us' / 'jp' で分かれる（YC-11）。
+// data は取得済みカーブ（TreasuryCurvePoint[]、date 昇順）の JSON blob — company_profiles /
+// economic_indicators と同じ blob 方針で、満期フィールドの増減にマイグレーションが要らない。
+// covered_from は「どこまで遡って取得済みか」の 'YYYY-MM-DD'。窓を連続に遡るのでカバー範囲は
+// 常に [covered_from, 最新] の 1 区間で表せ、bars のような区間リストは要らない。
+// economic_indicators に混ぜない理由は YC-04（同じ列に 2 種類の blob が入り、読む側が区別できない）。
+export const treasuryCurves = sqliteTable('treasury_curves', {
+  id: text('id').primaryKey(),
+  data: text('data').notNull(),
+  coveredFrom: text('covered_from').notNull(),
+  fetchedAt: integer('fetched_at').notNull()
+})

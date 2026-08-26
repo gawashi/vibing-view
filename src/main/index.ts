@@ -12,6 +12,7 @@ import * as profileStore from './db/profileStore'
 import * as companyProfileStore from './db/companyProfileStore'
 import * as economicDayStore from './db/economicDayStore'
 import * as economicIndicatorStore from './db/economicIndicatorStore'
+import * as treasuryCurveStore from './db/treasuryCurveStore'
 import * as workspaceStore from './workspaceStore'
 import * as capabilityCache from './capabilityCache'
 import { getApiKey, setApiKey, getKeyStatus, clearApiKey } from './keystore'
@@ -23,7 +24,7 @@ import { getMcpConfig } from './settings'
 // One satellite window per (kind, key): company-info per symbol, enlarge-chart per cellId, watchlist
 // symbol window per symbol, economic calendar as a singleton (fixed value, so a second open always
 // focuses — 週は renderer の state なので週ごとに窓を増やす意味がない、EC-09), economic indicator as
-// a singleton (同じ理由、EI-06). Reopening a live key focuses it;
+// a singleton (同じ理由、EI-06), yield curve as a singleton (同じ理由). Reopening a live key focuses it;
 // a new key spawns another. Keyed `kind:value` by default, but a caller can pin the key so a
 // singleton window stays one window while its hash carries a varying value (economic indicator).
 // Cleared on 'closed'.
@@ -165,6 +166,7 @@ function buildCore(): ReturnType<typeof createCore> {
     companyProfileStore,
     economicDayStore,
     economicIndicatorStore,
+    treasuryCurveStore,
     workspaceStore,
     capabilityCache,
     keystore: { getApiKey, setApiKey, getKeyStatus, clearApiKey },
@@ -196,6 +198,7 @@ app.whenReady().then(async () => {
     }
     openHashWindow('economicIndicator', selectedIndicator, 900, 760, INDICATOR_WINDOW_KEY)
   })
+  ipcMain.handle(CH.yieldCurveOpenWindow, () => openHashWindow('yieldCurve', '1', 1000, 900))
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

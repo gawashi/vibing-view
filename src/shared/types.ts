@@ -218,3 +218,29 @@ export type EconomicIndicatorSeries = {
   fetchedAt: number
   stale?: boolean
 }
+
+// ── 米国債イールドカーブ ──────────────────────────────────────────────────────────
+// /treasury-rates の 12 満期フィールド名そのまま。ラベル・月数は @shared/treasury が持つ。
+export type TreasuryMaturityKey =
+  | 'month1' | 'month2' | 'month3' | 'month6'
+  | 'year1' | 'year2' | 'year3' | 'year5' | 'year7' | 'year10' | 'year20' | 'year30'
+
+// 1 営業日ぶんのカーブ。null は「その満期の債券がその日に存在しない/未公表」（YC-03）。
+// 値は % 表記（4.25 = 4.25%）。date は 'YYYY-MM-DD' で epoch に変換しない（API が時刻を返さない）。
+export type TreasuryCurvePoint = {
+  date: string
+  rates: Record<TreasuryMaturityKey, number | null>
+}
+
+// 取得地平。85 日ステップで 1Y = 5 リクエスト / 5Y = 22 リクエスト。
+// service / IPC / renderer が同じ値集合を見るので shared に置く。
+export type TreasuryYears = 1 | 5
+
+// coveredFrom は遡って取得済みの下限。日付ピッカーの min もこれに縛る（YC-06）。
+// stale は「古い points を返した、更新はできなかった」（EconomicIndicatorSeries と同じ理由）。
+export type TreasuryCurves = {
+  points: TreasuryCurvePoint[] // date 昇順
+  coveredFrom: string
+  fetchedAt: number // epoch 秒
+  stale?: boolean
+}

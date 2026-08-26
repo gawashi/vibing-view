@@ -1,12 +1,13 @@
 import { subDays, subMonths, subYears } from 'date-fns'
 import { fromZonedTime } from 'date-fns-tz'
-import type { Bar, SymbolResult, Timeframe, DateRange, Quote, MarketStatus, CompanyProfileData, EconomicEvent, EconomicImpact, EconomicIndicatorPoint } from '@shared/types'
+import type { Bar, SymbolResult, Timeframe, DateRange, Quote, MarketStatus, CompanyProfileData, EconomicEvent, EconomicImpact, EconomicIndicatorPoint, TreasuryCurvePoint, TreasuryMaturityKey } from '@shared/types'
 import { shiftUtcDay, utcYmd } from '@shared/utcDay'
 import {
   fmpHistoricalResponse, fmpSearchResponse, fmpQuoteResponse, fmpMarketHoursResponse, fmpProfileResponse,
   fmpRatiosTtmResponse, fmpKeyMetricsTtmResponse, fmpGradesConsensusResponse,
-  fmpPriceTargetConsensusResponse, fmpFinancialGrowthResponse, fmpEarningsResponse, fmpEconomicCalendarResponse, fmpEconomicIndicatorResponse
+  fmpPriceTargetConsensusResponse, fmpFinancialGrowthResponse, fmpEarningsResponse, fmpEconomicCalendarResponse, fmpEconomicIndicatorResponse, fmpTreasuryRatesResponse
 } from './fmp.schema'
+import { MATURITIES } from '@shared/treasury'
 
 // FMP migrated off /api/v3 (now returns 403 for current keys) to the /stable surface.
 const BASE = 'https://financialmodelingprep.com/stable'
@@ -60,6 +61,17 @@ function economicDateToEpochSeconds(s: string): number {
   // 未知の date 形式は行を通さない（economic_days のキーが壊れる）
   if (Number.isNaN(t)) throw new FmpHttpError(200, s)
   return Math.floor(t / 1000)
+}
+
+// UTC 日として往復しない date の行は落とす（YC-03）。正規表現で形だけ見ると '2026-99-99' が通り、
+// それが窓の最古になった瞬間 shiftUtcDay が Invalid Date の toISOString() で throw して
+// バックフィルが止まる。shiftUtcDay 自身が throw する側なので try で受ける。
+function isUtcDay(date: string): boolean {
+  try {
+    return shiftUtcDay(date, 0) === date
+  } catch {
+    return false
+  }
 }
 
 // Map なので 'constructor' のような prototype 由来のキーが引っかからない（未知の値は 'Low'）。
@@ -331,6 +343,26 @@ export class FmpProvider {
       .flatMap((r) =>
         r.value == null || !/^\d{4}-\d{2}-\d{2}$/.test(r.date) ? [] : [{ date: r.date, value: r.value }]
       )
+      .sort((a, b) => a.date.localeCompare(b.date))
+  }
+
+  // /treasury-rates は 1 行 = 1 営業日で、1 リクエストで 12 満期すべてを返す（YC-01: これが
+  // この機能をリクエスト予算に収めている前提）。from / to は両方効くので窓の両端を指定できる ——
+  // が、to を無視して常に最新ブロックを返す壊れ方に備え、範囲外の行はここで落として捨てる
+  // （TreasuryCurveService の遡りは「返却最古 <= to」を前提にしており、破ると前進しなくなる）。
+  // 窓を連続に遡るのは TreasuryCurveService の責務で、ここは 1 窓だけ。
+  // date は 'YYYY-MM-DD' の日付のみなので epoch に変換しない。行の順序は保証されないので昇順に直す。
+  // 一部満期が null の日は行ごと落とさない（YC-03）— 落とすとその日がカーブから消える。
+  async getTreasuryRates(from: string, to: string): Promise<TreasuryCurvePoint[]> {
+    const url = `${BASE}/treasury-rates?from=${from}&to=${to}&apikey=${this.apiKey}`
+    const rows = this.parseOrThrowHttpError(fmpTreasuryRatesResponse, await this.httpGetJson(url))
+    return rows
+      .filter((r) => isUtcDay(r.date) && r.date >= from && r.date <= to)
+      .map((r) => {
+        const rates = {} as Record<TreasuryMaturityKey, number | null>
+        for (const m of MATURITIES) rates[m.key] = r[m.key] ?? null
+        return { date: r.date, rates }
+      })
       .sort((a, b) => a.date.localeCompare(b.date))
   }
 }

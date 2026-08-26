@@ -9,6 +9,7 @@ import { ChartWindow } from './components/ChartWindow'
 import { SymbolChartWindow } from './components/SymbolChartWindow'
 import { EconomicCalendarWindow } from './components/EconomicCalendarWindow'
 import { EconomicIndicatorWindow } from './components/EconomicIndicatorWindow'
+import { YieldCurveWindow } from './components/YieldCurveWindow'
 import './index.css'
 
 const queryClient = new QueryClient({
@@ -34,6 +35,9 @@ const symbolChartSymbol = parseHash('symbolChart', window.location.hash)
 const isEconomic = parseHash('economic', window.location.hash) !== null
 // 統計指標窓も 1 枚だけ。選択中の指標は main が持ち（EI-06）、開くときの値をハッシュで受け取る。
 const economicIndicator = parseHash('economicIndicator', window.location.hash)
+// イールドカーブ窓も 1 枚だけ。比較日もトグルも renderer の使い捨て state なので、ハッシュには
+// 何も載せない（有無だけ見る）。
+const isYieldCurve = parseHash('yieldCurve', window.location.hash) !== null
 
 // Seed the symbol window's cell here, before the first render: this window gets its own fresh store
 // (one 1x1 cell, no useWorkspaceSync), so setting it now means SymbolChartWindow never has to render
@@ -53,7 +57,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               ? <EconomicCalendarWindow />
               : economicIndicator !== null
                 ? <EconomicIndicatorWindow initialName={economicIndicator} />
-                : <App />}
+                : isYieldCurve
+                  ? <YieldCurveWindow />
+                  : <App />}
     </QueryClientProvider>
   </React.StrictMode>
 )

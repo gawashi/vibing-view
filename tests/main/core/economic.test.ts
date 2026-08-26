@@ -26,6 +26,7 @@ function deps(getEconomicCalendar: ReturnType<typeof vi.fn>, over: Partial<CoreD
     companyProfileStore: { getCompanyProfile: vi.fn(() => null), upsertCompanyProfile: vi.fn() },
     economicDayStore: { getDays: vi.fn(() => []), upsertDays: vi.fn() },
     economicIndicatorStore: { getIndicator: vi.fn(() => null), upsertIndicator: vi.fn() },
+    treasuryCurveStore: { getCurves: vi.fn(() => null), upsertCurves: vi.fn() },
     workspaceStore: { getWorkspaces: vi.fn(() => collection('W')), setWorkspaces: vi.fn() },
     capabilityCache: { getStatus: vi.fn(() => 'unknown' as const), setStatus: vi.fn(), clearForKeyChange: vi.fn() },
     keystore: {
@@ -41,7 +42,8 @@ function deps(getEconomicCalendar: ReturnType<typeof vi.fn>, over: Partial<CoreD
       getMarketStatus: vi.fn(),
       getCompanyProfile: vi.fn(),
       getEconomicCalendar,
-      getEconomicIndicator: vi.fn(async () => [])
+      getEconomicIndicator: vi.fn(async () => []),
+      getTreasuryRates: vi.fn(async () => [])
     })),
     nowSec: () => 1_000
   }

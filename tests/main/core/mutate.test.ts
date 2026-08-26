@@ -25,6 +25,7 @@ function build(initial = collection()) {
     companyProfileStore: {} as CoreDeps['companyProfileStore'],
     economicDayStore: { getDays: vi.fn(() => []), upsertDays: vi.fn() },
     economicIndicatorStore: { getIndicator: vi.fn(() => null), upsertIndicator: vi.fn() },
+    treasuryCurveStore: { getCurves: vi.fn(() => null), upsertCurves: vi.fn() },
     workspaceStore: { getWorkspaces: () => stored, setWorkspaces },
     capabilityCache: {} as CoreDeps['capabilityCache'],
     keystore: {} as CoreDeps['keystore'],

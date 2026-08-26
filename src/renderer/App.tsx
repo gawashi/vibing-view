@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { CalendarDays, ChartLine, PanelLeftClose, PanelLeftOpen, RefreshCw, Timer, TimerOff } from 'lucide-react'
+import { CalendarDays, ChartLine, PanelLeftClose, PanelLeftOpen, RefreshCw, Timer, TimerOff, TrendingUp } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { api, qk } from './api'
@@ -317,6 +317,20 @@ export default function App(): React.JSX.Element {
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Economic indicators</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => void api.yieldCurve.openWindow()}
+                  aria-label="Yield curve"
+                  title="Yield curve"
+                >
+                  <TrendingUp className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Yield curve</TooltipContent>
             </Tooltip>
             <SettingsDialog />
           </div>

@@ -15,5 +15,9 @@ export const qk = {
   // years は key に入れる。地平ごとにフェッチの深さが違うので（1Y = 約 5 窓、5Y = 約 22 窓）、
   // 同じ key を使い回すと 5Y に広げても再取得が走らない。狭める方向（5Y → 1Y）は key が変わっても
   // service 側が「カバー済み・TTL 内」と判定してネットワークに出ない。
-  economicIndicator: (name: string, years: number) => ['economic-indicator', name, years] as const
+  economicIndicator: (name: string, years: number) => ['economic-indicator', name, years] as const,
+  // years は key に入れる。地平ごとに取得の深さが違うので（1Y = 5 窓、5Y = 22 窓）、同じ key を
+  // 使い回すと 5Y に広げても再取得が走らない。狭める方向（5Y → 1Y）は key が変わっても service が
+  // 「カバー済み・TTL 内」と判定してネットワークに出ない。
+  treasuryCurves: (years: number) => ['treasury-curves', years] as const
 }

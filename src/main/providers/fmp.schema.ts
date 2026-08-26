@@ -151,3 +151,15 @@ export const fmpEconomicIndicatorResponse = z.array(z.object({
   date: z.string(),
   value: num()
 }).passthrough())
+
+// /stable/treasury-rates は 1 行 = 1 営業日で、date と 12 満期を返す（値は % 表記）。
+// 12 満期すべて null 許容: 20 年債・30 年債は発行と公表が止まっていた期間があり、その日は
+// 他の満期だけが埋まる（YC-03）。行ごと落とすと日が消えるので、num() で null を通す。
+// .passthrough() を付けない（既定の strip で未知フィールドは無害に落ちる）: provider が
+// MATURITIES のキーで添字アクセスするので、catchall の unknown が混ざると型が崩れる。
+export const fmpTreasuryRatesResponse = z.array(z.object({
+  date: z.string(),
+  month1: num(), month2: num(), month3: num(), month6: num(),
+  year1: num(), year2: num(), year3: num(), year5: num(),
+  year7: num(), year10: num(), year20: num(), year30: num()
+}))

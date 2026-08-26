@@ -51,3 +51,25 @@ describe('windowHash — economicIndicator', () => {
     expect(parseHash('economicIndicator', buildHash('economic', '1'))).toBeNull()
   })
 })
+
+// イールドカーブ窓も singleton。値は固定 '1' で有無だけ見るので、他の窓の hash で誤って
+// 開かないことを押さえる。
+describe('windowHash — yieldCurve', () => {
+  it('round-trips the singleton marker', () => {
+    expect(parseHash('yieldCurve', '#' + buildHash('yieldCurve', '1'))).toBe('1')
+  })
+
+  it('does not parse as another kind', () => {
+    const hash = '#' + buildHash('yieldCurve', '1')
+    expect(parseHash('economic', hash)).toBeNull()
+    expect(parseHash('economicIndicator', hash)).toBeNull()
+    expect(parseHash('company', hash)).toBeNull()
+    expect(parseHash('chart', hash)).toBeNull()
+    expect(parseHash('symbolChart', hash)).toBeNull()
+  })
+
+  it('is not matched by the other singleton hashes', () => {
+    expect(parseHash('yieldCurve', '#' + buildHash('economic', '1'))).toBeNull()
+    expect(parseHash('yieldCurve', '#' + buildHash('economicIndicator', 'CPI'))).toBeNull()
+  })
+})

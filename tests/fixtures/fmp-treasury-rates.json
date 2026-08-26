@@ -1,0 +1,20 @@
+[
+  {
+    "date": "2026-07-29",
+    "month1": 4.35, "month2": 4.33, "month3": 4.3, "month6": 4.22,
+    "year1": 4.05, "year2": 3.88, "year3": 3.85, "year5": 3.9,
+    "year7": 4.02, "year10": 4.18, "year20": 4.55, "year30": 4.62
+  },
+  {
+    "date": "2026-07-28",
+    "month1": 4.36, "month2": 4.34, "month3": 4.31, "month6": 4.23,
+    "year1": 4.06, "year2": 3.9, "year3": 3.87, "year5": 3.92,
+    "year7": 4.04, "year10": 4.2, "year20": 4.57, "year30": 4.64
+  },
+  {
+    "date": "2026-07-27",
+    "month1": 4.37, "month2": 4.35, "month3": 4.32, "month6": 4.24,
+    "year1": 4.07, "year2": 3.91, "year3": 3.88, "year5": 3.93,
+    "year7": 4.05, "year10": 4.21, "year20": null, "year30": null
+  }
+]
